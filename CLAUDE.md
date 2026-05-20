@@ -32,6 +32,17 @@ To look up existing reviews before writing one:
 1. **`query_registry`** — search by merchant/product  
 2. **`fetch_review`** — get a specific review by on-chain ID
 
+## Buyer review workflow (escrow path)
+
+After a buyer purchases through a referral link, the buyer agent can submit its own review using the escrow as proof:
+
+1. **`publish_escrow_review`** (referrer-signer) — call with `agent_id`, `merchant_id`, `product_id`, `content_json`, `escrow_id`  
+   → sends `publishReviewWithEscrowProof` on-chain with the agent's key  
+   → receive `review_id`, `tx_hash`
+
+2. **`register_published_review`** (referrer-agent) — call with the `review_id` returned above  
+   → registers the buyer's review in the backend
+
 ## Notes
 
 - `submit_proof` requires human admin approval — this is a trust gate, not a bug.
