@@ -1,15 +1,23 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"crypto/rand"
+	"encoding/base64"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
+	"io"
 	"math/big"
+	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"strconv"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
@@ -18,6 +26,8 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/ethclient"
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/x402-foundation/x402/go/mechanisms/evm"
+	x402types "github.com/x402-foundation/x402/go/types"
 )
 
 // ── EIP-712 type strings (must match ReviewRegistry contract exactly) ──────────
@@ -31,7 +41,8 @@ var (
 	domainTypehash     = crypto.Keccak256Hash([]byte(domainTypeString))
 	commitmentTypehash = crypto.Keccak256Hash([]byte(commitmentTypeString))
 
-	reviewPublishedTopic = crypto.Keccak256Hash([]byte("ReviewPublished(uint256,uint256,uint256,bytes32,bytes32,uint8,uint40)"))
+	reviewPublishedTopic  = crypto.Keccak256Hash([]byte("ReviewPublished(uint256,uint256,uint256,bytes32,bytes32,uint8,uint40)"))
+	escrowDepositedTopic  = crypto.Keccak256Hash([]byte("EscrowDeposited(uint256,uint256,uint256,uint256,bytes32,uint256,bytes32)"))
 
 	abiUint256 = mustABIType("uint256")
 	abiBytes32 = mustABIType("bytes32")
@@ -351,6 +362,223 @@ func handlePublishEscrowReview(
 	}, nil
 }
 
+// ── pay_for_product ────────────────────────────────────────────────────────────
+
+type payForProductInput struct {
+	// Buyer agent ID (decimal string). Key is resolved via AGENT_KEYS or AGENT_PRIVATE_KEY.
+	AgentID string `json:"agent_id"`
+	// Full ref link URL returned by query_registry or fetch_review, e.g. http://localhost:8080/r/abc123
+	RefLink string `json:"ref_link"`
+}
+
+type payForProductOutput struct {
+	EscrowID string `json:"escrow_id"` // decimal string
+	TxHash   string `json:"tx_hash"`
+}
+
+func handlePayForProduct(
+	ctx context.Context,
+	_ *sdkmcp.CallToolRequest,
+	in payForProductInput,
+) (*sdkmcp.CallToolResult, payForProductOutput, error) {
+	// ── key + chain config ─────────────────────────────────────────────────────
+	keyHex, err := resolveKey(in.AgentID)
+	if err != nil {
+		return nil, payForProductOutput{}, err
+	}
+	privKey, err := crypto.HexToECDSA(strings.TrimPrefix(keyHex, "0x"))
+	if err != nil {
+		return nil, payForProductOutput{}, fmt.Errorf("invalid private key for agent %s: %w", in.AgentID, err)
+	}
+	buyerAddr := crypto.PubkeyToAddress(privKey.PublicKey).Hex()
+
+	rpcURL := os.Getenv("BASE_RPC_URL")
+	if rpcURL == "" {
+		return nil, payForProductOutput{}, fmt.Errorf("BASE_RPC_URL env var not set")
+	}
+	chainIDStr := os.Getenv("CHAIN_ID")
+	if chainIDStr == "" {
+		chainIDStr = "84532"
+	}
+	chainIDInt, err := strconv.ParseInt(chainIDStr, 10, 64)
+	if err != nil {
+		return nil, payForProductOutput{}, fmt.Errorf("invalid CHAIN_ID: %w", err)
+	}
+	chainID := big.NewInt(chainIDInt)
+
+	// ── parse ref link → api base + token ─────────────────────────────────────
+	parsed, err := url.Parse(in.RefLink)
+	if err != nil {
+		return nil, payForProductOutput{}, fmt.Errorf("invalid ref_link: %w", err)
+	}
+	apiBase := parsed.Scheme + "://" + parsed.Host
+	parts := strings.SplitN(parsed.Path, "/r/", 2)
+	if len(parts) != 2 || parts[1] == "" {
+		return nil, payForProductOutput{}, fmt.Errorf("ref_link has no /r/<token> path: %s", in.RefLink)
+	}
+	token := parts[1]
+
+	// ── resolve ref link ───────────────────────────────────────────────────────
+	httpClient := &http.Client{Timeout: 30 * time.Second}
+	refResp, err := httpClient.Get(apiBase + "/r/" + token)
+	if err != nil {
+		return nil, payForProductOutput{}, fmt.Errorf("resolve ref link: %w", err)
+	}
+	defer refResp.Body.Close()
+	refBody, _ := io.ReadAll(refResp.Body)
+	if refResp.StatusCode != http.StatusOK {
+		return nil, payForProductOutput{}, fmt.Errorf("resolve ref link: HTTP %d: %s", refResp.StatusCode, refBody)
+	}
+	var refData map[string]any
+	if err := json.Unmarshal(refBody, &refData); err != nil {
+		return nil, payForProductOutput{}, fmt.Errorf("parse ref link response: %w", err)
+	}
+	merchantEndpoint, _ := refData["merchantEndpoint"].(string)
+	attributionToken, _ := refData["attributionToken"].(string)
+	splitRouterAddr, _ := refData["splitRouterAddr"].(string)
+	if merchantEndpoint == "" || attributionToken == "" || splitRouterAddr == "" {
+		return nil, payForProductOutput{}, fmt.Errorf("ref link response missing fields: %s", refBody)
+	}
+
+	// ── phase 1: probe merchant for 402 payment requirements ──────────────────
+	phase1Req, err := http.NewRequestWithContext(ctx, http.MethodPost, merchantEndpoint, bytes.NewReader([]byte(`{}`)))
+	if err != nil {
+		return nil, payForProductOutput{}, fmt.Errorf("build phase1 request: %w", err)
+	}
+	phase1Req.Header.Set("Content-Type", "application/json")
+	phase1Req.Header.Set("X-Referrer-Token", attributionToken)
+	phase1Req.Header.Set("X-Referrer-Buyer-Agent-Id", in.AgentID)
+	phase1Resp, err := httpClient.Do(phase1Req)
+	if err != nil {
+		return nil, payForProductOutput{}, fmt.Errorf("phase 1: %w", err)
+	}
+	defer phase1Resp.Body.Close()
+	phase1Body, _ := io.ReadAll(phase1Resp.Body)
+	if phase1Resp.StatusCode != http.StatusPaymentRequired {
+		return nil, payForProductOutput{}, fmt.Errorf("phase 1: expected 402, got %d: %s", phase1Resp.StatusCode, phase1Body)
+	}
+	var payReq x402types.PaymentRequired
+	if err := json.Unmarshal(phase1Body, &payReq); err != nil {
+		return nil, payForProductOutput{}, fmt.Errorf("parse payment requirements: %w", err)
+	}
+	if len(payReq.Accepts) == 0 {
+		return nil, payForProductOutput{}, fmt.Errorf("payment requirements: no accepted payment methods")
+	}
+	requirements := payReq.Accepts[0]
+	tokenAddr := requirements.Asset
+	tokenName, _ := requirements.Extra["name"].(string)
+	tokenVersion, _ := requirements.Extra["version"].(string)
+
+	// ── sign ERC-3009 authorization ────────────────────────────────────────────
+	var nonce32 [32]byte
+	if _, err := rand.Read(nonce32[:]); err != nil {
+		return nil, payForProductOutput{}, fmt.Errorf("generate nonce: %w", err)
+	}
+	authz := evm.ExactEIP3009Authorization{
+		From:        buyerAddr,
+		To:          splitRouterAddr,
+		Value:       requirements.Amount,
+		ValidAfter:  "0",
+		ValidBefore: strconv.FormatInt(time.Now().Add(5*time.Minute).Unix(), 10),
+		Nonce:       "0x" + hex.EncodeToString(nonce32[:]),
+	}
+	erc3009Hash, err := evm.HashEIP3009Authorization(authz, chainID, tokenAddr, tokenName, tokenVersion)
+	if err != nil {
+		return nil, payForProductOutput{}, fmt.Errorf("hash erc3009: %w", err)
+	}
+	erc3009Sig, err := crypto.Sign(erc3009Hash, privKey)
+	if err != nil {
+		return nil, payForProductOutput{}, fmt.Errorf("sign erc3009: %w", err)
+	}
+	erc3009Sig[64] += 27
+
+	// ── build and encode x402 payment payload ──────────────────────────────────
+	evmPayload := &evm.ExactEIP3009Payload{
+		Signature:     "0x" + hex.EncodeToString(erc3009Sig),
+		Authorization: authz,
+	}
+	paymentPayload := x402types.PaymentPayload{
+		X402Version: 2,
+		Payload:     evmPayload.ToMap(),
+		Accepted:    requirements,
+		Extensions: map[string]any{
+			"attributionToken": attributionToken,
+			"buyerAgentId":     in.AgentID,
+		},
+	}
+	payloadJSON, err := json.Marshal(paymentPayload)
+	if err != nil {
+		return nil, payForProductOutput{}, fmt.Errorf("marshal payment payload: %w", err)
+	}
+	paymentHeader := base64.RawURLEncoding.EncodeToString(payloadJSON)
+
+	// ── phase 2: submit payment ────────────────────────────────────────────────
+	phase2Req, err := http.NewRequestWithContext(ctx, http.MethodPost, merchantEndpoint, bytes.NewReader([]byte(`{}`)))
+	if err != nil {
+		return nil, payForProductOutput{}, fmt.Errorf("build phase2 request: %w", err)
+	}
+	phase2Req.Header.Set("Content-Type", "application/json")
+	phase2Req.Header.Set("PAYMENT-SIGNATURE", paymentHeader)
+	phase2Client := &http.Client{Timeout: 90 * time.Second}
+	phase2Resp, err := phase2Client.Do(phase2Req)
+	if err != nil {
+		return nil, payForProductOutput{}, fmt.Errorf("phase 2: %w", err)
+	}
+	defer phase2Resp.Body.Close()
+	phase2Body, _ := io.ReadAll(phase2Resp.Body)
+	if phase2Resp.StatusCode != http.StatusOK {
+		return nil, payForProductOutput{}, fmt.Errorf("phase 2: expected 200, got %d: %s", phase2Resp.StatusCode, phase2Body)
+	}
+	var phase2Result map[string]any
+	if err := json.Unmarshal(phase2Body, &phase2Result); err != nil {
+		return nil, payForProductOutput{}, fmt.Errorf("parse phase 2 response: %w", err)
+	}
+	txHashStr, _ := phase2Result["transaction"].(string)
+	if txHashStr == "" {
+		return nil, payForProductOutput{}, fmt.Errorf("phase 2 response missing 'transaction' field: %s", phase2Body)
+	}
+
+	// ── wait for receipt + extract escrow ID ───────────────────────────────────
+	client, err := ethclient.DialContext(ctx, rpcURL)
+	if err != nil {
+		return nil, payForProductOutput{}, fmt.Errorf("dial rpc: %w", err)
+	}
+	defer client.Close()
+
+	waitCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+	defer cancel()
+	tx, _, err := client.TransactionByHash(waitCtx, common.HexToHash(txHashStr))
+	if err != nil {
+		return nil, payForProductOutput{}, fmt.Errorf("fetch tx %s: %w", txHashStr, err)
+	}
+	receipt, err := bind.WaitMined(waitCtx, client, tx)
+	if err != nil {
+		return nil, payForProductOutput{}, fmt.Errorf("wait mined: %w", err)
+	}
+	if receipt.Status != types.ReceiptStatusSuccessful {
+		return nil, payForProductOutput{}, fmt.Errorf("tx reverted: %s", txHashStr)
+	}
+
+	escrowID, err := extractEscrowID(receipt)
+	if err != nil {
+		return nil, payForProductOutput{}, err
+	}
+
+	return nil, payForProductOutput{
+		EscrowID: escrowID.String(),
+		TxHash:   txHashStr,
+	}, nil
+}
+
+func extractEscrowID(receipt *types.Receipt) (*big.Int, error) {
+	for _, log := range receipt.Logs {
+		if len(log.Topics) >= 2 && log.Topics[0] == escrowDepositedTopic {
+			return new(big.Int).SetBytes(log.Topics[1].Bytes()), nil
+		}
+	}
+	return nil, fmt.Errorf("EscrowDeposited event not found in receipt")
+}
+
 // ── Main ───────────────────────────────────────────────────────────────────────
 
 func main() {
@@ -374,6 +602,15 @@ func main() {
 			"Use this after a purchase is confirmed (escrow deposited). " +
 			"After this succeeds, call register_published_review on referrer-agent with the returned review_id.",
 	}, handlePublishEscrowReview)
+
+	sdkmcp.AddTool(srv, &sdkmcp.Tool{
+		Name: "pay_for_product",
+		Description: "Complete an x402 buyer payment for a product via a referral link. " +
+			"Resolves the ref link to find the merchant endpoint and attribution token, " +
+			"probes the merchant for payment requirements (402), signs an ERC-3009 authorization, " +
+			"submits the payment, and waits for the on-chain EscrowDeposited event. " +
+			"Returns escrow_id and tx_hash. Use the escrow_id with publish_escrow_review afterward.",
+	}, handlePayForProduct)
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
