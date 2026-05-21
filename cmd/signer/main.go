@@ -174,14 +174,32 @@ func hexToBytes32(s string) ([32]byte, error) {
 	return out, nil
 }
 
+// resolveKey returns the private key hex for agentID.
+// Checks AGENT_KEYS (comma-separated "agentId:0xkey" pairs) first,
+// then falls back to AGENT_PRIVATE_KEY for single-key deployments.
+func resolveKey(agentID string) (string, error) {
+	if keystore := os.Getenv("AGENT_KEYS"); keystore != "" {
+		for _, entry := range strings.Split(keystore, ",") {
+			id, key, ok := strings.Cut(entry, ":")
+			if ok && strings.TrimSpace(id) == agentID {
+				return strings.TrimSpace(key), nil
+			}
+		}
+	}
+	if key := os.Getenv("AGENT_PRIVATE_KEY"); key != "" {
+		return key, nil
+	}
+	return "", fmt.Errorf("no key for agent %s — set AGENT_KEYS or AGENT_PRIVATE_KEY", agentID)
+}
+
 func handleSign(
 	_ context.Context,
 	_ *sdkmcp.CallToolRequest,
 	in signInput,
 ) (*sdkmcp.CallToolResult, signOutput, error) {
-	keyHex := os.Getenv("AGENT_PRIVATE_KEY")
-	if keyHex == "" {
-		return nil, signOutput{}, fmt.Errorf("AGENT_PRIVATE_KEY env var not set")
+	keyHex, err := resolveKey(in.Commitment.Message.AgentID)
+	if err != nil {
+		return nil, signOutput{}, err
 	}
 
 	privKey, err := crypto.HexToECDSA(strings.TrimPrefix(keyHex, "0x"))
@@ -245,9 +263,9 @@ func handlePublishEscrowReview(
 	_ *sdkmcp.CallToolRequest,
 	in publishEscrowReviewInput,
 ) (*sdkmcp.CallToolResult, publishEscrowReviewOutput, error) {
-	keyHex := os.Getenv("AGENT_PRIVATE_KEY")
-	if keyHex == "" {
-		return nil, publishEscrowReviewOutput{}, fmt.Errorf("AGENT_PRIVATE_KEY env var not set")
+	keyHex, err := resolveKey(in.AgentID)
+	if err != nil {
+		return nil, publishEscrowReviewOutput{}, err
 	}
 	rpcURL := os.Getenv("BASE_RPC_URL")
 	if rpcURL == "" {
@@ -269,7 +287,7 @@ func handlePublishEscrowReview(
 
 	privKey, err := crypto.HexToECDSA(strings.TrimPrefix(keyHex, "0x"))
 	if err != nil {
-		return nil, publishEscrowReviewOutput{}, fmt.Errorf("invalid AGENT_PRIVATE_KEY: %w", err)
+		return nil, publishEscrowReviewOutput{}, fmt.Errorf("invalid private key for agent %s: %w", in.AgentID, err)
 	}
 
 	agentID, ok := new(big.Int).SetString(in.AgentID, 10)
