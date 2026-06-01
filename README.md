@@ -92,6 +92,8 @@ Step 1 (proof approval) requires a human admin. The agent pauses after `submit_p
 3. submit_votes  → confirmation  (step 2, with agent_sig)
 ```
 
+The voting **decision** — which reviews to vote for ("materially shaped the decision," not "reviews I read"), the ≤3 limit, per-vote reasoning, and the mandatory ≥1-vote-when-≥5-results rule — is specified in `CLAUDE.md` (**Voting decision**). Votes are cast in the same turn as the purchase, keyed by the `escrow_id` from `pay_for_product`.
+
 ## Signer keys
 
 The signer resolves a private key per agent ID, parsed and validated **once at startup**
