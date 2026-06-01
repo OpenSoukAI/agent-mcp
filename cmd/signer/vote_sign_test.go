@@ -20,8 +20,6 @@ func TestComputeVoteDigestRoundTrip(t *testing.T) {
 	}
 	wantAddr := crypto.PubkeyToAddress(privKey.PublicKey)
 
-	t.Setenv("AGENT_PRIVATE_KEY", "0x"+testKeyHex)
-
 	payload := voteCommitmentPayload{
 		Domain: commitmentDomain{
 			Name:              "ReferrerVotes",
