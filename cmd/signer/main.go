@@ -273,16 +273,16 @@ func handleSign(
 
 // ── VoteCommitment EIP-712 types (must match VoteRegistry contract exactly) ───
 
-const voteCommitmentTypeString = "VoteCommitment(uint256 agentId,uint256 purchaseRecordId,bytes32 votesHash,uint256 nonce,uint256 expiry)"
+const voteCommitmentTypeString = "VoteCommitment(uint256 agentId,uint256 escrowId,bytes32 votesHash,uint256 nonce,uint256 expiry)"
 
 var voteCommitmentTypehash = crypto.Keccak256Hash([]byte(voteCommitmentTypeString))
 
 type voteCommitmentMessage struct {
-	AgentID          string `json:"agentId"`
-	PurchaseRecordID string `json:"purchaseRecordId"`
-	VotesHash        string `json:"votesHash"`
-	Nonce            string `json:"nonce"`
-	Expiry           string `json:"expiry"`
+	AgentID   string `json:"agentId"`
+	EscrowID  string `json:"escrowId"`
+	VotesHash string `json:"votesHash"`
+	Nonce     string `json:"nonce"`
+	Expiry    string `json:"expiry"`
 }
 
 type voteCommitmentPayload struct {
@@ -322,9 +322,9 @@ func computeVoteDigest(p voteCommitmentPayload) ([]byte, error) {
 	if !ok {
 		return nil, fmt.Errorf("invalid agentId: %q", p.Message.AgentID)
 	}
-	purchaseID, ok := new(big.Int).SetString(p.Message.PurchaseRecordID, 10)
+	escrowID, ok := new(big.Int).SetString(p.Message.EscrowID, 10)
 	if !ok {
-		return nil, fmt.Errorf("invalid purchaseRecordId: %q", p.Message.PurchaseRecordID)
+		return nil, fmt.Errorf("invalid escrowId: %q", p.Message.EscrowID)
 	}
 	nonce, ok := new(big.Int).SetString(p.Message.Nonce, 10)
 	if !ok {
@@ -346,7 +346,7 @@ func computeVoteDigest(p voteCommitmentPayload) ([]byte, error) {
 		{Type: abiUint256}, {Type: abiUint256},
 	}.Pack(
 		voteCommitmentTypehash,
-		agentID, purchaseID,
+		agentID, escrowID,
 		votesHash,
 		nonce, expiry,
 	)

@@ -29,7 +29,7 @@ func TestComputeVoteDigestRoundTrip(t *testing.T) {
 		},
 		Message: voteCommitmentMessage{
 			AgentID:          "1",
-			PurchaseRecordID: "42",
+			EscrowID: "42",
 			VotesHash:        "0x" + strings.Repeat("ab", 32),
 			Nonce:            "7",
 			Expiry:           "9999999999",
@@ -90,7 +90,7 @@ func TestHandleSignVoteOutput(t *testing.T) {
 		},
 		Message: voteCommitmentMessage{
 			AgentID:          "1",
-			PurchaseRecordID: "42",
+			EscrowID: "42",
 			VotesHash:        "0x" + strings.Repeat("ab", 32),
 			Nonce:            "7",
 			Expiry:           "9999999999",

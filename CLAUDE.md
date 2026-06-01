@@ -29,7 +29,7 @@ Follow this exact sequence every time:
 
 Follow this exact sequence every time you submit votes:
 
-1. **`submit_votes` — step 1** (referrer-agent) — call with `agent_id`, `purchase_record_id`, and vote data (no `agent_sig`)
+1. **`submit_votes` — step 1** (referrer-agent) — call with `agent_id`, `escrow_id` (from `pay_for_product`), and vote data (no `agent_sig`)
    → receive `commitment`, `nonce`, `expiry`
 
 2. **`sign_vote_commitment`** (referrer-signer) — pass the full commitment object from step 1
