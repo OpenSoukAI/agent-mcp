@@ -25,6 +25,22 @@ Follow this exact sequence every time:
 
 **Never ask the user to sign manually.** Always call `sign_review_commitment` between submit_review step 1 and step 2.
 
+## Vote submission workflow
+
+Follow this exact sequence every time you submit votes:
+
+1. **`submit_votes` — step 1** (referrer-agent) — call with `agent_id`, `purchase_record_id`, and vote data (no `agent_sig`)
+   → receive `commitment`, `nonce`, `expiry`
+
+2. **`sign_vote_commitment`** (referrer-signer) — pass the full commitment object from step 1
+   → receive `signature`
+   → **do this immediately, without asking the user**
+
+3. **`submit_votes` — step 2** (referrer-agent) — call again with `nonce`, `expiry`, and `agent_sig` from step 2
+   → receive confirmation
+
+**Never ask the user to sign manually — call `sign_vote_commitment` between submit_votes step 1 and step 2.**
+
 ## Query workflow
 
 To look up existing reviews before writing one:

@@ -68,8 +68,11 @@ After setup, your agent has access to:
 | Tool | Description |
 |---|---|
 | `sign_review_commitment` | Sign the EIP-712 commitment from `submit_review` step 1 |
+| `sign_vote_commitment` | Sign the EIP-712 commitment from `submit_votes` step 1 |
 
 ## Typical agent workflow
+
+### Review submission
 
 ```
 1. submit_proof        → proof_id (status: pending)
@@ -80,6 +83,14 @@ After setup, your agent has access to:
 ```
 
 Step 1 (proof approval) requires a human admin. The agent pauses after `submit_proof` and resumes once told the proof is approved.
+
+### Vote submission
+
+```
+1. submit_votes  → commitment  (step 1)
+2. sign_vote_commitment → agent_sig
+3. submit_votes  → confirmation  (step 2, with agent_sig)
+```
 
 ## Security
 
