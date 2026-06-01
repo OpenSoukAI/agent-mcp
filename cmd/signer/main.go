@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/ecdsa"
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/hex"
@@ -185,37 +186,75 @@ func hexToBytes32(s string) ([32]byte, error) {
 	return out, nil
 }
 
-// resolveKey returns the private key hex for agentID.
-// Checks AGENT_KEYS (comma-separated "agentId:0xkey" pairs) first,
-// then falls back to AGENT_PRIVATE_KEY for single-key deployments.
-func resolveKey(agentID string) (string, error) {
-	if keystore := os.Getenv("AGENT_KEYS"); keystore != "" {
-		for _, entry := range strings.Split(keystore, ",") {
-			id, key, ok := strings.Cut(entry, ":")
-			if ok && strings.TrimSpace(id) == agentID {
-				return strings.TrimSpace(key), nil
+// keystore holds the signing keys parsed once at startup. agentID is the decimal string.
+type keystore struct {
+	keys     map[string]*ecdsa.PrivateKey
+	fallback *ecdsa.PrivateKey
+}
+
+// parseKeystore parses AGENT_KEYS (comma-separated "agentId:0xkey") + the AGENT_PRIVATE_KEY
+// fallback, validating every key at boot. Fails if no keys are configured or any entry is malformed.
+func parseKeystore(agentKeys, agentPrivKey string) (*keystore, error) {
+	ks := &keystore{keys: make(map[string]*ecdsa.PrivateKey)}
+	if agentKeys != "" {
+		for _, entry := range strings.Split(agentKeys, ",") {
+			entry = strings.TrimSpace(entry)
+			if entry == "" {
+				continue
 			}
+			id, keyHex, ok := strings.Cut(entry, ":")
+			if !ok {
+				return nil, fmt.Errorf("AGENT_KEYS entry %q missing ':' (want agentId:0xkey)", entry)
+			}
+			id = strings.TrimSpace(id)
+			if id == "" {
+				return nil, fmt.Errorf("AGENT_KEYS entry %q has empty agentId", entry)
+			}
+			key, err := crypto.HexToECDSA(strings.TrimPrefix(strings.TrimSpace(keyHex), "0x"))
+			if err != nil {
+				return nil, fmt.Errorf("AGENT_KEYS agent %s: invalid key: %w", id, err)
+			}
+			if _, dup := ks.keys[id]; dup {
+				return nil, fmt.Errorf("AGENT_KEYS duplicate agentId %s", id)
+			}
+			ks.keys[id] = key
 		}
 	}
-	if key := os.Getenv("AGENT_PRIVATE_KEY"); key != "" {
-		return key, nil
+	if agentPrivKey != "" {
+		key, err := crypto.HexToECDSA(strings.TrimPrefix(agentPrivKey, "0x"))
+		if err != nil {
+			return nil, fmt.Errorf("AGENT_PRIVATE_KEY: invalid key: %w", err)
+		}
+		ks.fallback = key
 	}
-	return "", fmt.Errorf("no key for agent %s — set AGENT_KEYS or AGENT_PRIVATE_KEY", agentID)
+	if len(ks.keys) == 0 && ks.fallback == nil {
+		return nil, fmt.Errorf("no signing keys configured: set AGENT_KEYS or AGENT_PRIVATE_KEY")
+	}
+	return ks, nil
 }
+
+// KeyFor returns the signing key for agentID: exact AGENT_KEYS match first, then fallback.
+func (ks *keystore) KeyFor(agentID string) (*ecdsa.PrivateKey, error) {
+	if k, ok := ks.keys[agentID]; ok {
+		return k, nil
+	}
+	if ks.fallback != nil {
+		return ks.fallback, nil
+	}
+	return nil, fmt.Errorf("no key for agent %s — not in AGENT_KEYS and no AGENT_PRIVATE_KEY fallback", agentID)
+}
+
+// signerKeys is initialized once in main() before the server starts.
+var signerKeys *keystore
 
 func handleSign(
 	_ context.Context,
 	_ *sdkmcp.CallToolRequest,
 	in signInput,
 ) (*sdkmcp.CallToolResult, signOutput, error) {
-	keyHex, err := resolveKey(in.Commitment.Message.AgentID)
+	privKey, err := signerKeys.KeyFor(in.Commitment.Message.AgentID)
 	if err != nil {
 		return nil, signOutput{}, err
-	}
-
-	privKey, err := crypto.HexToECDSA(strings.TrimPrefix(keyHex, "0x"))
-	if err != nil {
-		return nil, signOutput{}, fmt.Errorf("invalid AGENT_PRIVATE_KEY: %w", err)
 	}
 
 	digest, err := computeDigest(in.Commitment)
@@ -324,14 +363,9 @@ func handleSignVote(
 	_ *sdkmcp.CallToolRequest,
 	in signVoteInput,
 ) (*sdkmcp.CallToolResult, signOutput, error) {
-	keyHex, err := resolveKey(in.Commitment.Message.AgentID)
+	privKey, err := signerKeys.KeyFor(in.Commitment.Message.AgentID)
 	if err != nil {
 		return nil, signOutput{}, err
-	}
-
-	privKey, err := crypto.HexToECDSA(strings.TrimPrefix(keyHex, "0x"))
-	if err != nil {
-		return nil, signOutput{}, fmt.Errorf("invalid AGENT_PRIVATE_KEY: %w", err)
 	}
 
 	digest, err := computeVoteDigest(in.Commitment)
@@ -390,7 +424,7 @@ func handlePublishEscrowReview(
 	_ *sdkmcp.CallToolRequest,
 	in publishEscrowReviewInput,
 ) (*sdkmcp.CallToolResult, publishEscrowReviewOutput, error) {
-	keyHex, err := resolveKey(in.AgentID)
+	privKey, err := signerKeys.KeyFor(in.AgentID)
 	if err != nil {
 		return nil, publishEscrowReviewOutput{}, err
 	}
@@ -410,11 +444,6 @@ func handlePublishEscrowReview(
 	chainIDInt, err := strconv.ParseInt(chainIDStr, 10, 64)
 	if err != nil {
 		return nil, publishEscrowReviewOutput{}, fmt.Errorf("invalid CHAIN_ID: %w", err)
-	}
-
-	privKey, err := crypto.HexToECDSA(strings.TrimPrefix(keyHex, "0x"))
-	if err != nil {
-		return nil, publishEscrowReviewOutput{}, fmt.Errorf("invalid private key for agent %s: %w", in.AgentID, err)
 	}
 
 	agentID, ok := new(big.Int).SetString(in.AgentID, 10)
@@ -498,13 +527,9 @@ func handlePayForProduct(
 	in payForProductInput,
 ) (*sdkmcp.CallToolResult, payForProductOutput, error) {
 	// ── key + chain config ─────────────────────────────────────────────────────
-	keyHex, err := resolveKey(in.AgentID)
+	privKey, err := signerKeys.KeyFor(in.AgentID)
 	if err != nil {
 		return nil, payForProductOutput{}, err
-	}
-	privKey, err := crypto.HexToECDSA(strings.TrimPrefix(keyHex, "0x"))
-	if err != nil {
-		return nil, payForProductOutput{}, fmt.Errorf("invalid private key for agent %s: %w", in.AgentID, err)
 	}
 	buyerAddr := crypto.PubkeyToAddress(privKey.PublicKey).Hex()
 
@@ -702,6 +727,13 @@ func main() {
 		&sdkmcp.Implementation{Name: "referrer-signer", Version: "1"},
 		nil,
 	)
+
+	ks, err := parseKeystore(os.Getenv("AGENT_KEYS"), os.Getenv("AGENT_PRIVATE_KEY"))
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "referrer-signer: key config:", err)
+		os.Exit(1)
+	}
+	signerKeys = ks
 
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name: "sign_review_commitment",
