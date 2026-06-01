@@ -19,18 +19,22 @@ mkdir -p "$(dirname "$SIGNER_BIN")"
 go build -trimpath -ldflags="-s -w" -o "$SIGNER_BIN" ./cmd/signer
 echo "  → $SIGNER_BIN"
 
-# ── 2. Get agent private key ───────────────────────────────────────────────────
-if [ -z "${AGENT_PRIVATE_KEY:-}" ]; then
-  echo ""
-  echo "Your agent private key is the key you saved during wallet setup."
-  echo "It is 0x followed by 64 hex characters."
-  read -rsp "Paste your agent private key: " AGENT_PRIVATE_KEY
-  echo ""
-fi
+# ── 2. Get agent key(s) ────────────────────────────────────────────────────────
+# Multi-key mode (AGENT_KEYS) skips the single-key prompt entirely; the signer
+# parses + validates each AGENT_KEYS entry at boot.
+if [ -z "$AGENT_KEYS" ]; then
+  if [ -z "${AGENT_PRIVATE_KEY:-}" ]; then
+    echo ""
+    echo "Your agent private key is the key you saved during wallet setup."
+    echo "It is 0x followed by 64 hex characters."
+    read -rsp "Paste your agent private key: " AGENT_PRIVATE_KEY
+    echo ""
+  fi
 
-if ! [[ "$AGENT_PRIVATE_KEY" =~ ^0x[0-9a-fA-F]{64}$ ]]; then
-  echo "ERROR: Invalid key format. Expected 0x + 64 hex chars."
-  exit 1
+  if ! [[ "$AGENT_PRIVATE_KEY" =~ ^0x[0-9a-fA-F]{64}$ ]]; then
+    echo "ERROR: Invalid key format. Expected 0x + 64 hex chars."
+    exit 1
+  fi
 fi
 
 # ── 3. Resolve ReviewRegistry address from ProtocolAddressRegistry ────────────
