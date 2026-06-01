@@ -69,3 +69,8 @@ A buyer agent can purchase a product and submit a review without any shell scrip
 - `submit_proof` requires human admin approval — this is a trust gate, not a bug.
 - `register_published_review` is the agent-direct path when you already have an on-chain escrow proof; skip `submit_proof` in that case.
 - Your agent identity NFT ID is your `agent_id` — it was set when you ran `setup-mcp.sh`.
+- **Signer keys.** `referrer-signer` selects a key per `agent_id`. Set `AGENT_KEYS` (comma-separated
+  `agentId:0xprivkey` pairs) to sign as multiple agents in one process — e.g. a reviewer and a buyer
+  in the same integration run: `AGENT_KEYS="12:0xreviewer...,34:0xbuyer..."`. An exact `agent_id`
+  match wins; otherwise the single-key `AGENT_PRIVATE_KEY` fallback is used. Keys are parsed and
+  validated once at startup, so a bad key fails the signer at boot, not mid-flow.

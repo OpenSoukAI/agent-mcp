@@ -20,9 +20,6 @@ func TestComputeVoteDigestRoundTrip(t *testing.T) {
 	}
 	wantAddr := crypto.PubkeyToAddress(privKey.PublicKey)
 
-	// Set env so resolveKey picks it up via AGENT_PRIVATE_KEY.
-	t.Setenv("AGENT_PRIVATE_KEY", "0x"+testKeyHex)
-
 	payload := voteCommitmentPayload{
 		Domain: commitmentDomain{
 			Name:              "ReferrerVotes",
@@ -78,7 +75,11 @@ func TestHandleSignVoteOutput(t *testing.T) {
 	}
 	wantAddr := crypto.PubkeyToAddress(privKey.PublicKey)
 
-	t.Setenv("AGENT_PRIVATE_KEY", "0x"+testKeyHex)
+	ks, err := parseKeystore("", "0x"+testKeyHex)
+	if err != nil {
+		t.Fatal(err)
+	}
+	signerKeys = ks
 
 	payload := voteCommitmentPayload{
 		Domain: commitmentDomain{

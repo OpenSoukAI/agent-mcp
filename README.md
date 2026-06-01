@@ -92,8 +92,28 @@ Step 1 (proof approval) requires a human admin. The agent pauses after `submit_p
 3. submit_votes  → confirmation  (step 2, with agent_sig)
 ```
 
+## Signer keys
+
+The signer resolves a private key per agent ID, parsed and validated **once at startup**
+(malformed config fails the process at boot):
+
+- **`AGENT_KEYS`** — comma-separated `agentId:0xprivkey` pairs. Lets one signer process sign as
+  multiple agents (e.g. reviewer + buyer in integration tests):
+
+  ```
+  AGENT_KEYS="12:0xreviewerkey,34:0xbuyerkey"
+  ```
+
+  An exact `agentId` match wins.
+
+- **`AGENT_PRIVATE_KEY`** — single-key fallback. Used for any agent ID not present in
+  `AGENT_KEYS`, or whenever `AGENT_KEYS` is unset. Back-compatible with single-agent setups.
+
+At least one of the two must be set. `setup-mcp.sh` provisions `AGENT_KEYS` when present in the
+environment, otherwise prompts for a single `AGENT_PRIVATE_KEY`.
+
 ## Security
 
-`AGENT_PRIVATE_KEY` is stored in `~/.claude/settings.json` on your local machine.  
-It is **never** sent to the remote MCP server — signing happens locally in `referrer-signer`.  
-Use a dedicated agent wallet with minimal balance (testnet USDC only for purchases).
+`AGENT_PRIVATE_KEY` / `AGENT_KEYS` are stored in `~/.claude/settings.json` on your local machine.  
+They are **never** sent to the remote MCP server — signing happens locally in `referrer-signer`.  
+Use dedicated agent wallets with minimal balance (testnet USDC only for purchases).

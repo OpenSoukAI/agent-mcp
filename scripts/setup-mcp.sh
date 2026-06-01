@@ -6,8 +6,12 @@ set -euo pipefail
 SIGNER_BIN="${SIGNER_INSTALL_PATH:-$HOME/.local/bin/referrer-signer}"
 MCP_URL="${REFERRER_MCP_URL:-http://localhost:8081/mcp}"
 BASE_RPC_URL="${BASE_RPC_URL:-https://sepolia.base.org}"
-PAR_ADDR="${PROTOCOL_ADDRESS_REGISTRY:-0xE7e5aC6b47Ee5378B853f4B90AD590Fc4573a2D8}"
+PAR_ADDR="${PROTOCOL_ADDRESS_REGISTRY:-0xd1A08383dcC7E74c2F94c94931BdFCff2508137D}"
 CHAIN_ID="${CHAIN_ID:-84532}"
+# AGENT_KEYS (optional): comma-separated agentId:0xprivkey pairs to sign as multiple agents
+#   in one signer process, e.g. AGENT_KEYS="12:0xabc...,34:0xdef..." (reviewer 12 + buyer 34).
+#   If unset, falls back to single-key AGENT_PRIVATE_KEY.
+AGENT_KEYS="${AGENT_KEYS:-}"
 
 # ── 1. Build the signer binary ─────────────────────────────────────────────────
 echo "Building referrer-signer..."
@@ -15,18 +19,22 @@ mkdir -p "$(dirname "$SIGNER_BIN")"
 go build -trimpath -ldflags="-s -w" -o "$SIGNER_BIN" ./cmd/signer
 echo "  → $SIGNER_BIN"
 
-# ── 2. Get agent private key ───────────────────────────────────────────────────
-if [ -z "${AGENT_PRIVATE_KEY:-}" ]; then
-  echo ""
-  echo "Your agent private key is the key you saved during wallet setup."
-  echo "It is 0x followed by 64 hex characters."
-  read -rsp "Paste your agent private key: " AGENT_PRIVATE_KEY
-  echo ""
-fi
+# ── 2. Get agent key(s) ────────────────────────────────────────────────────────
+# Multi-key mode (AGENT_KEYS) skips the single-key prompt entirely; the signer
+# parses + validates each AGENT_KEYS entry at boot.
+if [ -z "$AGENT_KEYS" ]; then
+  if [ -z "${AGENT_PRIVATE_KEY:-}" ]; then
+    echo ""
+    echo "Your agent private key is the key you saved during wallet setup."
+    echo "It is 0x followed by 64 hex characters."
+    read -rsp "Paste your agent private key: " AGENT_PRIVATE_KEY
+    echo ""
+  fi
 
-if ! [[ "$AGENT_PRIVATE_KEY" =~ ^0x[0-9a-fA-F]{64}$ ]]; then
-  echo "ERROR: Invalid key format. Expected 0x + 64 hex chars."
-  exit 1
+  if ! [[ "$AGENT_PRIVATE_KEY" =~ ^0x[0-9a-fA-F]{64}$ ]]; then
+    echo "ERROR: Invalid key format. Expected 0x + 64 hex chars."
+    exit 1
+  fi
 fi
 
 # ── 3. Resolve ReviewRegistry address from ProtocolAddressRegistry ────────────
@@ -56,12 +64,16 @@ claude mcp remove --scope user referrer-signer 2>/dev/null || true
 claude mcp add --scope user --transport http referrer-agent "$MCP_URL"
 echo "  → referrer-agent ($MCP_URL)"
 
-claude mcp add --scope user referrer-signer "$SIGNER_BIN" \
-  -e "AGENT_PRIVATE_KEY=$AGENT_PRIVATE_KEY" \
-  -e "BASE_RPC_URL=$BASE_RPC_URL" \
-  -e "REVIEW_REGISTRY_ADDRESS=$REVIEW_REGISTRY_ADDRESS" \
-  -e "CHAIN_ID=$CHAIN_ID"
-echo "  → referrer-signer ($SIGNER_BIN)"
+SIGNER_ENV=(-e "BASE_RPC_URL=$BASE_RPC_URL" -e "REVIEW_REGISTRY_ADDRESS=$REVIEW_REGISTRY_ADDRESS" -e "CHAIN_ID=$CHAIN_ID")
+if [ -n "$AGENT_KEYS" ]; then
+  SIGNER_ENV+=(-e "AGENT_KEYS=$AGENT_KEYS")
+  echo "  → referrer-signer ($SIGNER_BIN) [multi-key: AGENT_KEYS]"
+else
+  SIGNER_ENV+=(-e "AGENT_PRIVATE_KEY=$AGENT_PRIVATE_KEY")
+  echo "  → referrer-signer ($SIGNER_BIN) [single-key: AGENT_PRIVATE_KEY]"
+fi
+
+claude mcp add --scope user referrer-signer "$SIGNER_BIN" "${SIGNER_ENV[@]}"
 
 # ── Done ───────────────────────────────────────────────────────────────────────
 echo ""
