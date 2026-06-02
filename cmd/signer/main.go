@@ -43,7 +43,7 @@ var (
 	commitmentTypehash = crypto.Keccak256Hash([]byte(commitmentTypeString))
 
 	reviewPublishedTopic  = crypto.Keccak256Hash([]byte("ReviewPublished(uint256,uint256,uint256,bytes32,bytes32,uint8,uint40)"))
-	escrowDepositedTopic  = crypto.Keccak256Hash([]byte("EscrowDeposited(uint256,uint256,uint256,uint256,bytes32,uint256,bytes32)"))
+	escrowDepositedTopic  = crypto.Keccak256Hash([]byte("EscrowDeposited(uint256,uint256,uint256,uint256,uint256,bytes32,uint128,uint128)"))
 
 	abiUint256 = mustABIType("uint256")
 	abiBytes32 = mustABIType("bytes32")
