@@ -73,6 +73,12 @@ func mustParseABI(s string) abi.ABI {
 }
 
 // ── ReviewCommitmentPayload mirrors the backend signing.ReviewCommitmentPayload ─
+//
+// The backend returns a full EIP-712 typed-data object that includes Types and
+// PrimaryType (for eth_signTypedData_v4 wallet RPC compatibility). The signer
+// recomputes the digest from Domain + Message directly, so it ignores those
+// fields — but the struct must accept them to avoid MCP schema validation
+// errors when the agent passes the unstripped commitment object (F-02).
 
 type commitmentDomain struct {
 	Name              string `json:"name"`
@@ -91,8 +97,13 @@ type commitmentMessage struct {
 }
 
 type reviewCommitmentPayload struct {
-	Domain  commitmentDomain  `json:"domain"`
-	Message commitmentMessage `json:"message"`
+	// Types and PrimaryType are part of the EIP-712 typed-data envelope returned
+	// by submit_review step 1. Accepted here but not used — the signer recomputes
+	// the digest from Domain + Message directly.
+	Types       map[string]any `json:"types,omitempty"`
+	PrimaryType string         `json:"primaryType,omitempty"`
+	Domain      commitmentDomain  `json:"domain"`
+	Message     commitmentMessage `json:"message"`
 }
 
 // ── sign_review_commitment ─────────────────────────────────────────────────────
@@ -286,8 +297,11 @@ type voteCommitmentMessage struct {
 }
 
 type voteCommitmentPayload struct {
-	Domain  commitmentDomain     `json:"domain"`
-	Message voteCommitmentMessage `json:"message"`
+	// Types and PrimaryType: same as reviewCommitmentPayload — accepted but ignored.
+	Types       map[string]any       `json:"types,omitempty"`
+	PrimaryType string               `json:"primaryType,omitempty"`
+	Domain      commitmentDomain     `json:"domain"`
+	Message     voteCommitmentMessage `json:"message"`
 }
 
 // ── sign_vote_commitment ───────────────────────────────────────────────────────
