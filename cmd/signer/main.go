@@ -42,8 +42,8 @@ var (
 	domainTypehash     = crypto.Keccak256Hash([]byte(domainTypeString))
 	commitmentTypehash = crypto.Keccak256Hash([]byte(commitmentTypeString))
 
-	reviewPublishedTopic  = crypto.Keccak256Hash([]byte("ReviewPublished(uint256,uint256,uint256,bytes32,bytes32,uint8,uint40)"))
-	escrowDepositedTopic  = crypto.Keccak256Hash([]byte("EscrowDeposited(uint256,uint256,uint256,uint256,uint256,bytes32,uint128,uint128)"))
+	reviewPublishedTopic = crypto.Keccak256Hash([]byte("ReviewPublished(uint256,uint256,uint256,bytes32,bytes32,uint8,uint40)"))
+	escrowDepositedTopic = crypto.Keccak256Hash([]byte("EscrowDeposited(uint256,uint256,uint256,uint256,uint256,bytes32,uint128,uint128)"))
 
 	abiUint256 = mustABIType("uint256")
 	abiBytes32 = mustABIType("bytes32")
@@ -100,8 +100,8 @@ type reviewCommitmentPayload struct {
 	// Types and PrimaryType are part of the EIP-712 typed-data envelope returned
 	// by submit_review step 1. Accepted here but not used — the signer recomputes
 	// the digest from Domain + Message directly.
-	Types       map[string]any `json:"types,omitempty"`
-	PrimaryType string         `json:"primaryType,omitempty"`
+	Types       map[string]any    `json:"types,omitempty"`
+	PrimaryType string            `json:"primaryType,omitempty"`
 	Domain      commitmentDomain  `json:"domain"`
 	Message     commitmentMessage `json:"message"`
 }
@@ -298,9 +298,9 @@ type voteCommitmentMessage struct {
 
 type voteCommitmentPayload struct {
 	// Types and PrimaryType: same as reviewCommitmentPayload — accepted but ignored.
-	Types       map[string]any       `json:"types,omitempty"`
-	PrimaryType string               `json:"primaryType,omitempty"`
-	Domain      commitmentDomain     `json:"domain"`
+	Types       map[string]any        `json:"types,omitempty"`
+	PrimaryType string                `json:"primaryType,omitempty"`
+	Domain      commitmentDomain      `json:"domain"`
 	Message     voteCommitmentMessage `json:"message"`
 }
 
@@ -764,6 +764,14 @@ func main() {
 			"submit_votes step 1 exactly as returned, then use the returned 'signature' as 'agent_sig' " +
 			"in submit_votes step 2.",
 	}, handleSignVote)
+
+	sdkmcp.AddTool(srv, &sdkmcp.Tool{
+		Name: "sign_open_session_commitment",
+		Description: "Sign an EIP-712 OpenSessionCommitment using the payer wallet (the buyer agent's owner key). " +
+			"Call this between open_mpp_session step 1 and step 2: pass the 'commitment' object from " +
+			"open_mpp_session step 1 exactly as returned, then use the returned 'signature' as 'payer_sig' " +
+			"in open_mpp_session step 2.",
+	}, handleSignOpenSession)
 
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name: "publish_escrow_review",
