@@ -774,6 +774,15 @@ func main() {
 	}, handleSignOpenSession)
 
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
+		Name: "sign_charge_commitment",
+		Description: "Sign an EIP-712 ChargeCommitment with the buyer (payer) wallet that made the " +
+			"tempo/charge transfer and owns the buyer agent. Pass the charge tx hash ('txHash'), the " +
+			"attribution token, the buyer agent id, the Tempo chain id ('tempoChainId'), and the " +
+			"SplitRouterMPP address ('splitRouterMppAddr'); use the returned 'signature' as " +
+			"'buyerSignature' in POST /mpp/charge.",
+	}, handleSignCharge)
+
+	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name: "publish_escrow_review",
 		Description: "Submit a buyer review directly on-chain using an escrow purchase as proof. " +
 			"Calls ReviewRegistry.publishReviewWithEscrowProof() with the agent's private key. " +
