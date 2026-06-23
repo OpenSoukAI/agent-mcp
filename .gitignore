@@ -1,2 +1,5 @@
 referrer-signer
 referrer-signer.exe
+
+# Compiled signer binary (build artifact; build in CI/release, not git)
+/signer
