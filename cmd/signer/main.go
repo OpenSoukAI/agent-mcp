@@ -396,6 +396,127 @@ func handleSignVote(
 	return nil, signOutput{Signature: "0x" + hex.EncodeToString(sig)}, nil
 }
 
+// ── CashbackRateCommitment EIP-712 (must match backend signing/cashback_rate_commitment.go exactly) ──
+
+const cashbackRateCommitmentTypeString = "CashbackRateCommitment(uint256 agentId,uint16 cashbackOfCommissionBps,bytes32 nonce,uint256 expiry)"
+
+var cashbackRateCommitmentTypehash = crypto.Keccak256Hash([]byte(cashbackRateCommitmentTypeString))
+
+const cashbackRateDomainName = "ReferrerCashbackRate"
+
+type cashbackRateCommitmentMessage struct {
+	AgentID                 string `json:"agentId"`
+	CashbackOfCommissionBps string `json:"cashbackOfCommissionBps"`
+	Nonce                   string `json:"nonce"`
+	Expiry                  string `json:"expiry"`
+}
+
+type cashbackRateCommitmentPayload struct {
+	// Types and PrimaryType are part of the EIP-712 typed-data envelope — accepted but ignored.
+	Types       map[string]any                `json:"types,omitempty"`
+	PrimaryType string                         `json:"primaryType,omitempty"`
+	Domain      commitmentDomain               `json:"domain"`
+	Message     cashbackRateCommitmentMessage  `json:"message"`
+}
+
+// ── sign_cashback_rate_commitment ──────────────────────────────────────────────
+
+type signCashbackRateInput struct {
+	Commitment cashbackRateCommitmentPayload `json:"commitment"`
+}
+
+func computeCashbackRateDigest(p cashbackRateCommitmentPayload) ([]byte, error) {
+	contractAddr := common.HexToAddress(p.Domain.VerifyingContract)
+	chainID := new(big.Int).SetInt64(p.Domain.ChainID)
+
+	domainPacked, err := abi.Arguments{
+		{Type: abiBytes32},
+		{Type: abiBytes32},
+		{Type: abiBytes32},
+		{Type: abiUint256},
+		{Type: abiAddress},
+	}.Pack(
+		domainTypehash,
+		crypto.Keccak256Hash([]byte(p.Domain.Name)),
+		crypto.Keccak256Hash([]byte(p.Domain.Version)),
+		chainID,
+		contractAddr,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("pack domain: %w", err)
+	}
+	domainSeparator := crypto.Keccak256Hash(domainPacked)
+
+	agentID, ok := new(big.Int).SetString(p.Message.AgentID, 10)
+	if !ok {
+		return nil, fmt.Errorf("invalid agentId: %q", p.Message.AgentID)
+	}
+	bpsBig, ok := new(big.Int).SetString(p.Message.CashbackOfCommissionBps, 10)
+	if !ok {
+		return nil, fmt.Errorf("invalid cashbackOfCommissionBps: %q", p.Message.CashbackOfCommissionBps)
+	}
+	if !bpsBig.IsUint64() || bpsBig.Uint64() > 65535 {
+		return nil, fmt.Errorf("cashbackOfCommissionBps out of uint16 range: %s", bpsBig)
+	}
+	bps := uint16(bpsBig.Uint64())
+
+	nonce, err := hexToBytes32(p.Message.Nonce)
+	if err != nil {
+		return nil, fmt.Errorf("invalid nonce: %w", err)
+	}
+
+	expiry, ok := new(big.Int).SetString(p.Message.Expiry, 10)
+	if !ok {
+		return nil, fmt.Errorf("invalid expiry: %q", p.Message.Expiry)
+	}
+
+	abiUint16, err := abi.NewType("uint16", "", nil)
+	if err != nil {
+		return nil, fmt.Errorf("abi uint16: %w", err)
+	}
+
+	structPacked, err := abi.Arguments{
+		{Type: abiBytes32},
+		{Type: abiUint256},
+		{Type: abiUint16},
+		{Type: abiBytes32},
+		{Type: abiUint256},
+	}.Pack(
+		cashbackRateCommitmentTypehash,
+		agentID, bps, nonce, expiry,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("pack struct: %w", err)
+	}
+	structHash := crypto.Keccak256Hash(structPacked)
+
+	return crypto.Keccak256([]byte{0x19, 0x01}, domainSeparator[:], structHash[:]), nil
+}
+
+func handleSignCashbackRate(
+	_ context.Context,
+	_ *sdkmcp.CallToolRequest,
+	in signCashbackRateInput,
+) (*sdkmcp.CallToolResult, signOutput, error) {
+	privKey, err := signerKeys.KeyFor(in.Commitment.Message.AgentID)
+	if err != nil {
+		return nil, signOutput{}, err
+	}
+
+	digest, err := computeCashbackRateDigest(in.Commitment)
+	if err != nil {
+		return nil, signOutput{}, fmt.Errorf("compute digest: %w", err)
+	}
+
+	sig, err := crypto.Sign(digest, privKey)
+	if err != nil {
+		return nil, signOutput{}, fmt.Errorf("sign: %w", err)
+	}
+	sig[64] += 27 // OZ ECDSA requires v=27/28; crypto.Sign returns v=0/1
+
+	return nil, signOutput{Signature: "0x" + hex.EncodeToString(sig)}, nil
+}
+
 // ── publish_escrow_review ──────────────────────────────────────────────────────
 
 type publishEscrowReviewInput struct {
@@ -764,6 +885,14 @@ func main() {
 			"submit_votes step 1 exactly as returned, then use the returned 'signature' as 'agent_sig' " +
 			"in submit_votes step 2.",
 	}, handleSignVote)
+
+	sdkmcp.AddTool(srv, &sdkmcp.Tool{
+		Name: "sign_cashback_rate_commitment",
+		Description: "Sign an EIP-712 CashbackRateCommitment using the agent's private key. " +
+			"Call this between set_cashback_rate step 1 and step 2: pass the 'commitment' object from " +
+			"set_cashback_rate step 1 exactly as returned, then use the returned 'signature' as 'agent_sig' " +
+			"in set_cashback_rate step 2.",
+	}, handleSignCashbackRate)
 
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name: "sign_open_session_commitment",
