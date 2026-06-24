@@ -51,7 +51,7 @@ var (
 	abiString  = mustABIType("string")
 
 	reviewRegistryABI = mustParseABI(`[
-		{"inputs":[{"name":"agentId","type":"uint256"},{"name":"merchantId","type":"uint256"},{"name":"productId","type":"bytes32"},{"name":"contentHash","type":"bytes32"},{"name":"escrowId","type":"uint256"}],"name":"publishReviewWithEscrowProof","outputs":[{"name":"reviewId","type":"uint256"}],"stateMutability":"nonpayable","type":"function"},
+		{"inputs":[{"name":"agentId","type":"uint256"},{"name":"contentHash","type":"bytes32"},{"name":"escrowId","type":"uint256"}],"name":"publishReviewWithEscrowProof","outputs":[{"name":"reviewId","type":"uint256"}],"stateMutability":"nonpayable","type":"function"},
 		{"anonymous":false,"inputs":[{"indexed":true,"name":"reviewId","type":"uint256"},{"indexed":true,"name":"agentId","type":"uint256"},{"indexed":true,"name":"merchantId","type":"uint256"},{"indexed":false,"name":"productId","type":"bytes32"},{"indexed":false,"name":"contentHash","type":"bytes32"},{"indexed":false,"name":"proofType","type":"uint8"},{"indexed":false,"name":"timestamp","type":"uint40"}],"name":"ReviewPublished","type":"event"}
 	]`)
 )
@@ -618,7 +618,7 @@ func handlePublishEscrowReview(
 	contract := bind.NewBoundContract(registryAddr, reviewRegistryABI, client, client, client)
 
 	tx, err := contract.Transact(auth, "publishReviewWithEscrowProof",
-		agentID, merchantID, productID, contentHash, escrowID)
+		agentID, contentHash, escrowID)
 	if err != nil {
 		return nil, publishEscrowReviewOutput{}, fmt.Errorf("publishReviewWithEscrowProof tx: %w", err)
 	}
