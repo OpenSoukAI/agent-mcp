@@ -20,6 +20,7 @@ import (
 	"syscall"
 	"time"
 
+	ethereum "github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
@@ -53,6 +54,10 @@ var (
 	reviewRegistryABI = mustParseABI(`[
 		{"inputs":[{"name":"agentId","type":"uint256"},{"name":"contentHash","type":"bytes32"},{"name":"escrowId","type":"uint256"}],"name":"publishReviewWithEscrowProof","outputs":[{"name":"reviewId","type":"uint256"}],"stateMutability":"nonpayable","type":"function"},
 		{"anonymous":false,"inputs":[{"indexed":true,"name":"reviewId","type":"uint256"},{"indexed":true,"name":"agentId","type":"uint256"},{"indexed":true,"name":"merchantId","type":"uint256"},{"indexed":false,"name":"productId","type":"bytes32"},{"indexed":false,"name":"contentHash","type":"bytes32"},{"indexed":false,"name":"proofType","type":"uint8"},{"indexed":false,"name":"timestamp","type":"uint40"}],"name":"ReviewPublished","type":"event"}
+	]`)
+
+	commissionEscrowABI = mustParseABI(`[
+		{"inputs":[{"name":"escrowId","type":"uint256"}],"name":"getEscrow","outputs":[{"components":[{"name":"buyerAgentId","type":"uint256"},{"name":"merchantId","type":"uint256"},{"name":"productId","type":"bytes32"},{"name":"heldBackAmt","type":"uint128"},{"name":"cashbackAmt","type":"uint128"},{"name":"state","type":"uint8"}],"name":"","type":"tuple"}],"stateMutability":"view","type":"function"}
 	]`)
 )
 
@@ -571,6 +576,10 @@ func handlePublishEscrowReview(
 	if registryAddrHex == "" {
 		return nil, publishEscrowReviewOutput{}, fmt.Errorf("REVIEW_REGISTRY_ADDRESS env var not set")
 	}
+	escrowAddrHex := os.Getenv("COMMISSION_ESCROW_ADDRESS")
+	if escrowAddrHex == "" {
+		return nil, publishEscrowReviewOutput{}, fmt.Errorf("COMMISSION_ESCROW_ADDRESS env var not set")
+	}
 
 	chainIDStr := os.Getenv("CHAIN_ID")
 	if chainIDStr == "" {
@@ -585,7 +594,7 @@ func handlePublishEscrowReview(
 	if !ok {
 		return nil, publishEscrowReviewOutput{}, fmt.Errorf("invalid agent_id: %q", in.AgentID)
 	}
-	merchantID, ok := new(big.Int).SetString(in.MerchantID, 10)
+	callerMerchantID, ok := new(big.Int).SetString(in.MerchantID, 10)
 	if !ok {
 		return nil, publishEscrowReviewOutput{}, fmt.Errorf("invalid merchant_id: %q", in.MerchantID)
 	}
@@ -593,14 +602,9 @@ func handlePublishEscrowReview(
 	if !ok {
 		return nil, publishEscrowReviewOutput{}, fmt.Errorf("invalid escrow_id: %q", in.EscrowID)
 	}
-	productID, err := hexToBytes32(in.ProductID)
+	callerProductID, err := hexToBytes32(in.ProductID)
 	if err != nil {
 		return nil, publishEscrowReviewOutput{}, fmt.Errorf("invalid product_id: %w", err)
-	}
-
-	contentHash, err := computeContentHash(agentID, merchantID, productID, in.ContentJSON)
-	if err != nil {
-		return nil, publishEscrowReviewOutput{}, err
 	}
 
 	client, err := ethclient.DialContext(ctx, rpcURL)
@@ -608,6 +612,45 @@ func handlePublishEscrowReview(
 		return nil, publishEscrowReviewOutput{}, fmt.Errorf("dial rpc: %w", err)
 	}
 	defer client.Close()
+
+	// Fetch authoritative merchantId/productId from CommissionEscrow.
+	// The contract reads these from the escrow record and stores them in the on-chain Review;
+	// the content hash preimage must use the same values or verifiers cannot reproduce the hash.
+	escrowAddr := common.HexToAddress(escrowAddrHex)
+	callData, err := commissionEscrowABI.Pack("getEscrow", escrowID)
+	if err != nil {
+		return nil, publishEscrowReviewOutput{}, fmt.Errorf("pack getEscrow: %w", err)
+	}
+	rawResult, err := client.CallContract(ctx, ethereum.CallMsg{To: &escrowAddr, Data: callData}, nil)
+	if err != nil {
+		return nil, publishEscrowReviewOutput{}, fmt.Errorf("getEscrow(%s): %w", in.EscrowID, err)
+	}
+	// ABI layout: (uint256 buyerAgentId, uint256 merchantId, bytes32 productId, ...)
+	// All static types; each slot is 32 bytes.
+	if len(rawResult) < 96 {
+		return nil, publishEscrowReviewOutput{}, fmt.Errorf("getEscrow returned short data: %d bytes", len(rawResult))
+	}
+	merchantID := new(big.Int).SetBytes(rawResult[32:64])
+	var productID [32]byte
+	copy(productID[:], rawResult[64:96])
+
+	if callerMerchantID.Cmp(merchantID) != 0 {
+		return nil, publishEscrowReviewOutput{}, fmt.Errorf(
+			"merchant_id mismatch: supplied %s but escrow %s has merchantId %s",
+			in.MerchantID, in.EscrowID, merchantID,
+		)
+	}
+	if callerProductID != productID {
+		return nil, publishEscrowReviewOutput{}, fmt.Errorf(
+			"product_id mismatch: supplied %s but escrow %s has productId 0x%x",
+			in.ProductID, in.EscrowID, productID[:],
+		)
+	}
+
+	contentHash, err := computeContentHash(agentID, merchantID, productID, in.ContentJSON)
+	if err != nil {
+		return nil, publishEscrowReviewOutput{}, err
+	}
 
 	auth, err := bind.NewKeyedTransactorWithChainID(privKey, big.NewInt(chainIDInt))
 	if err != nil {
