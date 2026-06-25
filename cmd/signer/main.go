@@ -57,7 +57,7 @@ var (
 	]`)
 
 	commissionEscrowABI = mustParseABI(`[
-		{"inputs":[{"name":"escrowId","type":"uint256"}],"name":"getEscrow","outputs":[{"components":[{"name":"buyerAgentId","type":"uint256"},{"name":"merchantId","type":"uint256"},{"name":"productId","type":"bytes32"},{"name":"heldBackAmt","type":"uint128"},{"name":"cashbackAmt","type":"uint128"},{"name":"state","type":"uint8"}],"name":"","type":"tuple"}],"stateMutability":"view","type":"function"}
+		{"inputs":[{"name":"escrowId","type":"uint256"}],"name":"getEscrow","outputs":[{"components":[{"name":"reviewerAgentId","type":"uint256"},{"name":"buyerAgentId","type":"uint256"},{"name":"merchantId","type":"uint256"},{"name":"productId","type":"bytes32"},{"name":"heldBackAmt","type":"uint128"},{"name":"cashbackAmt","type":"uint128"},{"name":"state","type":"uint8"}],"name":"","type":"tuple"}],"stateMutability":"view","type":"function"}
 	]`)
 )
 
@@ -625,14 +625,14 @@ func handlePublishEscrowReview(
 	if err != nil {
 		return nil, publishEscrowReviewOutput{}, fmt.Errorf("getEscrow(%s): %w", in.EscrowID, err)
 	}
-	// ABI layout: (uint256 buyerAgentId, uint256 merchantId, bytes32 productId, ...)
+	// ABI layout: (uint256 reviewerAgentId, uint256 buyerAgentId, uint256 merchantId, bytes32 productId, ...)
 	// All static types; each slot is 32 bytes.
-	if len(rawResult) < 96 {
+	if len(rawResult) < 128 {
 		return nil, publishEscrowReviewOutput{}, fmt.Errorf("getEscrow returned short data: %d bytes", len(rawResult))
 	}
-	merchantID := new(big.Int).SetBytes(rawResult[32:64])
+	merchantID := new(big.Int).SetBytes(rawResult[64:96])
 	var productID [32]byte
-	copy(productID[:], rawResult[64:96])
+	copy(productID[:], rawResult[96:128])
 
 	if callerMerchantID.Cmp(merchantID) != 0 {
 		return nil, publishEscrowReviewOutput{}, fmt.Errorf(
