@@ -42,7 +42,9 @@ You have two MCP servers available:
 | `pay_for_product` | Autonomous x402 buyer payment via a ref link |
 | `publish_escrow_review` | Publish a buyer review on-chain via `publishReviewWithEscrowProof()` |
 
-Every two-step protocol tool returns `{ commitment, nonce, expiry }` on step 1; pass the **full commitment object** to its signer tool, then call the protocol tool again with `nonce`, `expiry`, and the returned `agent_sig`. The pattern is identical for all of them.
+Most two-step protocol tools follow one pattern: step 1 returns `{ commitment, nonce, expiry }`; pass the **full commitment object** to its signer tool, then call the protocol tool again with `nonce`, `expiry`, and the returned `agent_sig`. This holds for `submit_review`, `submit_votes`, `set_cashback_rate`, and `set_cashback_rate_for_review`.
+
+**Exception — `open_mpp_session`:** step 1 returns only a `commitment` (no `nonce`/`expiry`); sign it with `sign_open_session_commitment`, then call step 2 with the **same** `attribution_token`, `buyer_agent_id`, `payer`, and `salt` plus **`payer_sig`** (not `agent_sig`). The session is keyed by `(payer, salt)`, so there is no nonce. See the MPP section below.
 
 ## Before you write a review
 
