@@ -827,7 +827,21 @@ type payForProductInput struct {
 type payForProductOutput struct {
 	EscrowID string `json:"escrow_id"` // decimal string
 	TxHash   string `json:"tx_hash"`
+	// NextSteps is an advisory nudge (REF-131) pointing the buyer at cast_review_votes
+	// for the reviews that influenced this purchase. The escrow_id the vote flow needs
+	// is carried in EscrowID above; this is the human-readable prompt.
+	NextSteps string `json:"next_steps"`
 }
+
+// payVoteReminder is the advisory next-step returned alongside a successful payment.
+// Voting is deliberate, judgment-based, and a separate two-step signed flow on the
+// referrer-agent server, so this only nudges — it never auto-calls cast_review_votes.
+// The nudge deliberately states no obligation level: whether a vote is mandatory (the
+// ≥5-reviews-returned case) lives in the agent runbook, not in a single tool's output.
+const payVoteReminder = "If any reviews materially influenced this purchase, cast votes via " +
+	"cast_review_votes (referrer-agent) using this escrow_id — allow a few seconds first for " +
+	"the purchase to be indexed. Vote deliberately, only for the reviews that shaped your " +
+	"decision; votes feed the platform's Review Rank."
 
 func handlePayForProduct(
 	ctx context.Context,
@@ -1014,8 +1028,9 @@ func handlePayForProduct(
 	}
 
 	return nil, payForProductOutput{
-		EscrowID: escrowID.String(),
-		TxHash:   txHashStr,
+		EscrowID:  escrowID.String(),
+		TxHash:    txHashStr,
+		NextSteps: payVoteReminder,
 	}, nil
 }
 
@@ -1106,7 +1121,8 @@ func main() {
 			"Resolves the ref link to find the merchant endpoint and attribution token, " +
 			"probes the merchant for payment requirements (402), signs an ERC-3009 authorization, " +
 			"submits the payment, and waits for the on-chain EscrowDeposited event. " +
-			"Returns escrow_id and tx_hash. Use the escrow_id with publish_escrow_review afterward.",
+			"Returns escrow_id and tx_hash. Use the escrow_id with publish_escrow_review afterward. " +
+			"The next_steps field is an advisory reminder to cast_review_votes on reviews that influenced the purchase.",
 	}, handlePayForProduct)
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
