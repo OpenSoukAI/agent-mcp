@@ -103,7 +103,7 @@ type commitmentMessage struct {
 
 type reviewCommitmentPayload struct {
 	// Types and PrimaryType are part of the EIP-712 typed-data envelope returned
-	// by submit_review step 1. Accepted here but not used — the signer recomputes
+	// by submit_admin_approved_review step 1. Accepted here but not used — the signer recomputes
 	// the digest from Domain + Message directly.
 	Types       map[string]any    `json:"types,omitempty"`
 	PrimaryType string            `json:"primaryType,omitempty"`
@@ -118,7 +118,7 @@ type signInput struct {
 }
 
 type signOutput struct {
-	// 0x-prefixed 65-byte hex signature. Pass directly as agent_sig in submit_review step 2.
+	// 0x-prefixed 65-byte hex signature. Pass directly as agent_sig in submit_admin_approved_review step 2.
 	Signature string `json:"signature"`
 }
 
@@ -1046,33 +1046,33 @@ func main() {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name: "sign_review_commitment",
 		Description: "Sign an EIP-712 ReviewCommitment using the agent's private key. " +
-			"Call this between submit_review step 1 and step 2: " +
-			"pass the 'commitment' object from submit_review step 1 exactly as returned, " +
-			"then use the returned 'signature' as 'agent_sig' in submit_review step 2.",
+			"Call this between submit_admin_approved_review step 1 and step 2: " +
+			"pass the 'commitment' object from submit_admin_approved_review step 1 exactly as returned, " +
+			"then use the returned 'signature' as 'agent_sig' in submit_admin_approved_review step 2.",
 	}, handleSign)
 
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name: "sign_vote_commitment",
 		Description: "Sign an EIP-712 VoteCommitment using the agent's private key. " +
-			"Call this between submit_votes step 1 and step 2: pass the 'commitment' object from " +
-			"submit_votes step 1 exactly as returned, then use the returned 'signature' as 'agent_sig' " +
-			"in submit_votes step 2.",
+			"Call this between cast_review_votes step 1 and step 2: pass the 'commitment' object from " +
+			"cast_review_votes step 1 exactly as returned, then use the returned 'signature' as 'agent_sig' " +
+			"in cast_review_votes step 2.",
 	}, handleSignVote)
 
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name: "sign_cashback_rate_commitment",
 		Description: "Sign an EIP-712 CashbackRateCommitment using the agent's private key. " +
-			"Call this between set_cashback_rate step 1 and step 2: pass the 'commitment' object from " +
-			"set_cashback_rate step 1 exactly as returned, then use the returned 'signature' as 'agent_sig' " +
-			"in set_cashback_rate step 2.",
+			"Call this between set_default_cashback_rate step 1 and step 2: pass the 'commitment' object from " +
+			"set_default_cashback_rate step 1 exactly as returned, then use the returned 'signature' as 'agent_sig' " +
+			"in set_default_cashback_rate step 2.",
 	}, handleSignCashbackRate)
 
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name: "sign_review_cashback_commitment",
 		Description: "Sign an EIP-712 ReviewCashbackCommitment using the agent's private key. " +
-			"Call this between set_cashback_rate_for_review step 1 and step 2: pass the 'commitment' object from " +
-			"set_cashback_rate_for_review step 1 exactly as returned, then use the returned 'signature' as 'agent_sig' " +
-			"in set_cashback_rate_for_review step 2.",
+			"Call this between set_review_cashback_rate step 1 and step 2: pass the 'commitment' object from " +
+			"set_review_cashback_rate step 1 exactly as returned, then use the returned 'signature' as 'agent_sig' " +
+			"in set_review_cashback_rate step 2.",
 	}, handleSignReviewCashback)
 
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
@@ -1097,7 +1097,7 @@ func main() {
 		Description: "Submit a buyer review directly on-chain using an escrow purchase as proof. " +
 			"Calls ReviewRegistry.publishReviewWithEscrowProof() with the agent's private key. " +
 			"Use this after a purchase is confirmed (escrow deposited). " +
-			"After this succeeds, call register_published_review on referrer-agent with the returned review_id.",
+			"After this succeeds, call register_purchase_review on referrer-agent with the returned review_id.",
 	}, handlePublishEscrowReview)
 
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
