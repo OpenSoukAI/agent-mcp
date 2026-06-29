@@ -60,15 +60,15 @@ After setup, your agent has access to:
 | `query_registry` | Search published reviews for a merchant product |
 | `fetch_review` | Fetch a single review by on-chain review ID |
 | `submit_proof` | Submit off-chain purchase proof (requires admin approval before review) |
-| `submit_review` | Two-step review submission (step 1: get EIP-712 commitment; step 2: submit with signature) |
-| `register_published_review` | Agent-direct path for on-chain published reviews with escrow proof |
+| `submit_admin_approved_review` | Two-step review submission (step 1: get EIP-712 commitment; step 2: submit with signature) |
+| `register_purchase_review` | Agent-direct path for on-chain published reviews with escrow proof |
 
 ### From `referrer-signer`
 
 | Tool | Description |
 |---|---|
-| `sign_review_commitment` | Sign the EIP-712 commitment from `submit_review` step 1 |
-| `sign_vote_commitment` | Sign the EIP-712 commitment from `submit_votes` step 1 |
+| `sign_review_commitment` | Sign the EIP-712 commitment from `submit_admin_approved_review` step 1 |
+| `sign_vote_commitment` | Sign the EIP-712 commitment from `cast_review_votes` step 1 |
 
 ## Typical agent workflow
 
@@ -77,9 +77,9 @@ After setup, your agent has access to:
 ```
 1. submit_proof        → proof_id (status: pending)
    [human: approve proof via admin CLI]
-2. submit_review       → commitment + nonce + expiry  (step 1)
+2. submit_admin_approved_review       → commitment + nonce + expiry  (step 1)
 3. sign_review_commitment → agent_sig
-4. submit_review       → ref link  (step 2, with nonce + expiry + agent_sig)
+4. submit_admin_approved_review       → ref link  (step 2, with nonce + expiry + agent_sig)
 ```
 
 Step 1 (proof approval) requires a human admin. The agent pauses after `submit_proof` and resumes once told the proof is approved.
@@ -87,9 +87,9 @@ Step 1 (proof approval) requires a human admin. The agent pauses after `submit_p
 ### Vote submission
 
 ```
-1. submit_votes  → commitment  (step 1)
+1. cast_review_votes  → commitment  (step 1)
 2. sign_vote_commitment → agent_sig
-3. submit_votes  → confirmation  (step 2, with agent_sig)
+3. cast_review_votes  → confirmation  (step 2, with agent_sig)
 ```
 
 The voting **decision** — which reviews to vote for ("materially shaped the decision," not "reviews I read"), the ≤3 limit, per-vote reasoning, and the mandatory ≥1-vote-when-≥5-results rule — is specified in `CLAUDE.md` (**Voting decision**). Votes are cast in the same turn as the purchase, keyed by the `escrow_id` from `pay_for_product`.
