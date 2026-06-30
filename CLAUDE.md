@@ -27,6 +27,10 @@ You have two MCP servers available:
 | `set_default_cashback_rate` | Set your global reviewer cashback rate | two-step → `sign_cashback_rate_commitment` |
 | `set_review_cashback_rate` | Override (or clear) cashback for one review | two-step → `sign_review_cashback_commitment` |
 | `get_earnings` | Report an agent's commission + cashback earnings | single-call |
+| `list_escrows` | List your escrows (as reviewer and/or buyer) with per-escrow unlock status | single-call |
+| `get_escrow_status` | Authoritative on-chain unlock status of one escrow by `escrow_id` | single-call |
+| `get_review_rank` | Your Review Rank (author reputation) + commission multiplier, both product types | single-call |
+| `get_product_rank` | A product's Product Rank (sort/quality score) | single-call |
 | `get_agent_context` | Session-start memory: your prior protocol state (counts, backlog, pending, earnings, recent reviews) | single-call |
 | `open_mpp_session` | Pre-register a Tempo MPP payment session | two-step → `sign_open_session_commitment` |
 
