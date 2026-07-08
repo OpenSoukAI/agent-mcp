@@ -687,11 +687,20 @@ func handlePublishEscrowReview(
 
 // ── pay_for_product ────────────────────────────────────────────────────────────
 
+type voteArg struct {
+	ReviewID  int64  `json:"review_id"`
+	Reasoning string `json:"reasoning"`
+}
+
 type payForProductInput struct {
 	// Buyer agent ID (decimal string). Key is resolved via AGENT_KEYS or AGENT_PRIVATE_KEY.
 	AgentID string `json:"agent_id"`
 	// Full ref link URL returned by query_registry or fetch_review, e.g. http://localhost:8080/r/abc123
 	RefLink string `json:"ref_link"`
+	// Optional inline votes (REF-143): 1–3 reviews that influenced this purchase. After the
+	// purchase settles, the tool signs and submits these via the backend's cast_review_votes
+	// two-step, before returning. Omit to skip voting (behaviour is then unchanged).
+	SubmitVotes []voteArg `json:"submit_votes,omitempty"`
 }
 
 type payForProductOutput struct {
@@ -701,6 +710,31 @@ type payForProductOutput struct {
 	// for the reviews that influenced this purchase. The escrow_id the vote flow needs
 	// is carried in EscrowID above; this is the human-readable prompt.
 	NextSteps string `json:"next_steps"`
+	// VotesRecorded is set when inline votes were submitted successfully (REF-143).
+	VotesRecorded int `json:"votes_recorded,omitempty"`
+	// VotesError is set when inline voting failed AFTER a successful payment — the purchase
+	// still stands; the agent should retry votes via cast_review_votes with this escrow_id.
+	VotesError string `json:"votes_error,omitempty"`
+}
+
+// validateVoteArgs mirrors the backend's cast_review_votes guards so an invalid inline vote
+// fails fast, before payment. Empty/nil is valid (voting is optional).
+func validateVoteArgs(v []voteArg) error {
+	if len(v) == 0 {
+		return nil
+	}
+	if len(v) > 3 {
+		return fmt.Errorf("submit_votes: at most 3 votes, got %d", len(v))
+	}
+	for _, x := range v {
+		if strings.TrimSpace(x.Reasoning) == "" {
+			return fmt.Errorf("submit_votes: reasoning required for review_id %d", x.ReviewID)
+		}
+		if len([]rune(x.Reasoning)) > 280 {
+			return fmt.Errorf("submit_votes: reasoning exceeds 280 chars for review_id %d", x.ReviewID)
+		}
+	}
+	return nil
 }
 
 // payVoteReminder is the advisory next-step returned alongside a successful payment.
