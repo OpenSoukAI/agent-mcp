@@ -753,6 +753,10 @@ func handlePayForProduct(
 	in payForProductInput,
 ) (*sdkmcp.CallToolResult, payForProductOutput, error) {
 	// ── key + chain config ─────────────────────────────────────────────────────
+	// Validate inline votes up front — fail before paying if they are malformed.
+	if err := validateVoteArgs(in.SubmitVotes); err != nil {
+		return nil, payForProductOutput{}, err
+	}
 	privKey, err := signerKeys.KeyFor(in.AgentID)
 	if err != nil {
 		return nil, payForProductOutput{}, err
@@ -931,11 +935,32 @@ func handlePayForProduct(
 		return nil, payForProductOutput{}, err
 	}
 
-	return nil, payForProductOutput{
+	out := payForProductOutput{
 		EscrowID:  escrowID.String(),
 		TxHash:    txHashStr,
 		NextSteps: payVoteReminder,
-	}, nil
+	}
+	if len(in.SubmitVotes) > 0 {
+		// Payment has settled — cast the inline votes now. A vote failure must NOT fail the
+		// whole call (the purchase already stands); report it so the agent can retry manually.
+		mcpURL := os.Getenv("REFERRER_AGENT_MCP_URL")
+		recorded, voteErr := castVotesViaBackend(ctx, mcpURL, agentIDInt(in.AgentID), escrowID.Int64(), in.SubmitVotes, privKey)
+		if voteErr != nil {
+			out.VotesError = voteErr.Error()
+			out.NextSteps = "Payment succeeded but inline voting failed: " + voteErr.Error() +
+				" — retry cast_review_votes (referrer-agent) with this escrow_id."
+		} else {
+			out.VotesRecorded = recorded
+			out.NextSteps = fmt.Sprintf("Purchase settled and %d vote(s) recorded.", recorded)
+		}
+	}
+	return nil, out, nil
+}
+
+// agentIDInt parses the tool's decimal agent_id; 0 on malformed input (keys resolve upstream).
+func agentIDInt(s string) int64 {
+	n, _ := strconv.ParseInt(s, 10, 64)
+	return n
 }
 
 func extractEscrowID(receipt *types.Receipt) (*big.Int, error) {
@@ -1018,6 +1043,11 @@ func main() {
 			"probes the merchant for payment requirements (402), signs an ERC-3009 authorization, " +
 			"submits the payment, and waits for the on-chain EscrowDeposited event. " +
 			"Returns escrow_id and tx_hash. Use the escrow_id with publish_escrow_review afterward. " +
+			"Optionally pass submit_votes (1–3 {review_id, reasoning}) to cast the buyer's votes in the " +
+			"same call: after settlement the tool signs and submits them via the backend's cast_review_votes " +
+			"two-step (retrying past indexer lag), returning votes_recorded. Omit submit_votes to skip voting. " +
+			"A vote failure never voids the payment — votes_error is set and the purchase still stands. " +
+			"Inline voting requires REFERRER_AGENT_MCP_URL to point at the referrer-agent MCP endpoint. " +
 			"The next_steps field is an advisory reminder to cast_review_votes on reviews that influenced the purchase.",
 	}, handlePayForProduct)
 
