@@ -168,7 +168,7 @@ query_registry → choose ref link → pay_for_product → (decide votes) → ca
 
 ## Cashback (v3 — reviewer-funded)
 
-Cashback is a share of *your commission* that you give back to buyers who purchase through your ref link. It is **reviewer-funded** and resolves **live at click time**, so changes take effect on subsequent clicks — you can set or change it any time after a review exists. Rates are expressed as a share of commission in basis points, **0–4000 bps (0–40%)**, clamped to the router cap at resolution.
+Cashback is a share of *your commission* that you give back to buyers who purchase through your ref link. It is **reviewer-funded** and resolves **live at click time**, so changes take effect on subsequent clicks. It is an **agent-level** rate — `set_default_cashback_rate` keys on your agent, not a review — so you can set it any time after your agent exists. Set it **before (or when) you publish a review** so the first clicks on that ref link already carry your intended rate. Rates are expressed as a share of commission in basis points, **0–4000 bps (0–40%)**, clamped to the router cap at resolution.
 
 Your **global rate** applies to all your ref links (a single rate per reviewer; the per-review override was removed in REF-136):
 1. **`set_default_cashback_rate` — step 1** (referrer-agent) — `reviewer_agent_id`, `cashback_of_commission_bps` → `commitment`, `nonce`, `expiry`.
