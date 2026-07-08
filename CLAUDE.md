@@ -25,7 +25,6 @@ You have two MCP servers available:
 | `update_review_content` | Edit a buyer review within the 7-day on-chain window | single-call |
 | `cast_review_votes` | Cast 1–3 buyer votes for influential reviews | two-step → `sign_vote_commitment` |
 | `set_default_cashback_rate` | Set your global reviewer cashback rate | two-step → `sign_cashback_rate_commitment` |
-| `set_review_cashback_rate` | Override (or clear) cashback for one review | two-step → `sign_review_cashback_commitment` |
 | `get_earnings` | Report an agent's commission + cashback earnings | single-call |
 | `list_escrows` | List your escrows (as reviewer and/or buyer) with per-escrow unlock status | single-call |
 | `get_escrow_status` | Authoritative on-chain unlock status of one escrow by `escrow_id` | single-call |
@@ -41,13 +40,12 @@ You have two MCP servers available:
 | `sign_review_commitment` | Sign the `submit_admin_approved_review` commitment |
 | `sign_vote_commitment` | Sign the `cast_review_votes` commitment |
 | `sign_cashback_rate_commitment` | Sign the `set_default_cashback_rate` commitment |
-| `sign_review_cashback_commitment` | Sign the `set_review_cashback_rate` commitment |
 | `sign_open_session_commitment` | Sign the `open_mpp_session` commitment (payer wallet) |
 | `sign_charge_commitment` | Sign a Tempo one-off charge for `POST /mpp/charge` |
 | `pay_for_product` | Autonomous x402 buyer payment via a ref link |
 | `publish_escrow_review` | Publish a buyer review on-chain via `publishReviewWithEscrowProof()` |
 
-Most two-step protocol tools follow one pattern: step 1 returns `{ commitment, nonce, expiry }`; pass the **full commitment object** to its signer tool, then call the protocol tool again with `nonce`, `expiry`, and the returned `agent_sig`. This holds for `submit_admin_approved_review`, `cast_review_votes`, `set_default_cashback_rate`, and `set_review_cashback_rate`.
+Most two-step protocol tools follow one pattern: step 1 returns `{ commitment, nonce, expiry }`; pass the **full commitment object** to its signer tool, then call the protocol tool again with `nonce`, `expiry`, and the returned `agent_sig`. This holds for `submit_admin_approved_review`, `cast_review_votes`, and `set_default_cashback_rate`.
 
 **Exception — `open_mpp_session`:** step 1 returns only a `commitment` (no `nonce`/`expiry`); sign it with `sign_open_session_commitment`, then call step 2 with the **same** `attribution_token`, `buyer_agent_id`, `payer`, and `salt` plus **`payer_sig`** (not `agent_sig`). The session is keyed by `(payer, salt)`, so there is no nonce. See the MPP section below.
 
@@ -148,7 +146,7 @@ A buyer agent can purchase a product and submit a review without any shell scrip
 3. **`register_purchase_review`** (referrer-agent) — call with `review_id` (the on-chain id from step 2), `escrow_id` (from step 1), and the same `content_json`
    → verifies the content hash against the chain and the escrow proof of purchase, then registers the buyer's review and returns its `ref_link` and internal `review_id`
 
-> The internal `review_id` returned here is what you pass to `set_review_cashback_rate`. Step 3 is idempotent — a retry after full success returns the existing ref link.
+> Step 3 is idempotent — a retry after full success returns the existing ref link.
 
 ### Voting in the same turn as the purchase
 
@@ -172,20 +170,10 @@ query_registry → choose ref link → pay_for_product → (decide votes) → ca
 
 Cashback is a share of *your commission* that you give back to buyers who purchase through your ref link. It is **reviewer-funded** and resolves **live at click time**, so changes take effect on subsequent clicks — you can set or change it any time after a review exists. Rates are expressed as a share of commission in basis points, **0–4000 bps (0–40%)**, clamped to the router cap at resolution.
 
-There are two levels; the per-review rate wins when set, otherwise the global rate applies:
-
-**Global rate** — applies to all your ref links by default:
+Your **global rate** applies to all your ref links (a single rate per reviewer; the per-review override was removed in REF-136):
 1. **`set_default_cashback_rate` — step 1** (referrer-agent) — `reviewer_agent_id`, `cashback_of_commission_bps` → `commitment`, `nonce`, `expiry`.
 2. **`sign_cashback_rate_commitment`** (referrer-signer) — pass the commitment → `signature`.
 3. **`set_default_cashback_rate` — step 2** — `nonce`, `expiry`, `agent_sig`.
-
-**Per-review override** — overrides the global rate for **one** review's ref link only:
-1. **`set_review_cashback_rate` — step 1** (referrer-agent) — `agent_id` (must own the review), `internal_review_id` (from `submit_admin_approved_review`'s `internal_review_id` or `register_purchase_review`), `cashback_of_commission_bps` → `commitment`, `nonce`, `expiry`.
-   - To **clear** an override and revert this review to your global rate, pass `clear=true` (the `cashback_of_commission_bps` value is ignored, but you still sign and submit the returned commitment).
-2. **`sign_review_cashback_commitment`** (referrer-signer) — pass the commitment → `signature`.
-3. **`set_review_cashback_rate` — step 2** — `nonce`, `expiry`, `agent_sig`. Status returns `set` (or `cleared`).
-
-> Note `0` is a real rate (0% cashback) and is distinct from "no override" — that is why clearing needs the explicit `clear=true` path rather than setting `0`.
 
 ## Earnings
 
