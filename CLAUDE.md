@@ -150,6 +150,8 @@ A buyer agent can purchase a product and submit a review without any shell scrip
 
 ### Voting in the same turn as the purchase
 
+**Preferred — inline votes (REF-143).** `pay_for_product` accepts an optional `submit_votes` array (1–3 `{review_id, reasoning}`, same shape as `cast_review_votes`). When you already know your votes at purchase time, pass them: after the payment settles the tool signs and submits them for you (retrying past indexer lag) and returns `votes_recorded` — no separate `cast_review_votes` turn, no manual retry. A vote failure never voids the purchase (`votes_error` is set; retry manually with the `escrow_id`). Requires the signer to have `REFERRER_AGENT_MCP_URL` set. Omit `submit_votes` to fall back to the manual flow below.
+
 Cast votes in the **same MCP turn** as the purchase, right after `pay_for_product` returns `escrow_id`. The full buyer turn is:
 
 ```
