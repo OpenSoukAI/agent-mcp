@@ -44,7 +44,7 @@ var (
 	commitmentTypehash = crypto.Keccak256Hash([]byte(commitmentTypeString))
 
 	reviewPublishedTopic = crypto.Keccak256Hash([]byte("ReviewPublished(uint256,uint256,uint256,bytes32,bytes32,uint8,uint40)"))
-	escrowDepositedTopic = crypto.Keccak256Hash([]byte("EscrowDeposited(uint256,uint256,uint256,uint256,uint256,bytes32,uint128,uint128)"))
+	escrowDepositedTopic = crypto.Keccak256Hash([]byte("EscrowDeposited(uint256,uint256,uint256,address,uint256,uint256,bytes32,uint128,uint128)"))
 
 	abiUint256 = mustABIType("uint256")
 	abiBytes32 = mustABIType("bytes32")
@@ -57,7 +57,7 @@ var (
 	]`)
 
 	commissionEscrowABI = mustParseABI(`[
-		{"inputs":[{"name":"escrowId","type":"uint256"}],"name":"getEscrow","outputs":[{"components":[{"name":"reviewerAgentId","type":"uint256"},{"name":"buyerAgentId","type":"uint256"},{"name":"merchantId","type":"uint256"},{"name":"productId","type":"bytes32"},{"name":"heldBackAmt","type":"uint128"},{"name":"cashbackAmt","type":"uint128"},{"name":"state","type":"uint8"}],"name":"","type":"tuple"}],"stateMutability":"view","type":"function"}
+		{"inputs":[{"name":"escrowId","type":"uint256"}],"name":"getEscrow","outputs":[{"components":[{"name":"reviewerAgentId","type":"uint256"},{"name":"buyerAgentId","type":"uint256"},{"name":"buyerWallet","type":"address"},{"name":"merchantId","type":"uint256"},{"name":"productId","type":"bytes32"},{"name":"heldBackAmt","type":"uint128"},{"name":"cashbackAmt","type":"uint128"},{"name":"originalPurchaseAmt","type":"uint128"},{"name":"depositTimestamp","type":"uint40"},{"name":"windowEnd","type":"uint40"},{"name":"productType","type":"uint8"},{"name":"state","type":"uint8"},{"name":"cashbackReleased","type":"bool"}],"name":"","type":"tuple"}],"stateMutability":"view","type":"function"}
 	]`)
 )
 
@@ -625,14 +625,14 @@ func handlePublishEscrowReview(
 	if err != nil {
 		return nil, publishEscrowReviewOutput{}, fmt.Errorf("getEscrow(%s): %w", in.EscrowID, err)
 	}
-	// ABI layout: (uint256 reviewerAgentId, uint256 buyerAgentId, uint256 merchantId, bytes32 productId, ...)
-	// All static types; each slot is 32 bytes.
-	if len(rawResult) < 128 {
+	// ABI layout: (uint256 reviewerAgentId, uint256 buyerAgentId, address buyerWallet, uint256 merchantId, bytes32 productId, ...)
+	// All static types; each slot is 32 bytes (address is left-padded to 32 bytes).
+	if len(rawResult) < 160 {
 		return nil, publishEscrowReviewOutput{}, fmt.Errorf("getEscrow returned short data: %d bytes", len(rawResult))
 	}
-	merchantID := new(big.Int).SetBytes(rawResult[64:96])
+	merchantID := new(big.Int).SetBytes(rawResult[96:128])
 	var productID [32]byte
-	copy(productID[:], rawResult[96:128])
+	copy(productID[:], rawResult[128:160])
 
 	if callerMerchantID.Cmp(merchantID) != 0 {
 		return nil, publishEscrowReviewOutput{}, fmt.Errorf(
