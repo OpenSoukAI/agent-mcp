@@ -694,8 +694,11 @@ type voteArg struct {
 
 type payForProductInput struct {
 	// Buyer agent ID (decimal string). Key is resolved via AGENT_KEYS or AGENT_PRIVATE_KEY.
-	AgentID string `json:"agent_id"`
-	// Full ref link URL returned by query_registry or fetch_review, e.g. http://localhost:8080/r/abc123
+	// Optional: omit for an agent-less purchase (no ERC-8004 identity yet) — the sentinel
+	// buyer id is sent and the fallback AGENT_PRIVATE_KEY wallet pays (REF-134).
+	AgentID string `json:"agent_id,omitempty"`
+	// Full ref link URL returned by query_registry or fetch_review, e.g.
+	// https://api.example/r/<base64url-token>. The token is decoded and verified locally.
 	RefLink string `json:"ref_link"`
 	// Optional inline votes (REF-143): 1–3 reviews that influenced this purchase. After the
 	// purchase settles, the tool signs and submits these via the backend's cast_review_votes
@@ -763,6 +766,15 @@ func handlePayForProduct(
 	}
 	buyerAddr := crypto.PubkeyToAddress(privKey.PublicKey).Hex()
 
+	// Agent-less buyer (REF-134): an empty agent_id means "no ERC-8004 identity yet".
+	// Pay with the fallback wallet key (resolved above) and send the sentinel buyer id
+	// so the router skips the ownerOf bind and records the paying wallet for a later
+	// deferred identity bind. A real agent_id is passed through unchanged.
+	buyerAgentIDStr := buyerAgentIDOrSentinel(in.AgentID)
+	if buyerAgentIDStr == sentinelBuyerAgentID && len(in.SubmitVotes) > 0 {
+		return nil, payForProductOutput{}, fmt.Errorf("submit_votes requires an agent identity; an agent-less purchase (empty agent_id) cannot vote — bind an identity first, then cast_review_votes")
+	}
+
 	rpcURL := os.Getenv("BASE_RPC_URL")
 	if rpcURL == "" {
 		return nil, payForProductOutput{}, fmt.Errorf("BASE_RPC_URL env var not set")
@@ -787,29 +799,43 @@ func handlePayForProduct(
 	if len(parts) != 2 || parts[1] == "" {
 		return nil, payForProductOutput{}, fmt.Errorf("ref_link has no /r/<token> path: %s", in.RefLink)
 	}
-	token := parts[1]
-
-	// ── resolve ref link ───────────────────────────────────────────────────────
-	httpClient := &http.Client{Timeout: 30 * time.Second}
-	refResp, err := httpClient.Get(apiBase + "/r/" + token)
+	urlChainSeg, attributionToken, err := splitRefPath(parts[1])
 	if err != nil {
-		return nil, payForProductOutput{}, fmt.Errorf("resolve ref link: %w", err)
+		return nil, payForProductOutput{}, fmt.Errorf("ref_link: %w", err)
 	}
-	defer refResp.Body.Close()
-	refBody, _ := io.ReadAll(refResp.Body)
-	if refResp.StatusCode != http.StatusOK {
-		return nil, payForProductOutput{}, fmt.Errorf("resolve ref link: HTTP %d: %s", refResp.StatusCode, refBody)
+	// A chain-qualified link (<base>/r/<chainID>/<token>) naming a non-Base rail is
+	// rejected up front — this edge path is Base-only. Base mints the bare form.
+	if urlChainSeg != "" && urlChainSeg != chainIDStr {
+		return nil, payForProductOutput{}, fmt.Errorf("ref_link is for chain %s, but this signer is configured for chain %s", urlChainSeg, chainIDStr)
 	}
-	var refData map[string]any
-	if err := json.Unmarshal(refBody, &refData); err != nil {
-		return nil, payForProductOutput{}, fmt.Errorf("parse ref link response: %w", err)
+
+	// ── decode + verify the token locally (no resolution round-trip) ───────────
+	// The token in the link IS the self-contained attribution token (base64url of
+	// payload || Ed25519 sig). Fetch the attestation pubkey for OUR configured chain
+	// (trusted, so an unverified token can't steer key selection), verify the token's
+	// signature against it, then confirm the token was minted for this chain. All the
+	// pay targets come straight from the decoded payload — REF-139 drops the backend
+	// GET /r/<token> resolution entirely.
+	//
+	// Trust note: the attestation key is fetched from the ref link's own host. This is
+	// no weaker than the resolution it replaces (which trusted that host's UNSIGNED
+	// response); the signature check is strictly stronger. Pinning the well-known to a
+	// configured trusted origin — so a link on an attacker host can't self-attest — is a
+	// deferred onboarding-trust-model item (decision-edge-reflink-agentless-buy.md, TODO).
+	httpClient := &http.Client{Timeout: 30 * time.Second}
+	pubKeyHex, err := attestationPubKey(ctx, httpClient, apiBase, chainIDInt)
+	if err != nil {
+		return nil, payForProductOutput{}, fmt.Errorf("fetch attestation key: %w", err)
 	}
-	merchantEndpoint, _ := refData["merchantEndpoint"].(string)
-	attributionToken, _ := refData["attributionToken"].(string)
-	splitRouterAddr, _ := refData["splitRouterAddr"].(string)
-	if merchantEndpoint == "" || attributionToken == "" || splitRouterAddr == "" {
-		return nil, payForProductOutput{}, fmt.Errorf("ref link response missing fields: %s", refBody)
+	tok, err := verifyAndDecodeToken(attributionToken, pubKeyHex)
+	if err != nil {
+		return nil, payForProductOutput{}, err
 	}
+	if tok.ChainID != chainIDInt {
+		return nil, payForProductOutput{}, fmt.Errorf("attribution token is for chain %d, but this signer is configured for chain %d", tok.ChainID, chainIDInt)
+	}
+	merchantEndpoint := tok.MerchantEndpoint
+	splitRouterAddr := tok.SplitRouter
 
 	// ── phase 1: probe merchant for 402 payment requirements ──────────────────
 	phase1Req, err := http.NewRequestWithContext(ctx, http.MethodPost, merchantEndpoint, bytes.NewReader([]byte(`{}`)))
@@ -818,7 +844,7 @@ func handlePayForProduct(
 	}
 	phase1Req.Header.Set("Content-Type", "application/json")
 	phase1Req.Header.Set("X-Referrer-Token", attributionToken)
-	phase1Req.Header.Set("X-Referrer-Buyer-Agent-Id", in.AgentID)
+	phase1Req.Header.Set("X-Referrer-Buyer-Agent-Id", buyerAgentIDStr)
 	phase1Resp, err := httpClient.Do(phase1Req)
 	if err != nil {
 		return nil, payForProductOutput{}, fmt.Errorf("phase 1: %w", err)
@@ -874,7 +900,7 @@ func handlePayForProduct(
 		Accepted:    requirements,
 		Extensions: map[string]any{
 			"attributionToken": attributionToken,
-			"buyerAgentId":     in.AgentID,
+			"buyerAgentId":     buyerAgentIDStr,
 		},
 	}
 	payloadJSON, err := json.Marshal(paymentPayload)
@@ -1039,10 +1065,15 @@ func main() {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name: "pay_for_product",
 		Description: "Complete an x402 buyer payment for a product via a referral link. " +
-			"Resolves the ref link to find the merchant endpoint and attribution token, " +
-			"probes the merchant for payment requirements (402), signs an ERC-3009 authorization, " +
-			"submits the payment, and waits for the on-chain EscrowDeposited event. " +
+			"Decodes the self-contained ref link locally — verifying its Ed25519 signature against the " +
+			"protocol attestation key published at /.well-known/referrer-agent (cached), with NO backend " +
+			"resolution round-trip — to read the merchant endpoint, settlement router, and chain straight " +
+			"from the token. Probes the merchant for payment requirements (402), signs an ERC-3009 " +
+			"authorization, submits the payment, and waits for the on-chain EscrowDeposited event. " +
 			"Returns escrow_id and tx_hash. Use the escrow_id with publish_escrow_review afterward. " +
+			"Omit agent_id to buy agent-less (no ERC-8004 identity yet): the buyer wallet is recorded " +
+			"on-chain for a later identity bind, and cashback is held until then. Agent-less purchases " +
+			"cannot submit_votes (bind an identity first). " +
 			"Optionally pass submit_votes (1–3 {review_id, reasoning}) to cast the buyer's votes in the " +
 			"same call: after settlement the tool signs and submits them via the backend's cast_review_votes " +
 			"two-step (retrying past indexer lag), returning votes_recorded. Omit submit_votes to skip voting. " +

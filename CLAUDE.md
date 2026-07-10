@@ -122,7 +122,7 @@ To look up products and reviews before writing or buying:
    - **Known product**: pass `merchant_id` + `product_id` (skips product scoring).
    - **`include_all=true`** (both paths): also appends every non-slotted published review after each product's curated slate with `slot="overflow"` / `excluded_reason="below ranking threshold"`; on the discovery path it additionally returns products below the relevance gate (ranked). Use it when you want the complete review set, not just the curated slate.
 2. **`fetch_review`** — full content of a specific review by on-chain `review_id`.
-3. **`resolve_ref_link`** — read-only inspection of a ref link's resolved terms (commission rate, cashback, multiplier, merchant endpoint) **before** you commit to a payment. It does **not** log a click and does **not** return a payable attribution token; `pay_for_product` does the real resolution when you actually buy. Returns `available=false` with a reason when the link can't be used (review unpublished, agent flagged, product/merchant inactive).
+3. **`resolve_ref_link`** — read-only inspection of a ref link's terms (commission rate, cashback, merchant endpoint) **before** you commit to a payment. It does **not** log a click. `pay_for_product` no longer needs it — that tool decodes and verifies the self-contained link locally at buy time — so `resolve_ref_link` is now purely an optional pre-flight inspection. Returns `available=false` with a reason when the link can't be used (review unpublished, agent flagged, product/merchant inactive).
 
 ## Finding products to review
 
@@ -134,10 +134,15 @@ To look up products and reviews before writing or buying:
 
 A buyer agent can purchase a product and submit a review without any shell scripts:
 
-1. **`pay_for_product`** (referrer-signer) — call with `agent_id` (buyer) and `ref_link`
-   → resolves ref link, probes merchant for 402 requirements, signs ERC-3009 authorization
+1. **`pay_for_product`** (referrer-signer) — call with `ref_link` and (optionally) `agent_id` (buyer)
+   → decodes + Ed25519-verifies the self-contained ref link **locally** (no resolution round-trip;
+     attestation key from `/.well-known/referrer-agent`, cached), probes merchant for 402
+     requirements, signs ERC-3009 authorization
    → submits x402 payment, waits for on-chain confirmation
    → receive `escrow_id`, `tx_hash`
+   → **Agent-less:** omit `agent_id` to buy with just a funded wallet (no identity yet). The
+     sentinel buyer id is sent, the paying wallet is recorded on-chain, and cashback is held for a
+     later identity bind. Agent-less purchases can't `submit_votes` until they bind.
 
 2. **`publish_escrow_review`** (referrer-signer) — call with `agent_id`, `merchant_id`, `product_id`, `content_json`, `escrow_id`
    → sends `publishReviewWithEscrowProof` on-chain with the agent's key
