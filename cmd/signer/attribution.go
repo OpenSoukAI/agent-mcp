@@ -10,6 +10,7 @@ import (
 	"io"
 	"math/big"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -148,44 +149,61 @@ type wellKnownManifest struct {
 	} `json:"chains"`
 }
 
+// pubKeyCache memoises the RESOLVED attestation pubkey per (apiBase, chainID). Only a
+// non-empty resolved key is ever stored, so a manifest transiently served with a
+// missing/empty key is never pinned for the process lifetime — the next call re-fetches
+// and retries. Keyed per chain, so a manifest valid for Base but missing another rail's
+// key can't poison that rail's lookup.
 var (
-	manifestCacheMu sync.Mutex
-	manifestCache   = map[string]wellKnownManifest{} // apiBase -> manifest (process-lifetime)
+	pubKeyCacheMu sync.Mutex
+	pubKeyCache   = map[string]string{} // apiBase + "|" + chainID -> pubkey hex
 )
 
 // attestationPubKey returns the Ed25519 attestation pubkey (hex) for chainID, fetching
-// and caching the well-known manifest per apiBase. chainID MUST be the caller's trusted
-// configured chain (not the token's self-claimed chainId) so key selection can't be
-// steered by an unverified token. The manifest is treated as immutable for a given host
-// (backend guarantee), so it is cached for the process lifetime; only successful fetches
-// are cached, so a transient failure re-fetches on the next call.
+// the well-known manifest per apiBase and caching the resolved key. chainID MUST be the
+// caller's trusted configured chain (not the token's self-claimed chainId) so key
+// selection can't be steered by an unverified token. Keys are per-chain, so it prefers
+// the matching chains[] entry and falls back to the top-level (Base default) key.
 func attestationPubKey(ctx context.Context, httpClient *http.Client, apiBase string, chainID int64) (string, error) {
+	apiBase = strings.TrimRight(apiBase, "/")
+	cacheKey := apiBase + "|" + strconv.FormatInt(chainID, 10)
+
+	pubKeyCacheMu.Lock()
+	if k, ok := pubKeyCache[cacheKey]; ok {
+		pubKeyCacheMu.Unlock()
+		return k, nil
+	}
+	pubKeyCacheMu.Unlock()
+
 	man, err := fetchManifest(ctx, httpClient, apiBase)
 	if err != nil {
 		return "", err
 	}
+
+	pk := man.AttestationPubKey
 	for _, c := range man.Chains {
 		if c.ChainID == chainID && c.AttestationPubKey != "" {
-			return c.AttestationPubKey, nil
+			pk = c.AttestationPubKey
+			break
 		}
 	}
-	if man.AttestationPubKey != "" {
-		return man.AttestationPubKey, nil
+	if pk == "" {
+		// Do NOT cache: a transient empty/malformed manifest must not be pinned so that
+		// lookups keep failing after the host is fixed, until this process restarts.
+		return "", fmt.Errorf("well-known manifest at %s exposes no attestationPubKey for chain %d", apiBase, chainID)
 	}
-	return "", fmt.Errorf("well-known manifest at %s exposes no attestationPubKey for chain %d", apiBase, chainID)
+
+	pubKeyCacheMu.Lock()
+	pubKeyCache[cacheKey] = pk
+	pubKeyCacheMu.Unlock()
+	return pk, nil
 }
 
+// fetchManifest GETs and parses the well-known manifest. It intentionally does NOT
+// cache — caching is the caller's job, keyed by the resolved key, so a response with no
+// usable key is never memoised.
 func fetchManifest(ctx context.Context, httpClient *http.Client, apiBase string) (wellKnownManifest, error) {
-	apiBase = strings.TrimRight(apiBase, "/")
-
-	manifestCacheMu.Lock()
-	if m, ok := manifestCache[apiBase]; ok {
-		manifestCacheMu.Unlock()
-		return m, nil
-	}
-	manifestCacheMu.Unlock()
-
-	url := apiBase + "/.well-known/referrer-agent"
+	url := strings.TrimRight(apiBase, "/") + "/.well-known/referrer-agent"
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return wellKnownManifest{}, fmt.Errorf("build well-known request: %w", err)
@@ -203,9 +221,5 @@ func fetchManifest(ctx context.Context, httpClient *http.Client, apiBase string)
 	if err := json.Unmarshal(body, &m); err != nil {
 		return wellKnownManifest{}, fmt.Errorf("parse well-known manifest from %s: %w", url, err)
 	}
-
-	manifestCacheMu.Lock()
-	manifestCache[apiBase] = m
-	manifestCacheMu.Unlock()
 	return m, nil
 }

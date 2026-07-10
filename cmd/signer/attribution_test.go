@@ -200,17 +200,50 @@ func TestAttestationPubKey_PerChainAndCache(t *testing.T) {
 	if err != nil || got != tempoKey {
 		t.Fatalf("chain 42431 pubkey = %q, err %v; want %q", got, err, tempoKey)
 	}
-	// Base entry.
+	// Repeat same chain -> served from the resolved-key cache, no new HTTP hit.
+	if _, err := attestationPubKey(ctx, client, srv.URL, 42431); err != nil {
+		t.Fatalf("cached 42431 lookup: %v", err)
+	}
+	// Base entry (distinct chain -> one more fetch).
 	got, err = attestationPubKey(ctx, client, srv.URL, 84532)
 	if err != nil || got != baseKey {
 		t.Fatalf("chain 84532 pubkey = %q, err %v; want %q", got, err, baseKey)
 	}
-	// Cached: no further HTTP hit despite multiple lookups.
 	if _, err := attestationPubKey(ctx, client, srv.URL, 84532); err != nil {
-		t.Fatalf("cached lookup: %v", err)
+		t.Fatalf("cached 84532 lookup: %v", err)
 	}
-	if h := atomic.LoadInt32(&hits); h != 1 {
-		t.Errorf("manifest fetched %d times, want 1 (cached)", h)
+	// Two distinct chains => 2 manifest fetches; repeat lookups are cached.
+	if h := atomic.LoadInt32(&hits); h != 2 {
+		t.Errorf("manifest fetched %d times, want 2 (one per distinct chain, repeats cached)", h)
+	}
+}
+
+// TestAttestationPubKey_TransientEmptyNotCached is the regression guard for the caching
+// bug: a 200 OK manifest with no usable key must NOT be pinned — once the host recovers,
+// a retry must succeed without a process restart.
+func TestAttestationPubKey_TransientEmptyNotCached(t *testing.T) {
+	var serveGood int32
+	goodKey := "3b36314baa489deeca392467a15af483f4f63178642d3ff124239f088a2ce73b"
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if atomic.LoadInt32(&serveGood) == 0 {
+			// Transient: HTTP 200 + valid JSON, but no usable key (top-level and the
+			// chain entry are both empty — the case the PR's minimal guard would miss).
+			_, _ = w.Write([]byte(`{"attestationPubKey":"","chains":[{"chainId":84532,"attestationPubKey":""}]}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"attestationPubKey":"` + goodKey + `","chains":[]}`))
+	}))
+	defer srv.Close()
+
+	ctx := context.Background()
+	if _, err := attestationPubKey(ctx, srv.Client(), srv.URL, 84532); err == nil {
+		t.Fatal("expected error on a manifest with no usable key, got nil")
+	}
+	// Host recovers; the retry must now succeed (the bad response was not pinned).
+	atomic.StoreInt32(&serveGood, 1)
+	got, err := attestationPubKey(ctx, srv.Client(), srv.URL, 84532)
+	if err != nil || got != goodKey {
+		t.Fatalf("after recovery: got %q, err %v; want %q", got, err, goodKey)
 	}
 }
 
