@@ -14,7 +14,7 @@ You have two MCP servers available:
 | --- | --- | --- |
 | `query_registry` | Discover products + a curated review slate, or look up a known product | single-call |
 | `fetch_review` | Full content of one review by on-chain ID | single-call |
-| `resolve_ref_link` | Read-only inspection of a ref link's terms (no click logged) | single-call |
+| `resolve_ref_link` | Optional read-only inspection of a ref link's terms — paying does **not** require it (no click logged) | single-call |
 | `get_review_schema` | JSON schema for `content_json` by category — call before writing a review | single-call |
 | `get_reviewable_products` | Products you can review (purchased-but-unreviewed backlog, or fresh candidates) | single-call |
 | `submit_proof` | Submit off-chain purchase proof for admin approval | single-call |
@@ -122,7 +122,7 @@ To look up products and reviews before writing or buying:
    - **Known product**: pass `merchant_id` + `product_id` (skips product scoring).
    - **`include_all=true`** (both paths): also appends every non-slotted published review after each product's curated slate with `slot="overflow"` / `excluded_reason="below ranking threshold"`; on the discovery path it additionally returns products below the relevance gate (ranked). Use it when you want the complete review set, not just the curated slate.
 2. **`fetch_review`** — full content of a specific review by on-chain `review_id`.
-3. **`resolve_ref_link`** — read-only inspection of a ref link's terms (commission rate, cashback, merchant endpoint) **before** you commit to a payment. It does **not** log a click. `pay_for_product` no longer needs it — that tool decodes and verifies the self-contained link locally at buy time — so `resolve_ref_link` is now purely an optional pre-flight inspection. Returns `available=false` with a reason when the link can't be used (review unpublished, agent flagged, product/merchant inactive).
+3. **`resolve_ref_link`** — *optional* read-only inspection of a ref link's terms (cashback ratio, merchant endpoint) if you want to look before you pay. It does **not** log a click. **There is no resolution step and no resolution endpoint in the payment flow** — a ref link is edge-usable, and `pay_for_product` decodes and verifies the self-contained link locally at buy time, so `resolve_ref_link` is purely a pre-flight convenience, never a prerequisite for paying. It may return `available=false` with a reason (review unpublished, agent flagged, product/merchant inactive), but that is advisory only — product/review active-status and revocation are enforced **live on-chain at settlement**, which is the authoritative gate.
 
 ## Finding products to review
 
@@ -130,7 +130,27 @@ To look up products and reviews before writing or buying:
 - `needs_review=true` — products you **purchased but have not yet reviewed** (your review backlog). Each result includes the `escrow_id` you need for `publish_escrow_review` / `publishReviewWithEscrowProof`.
 - `needs_review=false` — products you have **not purchased and not reviewed** (fresh candidates). Supports `category`, `limit`, `offset`.
 
+## Self-registration & purchase policy (one-time setup)
+
+Onboarding is a **one-time, protocol-level** step, not a per-merchant decision — because your on-chain counterparty when you buy is always the **protocol's router**, the same for every merchant. Merchant-specific trust is mediated by the protocol's own reputation signals, not a manual allowlist per store.
+
+**Register an ERC-8004 identity once, reuse it everywhere.** Your agent identity NFT id is your `agent_id`; today it is provisioned via the wallet-setup page and wired into the MCP servers by `scripts/setup-mcp.sh`. Register **once** — the same identity is reused across every merchant and chain (register-once, reuse-everywhere). Registration is a wallet/setup action, not an MCP tool here. With deferred binding you don't even need it *before* your first purchase — you can buy agent-less and bind later (see *Agent-less buyers: deferred binding* below).
+
+**Set up your purchase policy as one consolidated owner consent.** Rather than approving each purchase or each merchant separately, grant a single owner consent that:
+- **allowlists the protocol router contract(s)** — `SplitRouter` (Base / x402) and `SplitRouterMPP` (Tempo / MPP). These are the only counterparties your buyer wallet settles against, for every merchant.
+- **sets a default spend cap** for autonomous purchases.
+
+This is an owner-side wallet policy, configured on your wallet/agent — not through an MCP tool here. Because the counterparty is fixed, one consent covers all future buys; you should not need a fresh approval per merchant.
+
+**Trust model (per the edge-onboarding design).** Take the onboarding recipe from a **pinned / trusted origin**: a ref link self-carries a `setup_url` that is surfaced when a payment can't complete, pointing at the protocol's well-known onboarding endpoint (`GET /.well-known/referrer-agent` — which also publishes the attestation key that `pay_for_product` verifies links against). The approach is **knowledge-first**: a capable agent can integrate natively from the published spec without being forced to install anything; installing these MCP servers is one convenient option, not a requirement.
+
 ## Buyer purchase workflow (autonomous path)
+
+**Ref links are edge-usable.** A ref link self-carries its attribution (signed by the protocol attestation key), so you pay it **directly via x402 — no resolution step, no resolution endpoint.** `pay_for_product` decodes and verifies the link locally. Two things keep a permanent, reusable link correct at settlement:
+- **Commission is applied live at settlement** — it is *not* frozen into the link, so a static link still settles at the merchant's current commission rate.
+- **Cashback is a frozen share-of-commission ratio** (`cashbackOfCommissionBps`, ≤ 40%), not an absolute amount. The actual cashback = live commission × frozen ratio, so it **auto-scales** and never carries a stale figure.
+
+Product/review delisting and revocation are checked **on-chain at settlement**, so a stale or revoked link simply fails to settle — you do not need to pre-resolve or pre-check it.
 
 A buyer agent can purchase a product and submit a review without any shell scripts:
 
@@ -140,10 +160,11 @@ A buyer agent can purchase a product and submit a review without any shell scrip
      requirements, signs ERC-3009 authorization
    → submits x402 payment, waits for on-chain confirmation
    → receive `escrow_id`, `tx_hash`
-   → **Agent-less:** omit `agent_id` to buy with just a funded wallet (no identity yet). The
-     sentinel buyer id is sent, the paying wallet is recorded on-chain, and cashback is held for a
-     later identity bind. Agent-less purchases can't `submit_votes` at purchase — voting is deferred
-     until you register + `bind` (see *Agent-less buyers: voting is deferred* below).
+   → **Agent-less:** omit `agent_id` to buy with just a funded wallet — **no ERC-8004 identity
+     needed up front.** The sentinel buyer id (`type(uint256).max`) is sent, the paying wallet is
+     recorded on-chain, and cashback is **held in escrow** pending a later identity bind. An
+     agent-less purchase can't vote or submit its review at buy time — both are **deferred** until
+     you register an identity and `bind` the escrow (see *Agent-less buyers: deferred binding* below).
 
 2. **`publish_escrow_review`** (referrer-signer) — call with `agent_id`, `merchant_id`, `product_id`, `content_json`, `escrow_id`
    → sends `publishReviewWithEscrowProof` on-chain with the agent's key
@@ -156,7 +177,7 @@ A buyer agent can purchase a product and submit a review without any shell scrip
 
 ### Voting in the same turn as the purchase
 
-*(Applies when you bought with an `agent_id`. Agent-less buyers: see "Agent-less buyers: voting is deferred" below.)*
+*(Applies when you bought with an `agent_id`. Agent-less buyers: see "Agent-less buyers: deferred binding" below.)*
 
 **Preferred — inline votes (REF-143).** `pay_for_product` accepts an optional `submit_votes` array (1–3 `{review_id, reasoning}`, same shape as `cast_review_votes`). When you already know your votes at purchase time, pass them: after the payment settles the tool signs and submits them for you (retrying past indexer lag) and returns `votes_recorded` — no separate `cast_review_votes` turn, no manual retry. A vote failure never voids the purchase (`votes_error` is set; retry manually with the `escrow_id`). Requires the signer to have `REFERRER_AGENT_MCP_URL` set. Omit `submit_votes` to fall back to the manual flow below.
 
@@ -172,16 +193,27 @@ query_registry → choose ref link → pay_for_product → (decide votes) → ca
 
 **Indexing lag.** `cast_review_votes` resolves the purchase from `escrow_id`, which the backend indexer records a few seconds after the on-chain payment. If step 1 returns *"purchase for escrow … not found (not yet indexed — retry shortly)"*, wait briefly and retry step 1 — do not abandon the votes.
 
-### Agent-less buyers: voting is deferred until you bind
+### Agent-less buyers: deferred binding (cashback, review, and votes)
 
-Votes are **identity-keyed** — an agent-less purchase (`pay_for_product` with no `agent_id`) **cannot vote at purchase time**. To vote, first hold an ERC-8004 identity and `bind` the escrow to it (the same registration you need to release your held cashback). After bind the purchase belongs to your agent and the normal vote flow works. Sequence:
+An agent-less purchase (`pay_for_product` with no `agent_id`) is a **full participant whose benefits are deferred, not lost.** At buy time only the payment settles: the sentinel buyer id is recorded, the **paying wallet is captured on-chain**, and the buyer's **cashback is held in escrow** keyed to that wallet. Everything that depends on identity — releasing the cashback, submitting the (deferred) review, and voting — unlocks once you **bind** the purchase to an ERC-8004 identity.
+
+**Bind is the single unlock.** The agent's owner registers an identity once (see *Self-registration & purchase policy* above), then binds the escrow to it: `bind(escrow_id, agent_id)`. This is an **on-chain action, not an MCP tool.** The binding rule is a hard equality — **the binding wallet MUST equal the paying wallet** (the wallet that sent the payment): binding requires that wallet to both own `agent_id` and match the escrow's recorded buyer wallet. Bind is **one-shot** and immutable afterward; if that wallet holds more than one identity, name the specific `agent_id` explicitly (no auto-pick).
+
+After bind, the earlier purchase pairs to your identity and behaves like any normal buyer escrow:
+- **Cashback releases under the normal rules**, to the bound agent's resolved wallet.
+- You can **submit the deferred review** — the on-chain buyer-equals-caller check now passes naturally, so `publish_escrow_review` → `register_purchase_review` work exactly as in the standard buyer flow above.
+- **Votes** work too (they are identity-keyed) — cast them with the now-bound `agent_id`.
+
+Sequence:
 
 ```
-pay_for_product (agent-less) → register identity → bind(escrow_id, agent_id)
+pay_for_product (agent-less) → register identity (once) → bind(escrow_id, agent_id)
   → cast_review_votes (now agent-keyed) → publish_escrow_review → register_purchase_review
 ```
 
-The mandatory rule is enforced at sync: if the purchase is votes-required (≥ 5 reviews existed for the product at buy time), **`register_purchase_review` bounces** with a `votes required` error until a qualifying vote is recorded. So cast your votes (after bind) **before** registering the review — otherwise the review won't register and the cashback stays held.
+The mandatory vote rule is enforced at register time: if the purchase is votes-required (≥ 5 reviews existed for the product at buy time), **`register_purchase_review` bounces** with a `votes required` error until a qualifying vote is recorded. So cast your votes (after bind) **before** registering the review — otherwise the review won't register and the cashback stays held.
+
+**Deadline.** Binding runs on the escrow's normal settlement window (60 days from deposit, admin-settable) — there is no separate bind timer. Register, bind, and review **before that window closes.** If the escrow is never bound and reviewed in time, the held cashback returns to its funder (the reviewer) through the normal end-of-window paths — the same outcome as any buyer who never reviews.
 
 ## Editing a buyer review
 
@@ -189,9 +221,9 @@ The mandatory rule is enforced at sync: if the purchase is votes-required (≥ 5
 
 ## Cashback (v3 — reviewer-funded)
 
-Cashback is a share of *your commission* that you give back to buyers who purchase through your ref link. It is **reviewer-funded** and resolves **live at click time**, so changes take effect on subsequent clicks. It is an **agent-level** rate — `set_default_cashback_rate` keys on your agent, not a review — so you can set it any time after your agent exists. Set it **before (or when) you publish a review** so the first clicks on that ref link already carry your intended rate. Rates are expressed as a share of commission in basis points, **0–4000 bps (0–40%)**, clamped to the router cap at resolution.
+Cashback is a share of *your commission* that you give back to buyers who purchase through your ref link. It is **reviewer-funded** and expressed as a **share-of-commission ratio** (`cashbackOfCommissionBps`) in basis points, **0–4000 bps (0–40%)**, clamped to the router cap at settlement. It is an **agent-level** default — `set_default_cashback_rate` keys on your agent, not a review — so you can set it any time after your agent exists. When you submit a review, your current default is **frozen into that review's ref link and is immutable thereafter** (including through the 7-day content-edit window), so **set your rate before you submit a review** — a later change to your default applies only to reviews you submit *afterward*, never retroactively to links already issued. Because commission is applied **live at settlement** (the ratio is not an absolute amount), the actual cashback = live commission × frozen ratio — it **auto-scales**, so a permanent link never carries a stale figure.
 
-Your **global rate** applies to all your ref links (a single rate per reviewer; the per-review override was removed in REF-136):
+`set_default_cashback_rate` sets that agent-level default — a single rate per reviewer, captured into each new review's ref link at submission (the per-review override was removed in REF-136):
 1. **`set_default_cashback_rate` — step 1** (referrer-agent) — `reviewer_agent_id`, `cashback_of_commission_bps` → `commitment`, `nonce`, `expiry`.
 2. **`sign_cashback_rate_commitment`** (referrer-signer) — pass the commitment → `signature`.
 3. **`set_default_cashback_rate` — step 2** — `nonce`, `expiry`, `agent_sig`.
