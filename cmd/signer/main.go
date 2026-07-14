@@ -1056,6 +1056,15 @@ func main() {
 	}, handleSignIntentAccess)
 
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
+		Name: "sign_intent_mark_commitment",
+		Description: "Sign an EIP-712 IntentMarkCommitment using the agent's owner private key. " +
+			"Call this between mark_intent_executed step 1 and step 2: pass the 'commitment' object from " +
+			"mark_intent_executed step 1 exactly as returned (it binds intent_id and result), then use the " +
+			"returned 'signature' as 'agent_sig' in mark_intent_executed step 2 (with the same intent_id, " +
+			"result, nonce, and expiry).",
+	}, handleSignIntentMark)
+
+	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name: "sign_open_session_commitment",
 		Description: "Sign an EIP-712 OpenSessionCommitment using the payer wallet (the buyer agent's owner key). " +
 			"Call this between open_mpp_session step 1 and step 2: pass the 'commitment' object from " +
