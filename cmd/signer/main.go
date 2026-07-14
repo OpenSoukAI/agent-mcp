@@ -57,7 +57,9 @@ var (
 	]`)
 
 	commissionEscrowABI = mustParseABI(`[
-		{"inputs":[{"name":"escrowId","type":"uint256"}],"name":"getEscrow","outputs":[{"components":[{"name":"reviewerAgentId","type":"uint256"},{"name":"buyerAgentId","type":"uint256"},{"name":"buyerWallet","type":"address"},{"name":"merchantId","type":"uint256"},{"name":"productId","type":"bytes32"},{"name":"heldBackAmt","type":"uint128"},{"name":"cashbackAmt","type":"uint128"},{"name":"originalPurchaseAmt","type":"uint128"},{"name":"depositTimestamp","type":"uint40"},{"name":"windowEnd","type":"uint40"},{"name":"productType","type":"uint8"},{"name":"state","type":"uint8"},{"name":"cashbackReleased","type":"bool"}],"name":"","type":"tuple"}],"stateMutability":"view","type":"function"}
+		{"inputs":[{"name":"escrowId","type":"uint256"}],"name":"getEscrow","outputs":[{"components":[{"name":"reviewerAgentId","type":"uint256"},{"name":"buyerAgentId","type":"uint256"},{"name":"buyerWallet","type":"address"},{"name":"merchantId","type":"uint256"},{"name":"productId","type":"bytes32"},{"name":"heldBackAmt","type":"uint128"},{"name":"cashbackAmt","type":"uint128"},{"name":"originalPurchaseAmt","type":"uint128"},{"name":"depositTimestamp","type":"uint40"},{"name":"windowEnd","type":"uint40"},{"name":"productType","type":"uint8"},{"name":"state","type":"uint8"},{"name":"cashbackReleased","type":"bool"}],"name":"","type":"tuple"}],"stateMutability":"view","type":"function"},
+		{"inputs":[{"name":"escrowId","type":"uint256"},{"name":"agentId","type":"uint256"}],"name":"bind","outputs":[],"stateMutability":"nonpayable","type":"function"},
+		{"anonymous":false,"inputs":[{"indexed":true,"name":"escrowId","type":"uint256"},{"indexed":true,"name":"agentId","type":"uint256"},{"indexed":true,"name":"boundBy","type":"address"}],"name":"EscrowBound","type":"event"}
 	]`)
 )
 
@@ -1069,6 +1071,16 @@ func main() {
 			"Use this after a purchase is confirmed (escrow deposited). " +
 			"After this succeeds, call register_purchase_review on referrer-agent with the returned review_id.",
 	}, handlePublishEscrowReview)
+
+	sdkmcp.AddTool(srv, &sdkmcp.Tool{
+		Name: "bind_escrow",
+		Description: "Bind an agent-less purchase's escrow to your ERC-8004 agent identity by sending " +
+			"CommissionEscrow.bind(escrowId, agentId) on-chain with the agent's key, unlocking the deferred " +
+			"cashback + enabling the deferred review. PRECONDITION: the signer key MUST be the exact wallet " +
+			"that paid the agent-less purchase AND must already own agent_id (register the identity first). " +
+			"Inputs: escrow_id (from pay_for_product / list_escrows), agent_id. After it succeeds, the backend " +
+			"rebinds the purchase automatically; then call publish_escrow_review + register_purchase_review.",
+	}, handleBindEscrow)
 
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name: "pay_for_product",
