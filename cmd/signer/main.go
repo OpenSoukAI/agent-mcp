@@ -1048,6 +1048,14 @@ func main() {
 	}, handleSignTelegramLink)
 
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
+		Name: "sign_intent_access_commitment",
+		Description: "Sign an EIP-712 IntentAccessCommitment using the agent's owner private key. " +
+			"Call this between get_pending_intents step 1 and step 2: pass the 'commitment' object from " +
+			"get_pending_intents step 1 exactly as returned, then use the returned 'signature' as 'agent_sig' " +
+			"in get_pending_intents step 2 (with the same nonce and expiry).",
+	}, handleSignIntentAccess)
+
+	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name: "sign_open_session_commitment",
 		Description: "Sign an EIP-712 OpenSessionCommitment using the payer wallet (the buyer agent's owner key). " +
 			"Call this between open_mpp_session step 1 and step 2: pass the 'commitment' object from " +
