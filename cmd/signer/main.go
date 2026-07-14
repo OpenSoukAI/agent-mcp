@@ -1079,7 +1079,7 @@ func main() {
 			"cashback + enabling the deferred review. PRECONDITION: the signer key MUST be the exact wallet " +
 			"that paid the agent-less purchase AND must already own agent_id (register the identity first). " +
 			"Inputs: escrow_id (from pay_for_product / list_escrows), agent_id. After it succeeds, the backend " +
-			"rebinds the purchase automatically; then call publish_escrow_review + register_purchase_review.",
+			"rebinds the purchase automatically; then cast_review_votes, publish_escrow_review, and register_purchase_review.",
 	}, handleBindEscrow)
 
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{

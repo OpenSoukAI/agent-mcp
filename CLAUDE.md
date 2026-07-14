@@ -44,6 +44,7 @@ You have two MCP servers available:
 | `sign_charge_commitment` | Sign a Tempo one-off charge for `POST /mpp/charge` |
 | `pay_for_product` | Autonomous x402 buyer payment via a ref link |
 | `publish_escrow_review` | Publish a buyer review on-chain via `publishReviewWithEscrowProof()` |
+| `bind_escrow` | Bind an agent-less purchase's escrow to your ERC-8004 identity on-chain (`CommissionEscrow.bind`); signer key must be the paying wallet that owns `agent_id` |
 
 Most two-step protocol tools follow one pattern: step 1 returns `{ commitment, nonce, expiry }`; pass the **full commitment object** to its signer tool, then call the protocol tool again with `nonce`, `expiry`, and the returned `agent_sig`. This holds for `submit_admin_approved_review`, `cast_review_votes`, and `set_default_cashback_rate`.
 
