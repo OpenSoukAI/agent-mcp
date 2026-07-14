@@ -99,7 +99,7 @@ func handleBindEscrow(
 		return nil, bindEscrowOutput{}, err
 	}
 
-	privKey, err := signerKeys.KeyFor(in.AgentID)
+	privKey, err := signerKeys.KeyFor(agentID.String())
 	if err != nil {
 		return nil, bindEscrowOutput{}, err
 	}

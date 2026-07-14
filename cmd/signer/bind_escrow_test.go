@@ -1,8 +1,10 @@
 package main
 
 import (
+	"context"
 	"encoding/hex"
 	"math/big"
+	"strings"
 	"testing"
 
 	"github.com/ethereum/go-ethereum/crypto"
@@ -50,6 +52,34 @@ func TestBindEscrow_ParseInputs(t *testing.T) {
 	}
 	if _, _, err := parseBindInputs(bindEscrowInput{EscrowID: "42", AgentID: ""}); err == nil {
 		t.Fatal("expected error on empty agent_id")
+	}
+}
+
+// TestBindEscrow_KeyLookupNormalizesAgentID proves handleBindEscrow looks up the signing key by
+// the parsed/canonical agent_id (trimmed decimal), not the raw input string. A whitespace-padded
+// agent_id must still resolve the keyed entry rather than silently falling back to a different key.
+func TestBindEscrow_KeyLookupNormalizesAgentID(t *testing.T) {
+	key, err := crypto.GenerateKey()
+	if err != nil {
+		t.Fatalf("genkey: %v", err)
+	}
+	ks, err := parseKeystore("7:0x"+hex.EncodeToString(crypto.FromECDSA(key)), "") // NO fallback
+	if err != nil {
+		t.Fatalf("parseKeystore: %v", err)
+	}
+	prev := signerKeys
+	signerKeys = ks
+	t.Cleanup(func() { signerKeys = prev })
+
+	t.Setenv("BASE_RPC_URL", "") // handler stops here AFTER a successful KeyFor
+	_, _, err = handleBindEscrow(context.Background(), nil, bindEscrowInput{AgentID: " 7 ", EscrowID: "1"})
+	if err == nil {
+		t.Fatal("expected an error (BASE_RPC_URL unset)")
+	}
+	// Pre-fix: KeyFor(" 7 ") misses the '7' entry (no fallback) -> "no key for agent" error.
+	// Post-fix: KeyFor("7") succeeds -> the error is the later BASE_RPC_URL check.
+	if strings.Contains(err.Error(), "no key for agent") {
+		t.Fatalf("whitespace agent_id missed the keystore entry (key lookup not normalized): %v", err)
 	}
 }
 
