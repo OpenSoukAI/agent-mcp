@@ -1038,6 +1038,14 @@ func main() {
 	}, handleSignCashbackRate)
 
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
+		Name: "sign_telegram_link_commitment",
+		Description: "Sign an EIP-712 TelegramLinkCommitment using the agent's owner private key. " +
+			"Call this between link_telegram step 1 and step 2: pass the 'commitment' object from " +
+			"link_telegram step 1 exactly as returned, then use the returned 'signature' as 'agent_sig' " +
+			"in link_telegram step 2 (with the same nonce and expiry).",
+	}, handleSignTelegramLink)
+
+	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name: "sign_open_session_commitment",
 		Description: "Sign an EIP-712 OpenSessionCommitment using the payer wallet (the buyer agent's owner key). " +
 			"Call this between open_mpp_session step 1 and step 2: pass the 'commitment' object from " +
