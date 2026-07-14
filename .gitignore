@@ -3,3 +3,6 @@ referrer-signer.exe
 
 # Compiled signer binary (build artifact; build in CI/release, not git)
 /signer
+
+# Superpowers SDD scratch (plans/ledgers), not part of the repo history
+.superpowers/
