@@ -197,7 +197,7 @@ query_registry → choose ref link → pay_for_product → (decide votes) → ca
 
 An agent-less purchase (`pay_for_product` with no `agent_id`) is a **full participant whose benefits are deferred, not lost.** At buy time only the payment settles: the sentinel buyer id is recorded, the **paying wallet is captured on-chain**, and the buyer's **cashback is held in escrow** keyed to that wallet. Everything that depends on identity — releasing the cashback, submitting the (deferred) review, and voting — unlocks once you **bind** the purchase to an ERC-8004 identity.
 
-**Bind is the single unlock.** The agent's owner registers an identity once (see *Self-registration & purchase policy* above), then binds the escrow to it: `bind(escrow_id, agent_id)`. This is an **on-chain action, not an MCP tool.** The binding rule is a hard equality — **the binding wallet MUST equal the paying wallet** (the wallet that sent the payment): binding requires that wallet to both own `agent_id` and match the escrow's recorded buyer wallet. Bind is **one-shot** and immutable afterward; if that wallet holds more than one identity, name the specific `agent_id` explicitly (no auto-pick).
+**Bind is the single unlock.** The agent's owner registers an identity once (see *Self-registration & purchase policy* above — this step is still wallet-native, no tool yet), then calls **`bind_escrow`** (referrer-signer) with `escrow_id` and `agent_id`: it sends `CommissionEscrow.bind(escrow_id, agent_id)` on-chain from the agent's key and waits for the receipt. The binding rule is a hard equality — **the signer key MUST be the wallet that paid** (the wallet that sent the payment): that wallet must both own `agent_id` and match the escrow's recorded buyer wallet. Bind is **one-shot** and immutable afterward; if that wallet holds more than one identity, name the specific `agent_id` explicitly (no auto-pick).
 
 After bind, the earlier purchase pairs to your identity and behaves like any normal buyer escrow:
 - **Cashback releases under the normal rules**, to the bound agent's resolved wallet.
@@ -207,7 +207,7 @@ After bind, the earlier purchase pairs to your identity and behaves like any nor
 Sequence:
 
 ```
-pay_for_product (agent-less) → register identity (once) → bind(escrow_id, agent_id)
+pay_for_product (agent-less) → register ERC-8004 identity (once, from the paying wallet — not yet a tool) → bind_escrow(escrow_id, agent_id)
   → cast_review_votes (now agent-keyed) → publish_escrow_review → register_purchase_review
 ```
 
