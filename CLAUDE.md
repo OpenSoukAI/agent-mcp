@@ -32,6 +32,9 @@ You have two MCP servers available:
 | `get_product_rank` | A product's Product Rank (sort/quality score) | single-call |
 | `get_agent_context` | Session-start memory: your prior protocol state (counts, backlog, pending, earnings, recent reviews) | single-call |
 | `open_mpp_session` | Pre-register a Tempo MPP payment session | two-step → `sign_open_session_commitment` |
+| `get_pending_intents` | Poll the owner's queued intents to execute (buy_product / publish_review) + remaining budget | two-step → `sign_intent_access_commitment` |
+| `mark_intent_executed` | Mark a polled intent done (atomic, single-execution) | two-step → `sign_intent_mark_commitment` |
+| `mark_intent_skipped` | Decline a polled intent with a reason (e.g. over budget) | two-step → `sign_intent_skip_commitment` |
 
 **referrer-signer**
 
@@ -45,6 +48,9 @@ You have two MCP servers available:
 | `pay_for_product` | Autonomous x402 buyer payment via a ref link |
 | `publish_escrow_review` | Publish a buyer review on-chain via `publishReviewWithEscrowProof()` |
 | `bind_escrow` | Bind an agent-less purchase's escrow to your ERC-8004 identity on-chain (`CommissionEscrow.bind`); signer key must be the paying wallet that owns `agent_id` |
+| `sign_intent_access_commitment` | Sign the `get_pending_intents` step-1 commitment |
+| `sign_intent_mark_commitment` | Sign the `mark_intent_executed` commitment |
+| `sign_intent_skip_commitment` | Sign the `mark_intent_skipped` commitment |
 
 Most two-step protocol tools follow one pattern: step 1 returns `{ commitment, nonce, expiry }`; pass the **full commitment object** to its signer tool, then call the protocol tool again with `nonce`, `expiry`, and the returned `agent_sig`. This holds for `submit_admin_approved_review`, `cast_review_votes`, and `set_default_cashback_rate`.
 
@@ -219,6 +225,32 @@ The mandatory vote rule is enforced at register time: if the purchase is votes-r
 ## Editing a buyer review
 
 **`update_review_content`** (referrer-agent) — edit a buyer review (InSystemPurchase path) within the **7-day on-chain edit window**. Call this **after** you have submitted `updateReviewContent()` on-chain (via the signer); the tool verifies the new content hash against the chain, updates the database, and re-runs the alignment oracle. Pass `review_id` (on-chain) and the new `content_json`.
+
+## Executing owner-queued intents (Telegram)
+
+When your owner drives you from Telegram, economic actions arrive as **queued intents** the owner
+explicitly confirmed — you execute them; you never invent them. Poll and run them like this:
+
+1. **`get_pending_intents`** (referrer-agent, two-step → `sign_intent_access_commitment`) with your
+   `agent_id`. Step 2 returns `intents=[{intent_id, type, payload, …}]` plus budget:
+   `budget_enforced`, `remaining_budget`, `per_tx_cap_usdc` (USDC base units).
+2. For each intent, dispatch on **`type`**:
+   - **`buy_product`** — if `budget_enforced` and the payload's `max_amount` exceeds `remaining_budget`
+     or `per_tx_cap_usdc`, **do not buy**: `mark_intent_skipped` (→ `sign_intent_skip_commitment`) with a
+     reason, and tell the owner to raise the limit on the web console. Otherwise run the **buyer purchase
+     workflow** (`pay_for_product` with the payload's product/ref terms).
+   - **`publish_review`** — branch on **`payload.entry`** (the publish path the backend chose):
+     - **`in_system_purchase`** → the **escrow-proof** flow: `publish_escrow_review` with the payload's
+       `escrow_id` + `content_json`, then `register_purchase_review` (see *Buyer purchase workflow*).
+     - **`admin_approved`** → the **admin-approved** flow: `submit_admin_approved_review` step 1 →
+       `sign_review_commitment` → step 2 (see *Review submission workflow*). The proof is already approved
+       (the backend gated on it before queueing); there is **no** `escrow_id` and **no** on-chain signer tx —
+       the oracle publishes. Do **not** call `publish_escrow_review` for this entry.
+3. After the action succeeds, **`mark_intent_executed`** (→ `sign_intent_mark_commitment`), optionally
+   with a `result` reference (tx hash / review id). It is single-execution — a second mark is a no-op.
+
+Never publish or spend for a `publish_review`/`buy_product` intent you did not get from
+`get_pending_intents`, and never change the owner's limits yourself.
 
 ## Cashback (v3 — reviewer-funded)
 
