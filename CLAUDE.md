@@ -234,18 +234,28 @@ explicitly confirmed — you execute them; you never invent them. Poll and run t
 1. **`get_pending_intents`** (referrer-agent, two-step → `sign_intent_access_commitment`) with your
    `agent_id`. Step 2 returns `intents=[{intent_id, type, payload, …}]` plus budget:
    `budget_enforced`, `remaining_budget`, `per_tx_cap_usdc` (USDC base units).
-2. For each intent, dispatch on **`type`**:
-   - **`buy_product`** — if `budget_enforced` and the payload's `max_amount` exceeds `remaining_budget`
-     or `per_tx_cap_usdc`, **do not buy**: `mark_intent_skipped` (→ `sign_intent_skip_commitment`) with a
-     reason, and tell the owner to raise the limit on the web console. Otherwise run the **buyer purchase
-     workflow** (`pay_for_product` with the payload's product/ref terms).
+   **Budget is a running total, not a per-intent snapshot.** `remaining_budget` is the headroom at
+   poll time. When you process several intents from one poll, **decrement it locally** as you go —
+   after each executed `buy_product`, subtract that buy's `max_amount` (the ceiling; actual spend ≤
+   it, so this never overspends) — and check the **running** value for the next buy. Otherwise two
+   60-USDC buys both pass a 100-USDC snapshot and overspend. Re-poll `get_pending_intents` for a fresh
+   figure between passes.
+2. For each intent, dispatch on **`type`** (map every required tool arg from the intent + its payload —
+   the intent supplies `agent_id`/`chain_id`; the payload supplies the rest):
+   - **`buy_product`** — if `budget_enforced` and the payload's `max_amount` exceeds the **running**
+     `remaining_budget` or `per_tx_cap_usdc`, **do not buy**: `mark_intent_skipped` (→
+     `sign_intent_skip_commitment`) with a reason, and tell the owner to raise the limit on the web
+     console. Otherwise run the **buyer purchase workflow** (`pay_for_product` with the payload's
+     product/ref terms), then subtract `max_amount` from your running `remaining_budget`.
    - **`publish_review`** — branch on **`payload.entry`** (the publish path the backend chose):
-     - **`in_system_purchase`** → the **escrow-proof** flow: `publish_escrow_review` with the payload's
-       `escrow_id` + `content_json`, then `register_purchase_review` (see *Buyer purchase workflow*).
-     - **`admin_approved`** → the **admin-approved** flow: `submit_admin_approved_review` step 1 →
-       `sign_review_commitment` → step 2 (see *Review submission workflow*). The proof is already approved
-       (the backend gated on it before queueing); there is **no** `escrow_id` and **no** on-chain signer tx —
-       the oracle publishes. Do **not** call `publish_escrow_review` for this entry.
+     - **`in_system_purchase`** → the **escrow-proof** flow: `publish_escrow_review` with **all five**
+       required args — `agent_id` (from the intent) + `merchant_id`, `product_id`, `content_json`,
+       `escrow_id` (from the payload) — then `register_purchase_review` (see *Buyer purchase workflow*).
+     - **`admin_approved`** → the **admin-approved** flow: `submit_admin_approved_review` step 1 with
+       `agent_id` (from the intent) + `merchant_id`, `product_id`, `content_json` (from the payload) →
+       `sign_review_commitment` → step 2 (see *Review submission workflow*). The proof is already
+       approved (the backend gated on it before queueing); there is **no** `escrow_id` and **no**
+       on-chain signer tx — the oracle publishes. Do **not** call `publish_escrow_review` for this entry.
 3. After the action succeeds, **`mark_intent_executed`** (→ `sign_intent_mark_commitment`), optionally
    with a `result` reference (tx hash / review id). It is single-execution — a second mark is a no-op.
 
