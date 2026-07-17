@@ -706,6 +706,16 @@ type payForProductInput struct {
 	// purchase settles, the tool signs and submits these via the backend's cast_review_votes
 	// two-step, before returning. Omit to skip voting (behaviour is then unchanged).
 	SubmitVotes []voteArg `json:"submit_votes,omitempty"`
+	// Owner-confirmed spending cap in USDC base units (REF-193). When set, the tool refuses if
+	// the merchant's LIVE price exceeds it — so a price rise after an intent was queued cannot
+	// overspend past the confirmed budget. The runner passes the intent payload's max_amount.
+	// Omit for no cap (unchanged behaviour).
+	MaxAmount string `json:"max_amount,omitempty"`
+	// Idempotency key for at-most-once execution (REF-193). When set, the ERC-3009 nonce is
+	// derived deterministically from (payer ‖ idempotency_key) instead of random, so a retry of
+	// the SAME purchase reuses the nonce and the second transferWithAuthorization reverts — the
+	// wallet is charged at most once. The runner passes the intent_id. Omit for a random nonce.
+	IdempotencyKey string `json:"idempotency_key,omitempty"`
 }
 
 type payForProductOutput struct {
@@ -751,6 +761,43 @@ const payVoteReminder = "If any reviews materially influenced this purchase, cas
 	"cast_review_votes (referrer-agent) using this escrow_id — allow a few seconds first for " +
 	"the purchase to be indexed. Vote deliberately, only for the reviews that shaped your " +
 	"decision; votes feed the platform's Review Rank."
+
+// enforceMaxAmount refuses a purchase whose LIVE merchant price exceeds the
+// owner-confirmed max_amount (REF-193 A). Both are USDC base-unit decimal
+// strings. An empty max is "no cap" (back-compat for non-intent callers). This
+// closes the gap where pay_for_product signed requirements.Amount verbatim: a
+// price rising above the queued budget after the intent was confirmed would
+// otherwise be authorized silently.
+func enforceMaxAmount(live, max string) error {
+	if strings.TrimSpace(max) == "" {
+		return nil
+	}
+	liveBig, ok := new(big.Int).SetString(strings.TrimSpace(live), 10)
+	if !ok {
+		return fmt.Errorf("invalid live amount %q", live)
+	}
+	maxBig, ok := new(big.Int).SetString(strings.TrimSpace(max), 10)
+	if !ok {
+		return fmt.Errorf("invalid max_amount %q", max)
+	}
+	if liveBig.Cmp(maxBig) > 0 {
+		return fmt.Errorf("live price %s exceeds approved max_amount %s", liveBig, maxBig)
+	}
+	return nil
+}
+
+// deriveNonce produces a DETERMINISTIC ERC-3009 nonce from the payer and an
+// idempotency key (REF-193 B): keccak256(payer ‖ idempotency_key). Because
+// ERC-3009 tracks used nonces per authorizer on-chain, replaying the same
+// intent reuses the nonce, so the second transferWithAuthorization reverts
+// ("authorization used") — at-most-once, chain-enforced. Callers that pass no
+// idempotency key keep the prior random-nonce behaviour.
+func deriveNonce(payer common.Address, idempotencyKey string) [32]byte {
+	h := crypto.Keccak256(append(payer.Bytes(), []byte(idempotencyKey)...))
+	var n [32]byte
+	copy(n[:], h)
+	return n
+}
 
 func handlePayForProduct(
 	ctx context.Context,
@@ -868,9 +915,18 @@ func handlePayForProduct(
 	tokenName, _ := requirements.Extra["name"].(string)
 	tokenVersion, _ := requirements.Extra["version"].(string)
 
+	// Refuse before signing if the live price exceeds the owner-confirmed cap (REF-193 A).
+	if err := enforceMaxAmount(requirements.Amount, in.MaxAmount); err != nil {
+		return nil, payForProductOutput{}, err
+	}
+
 	// ── sign ERC-3009 authorization ────────────────────────────────────────────
+	// Deterministic nonce when an idempotency key is supplied (REF-193 B) → a replayed intent
+	// reuses the nonce and the second transfer reverts (at-most-once); random otherwise.
 	var nonce32 [32]byte
-	if _, err := rand.Read(nonce32[:]); err != nil {
+	if strings.TrimSpace(in.IdempotencyKey) != "" {
+		nonce32 = deriveNonce(crypto.PubkeyToAddress(privKey.PublicKey), in.IdempotencyKey)
+	} else if _, err := rand.Read(nonce32[:]); err != nil {
 		return nil, payForProductOutput{}, fmt.Errorf("generate nonce: %w", err)
 	}
 	authz := evm.ExactEIP3009Authorization{
