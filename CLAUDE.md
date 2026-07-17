@@ -246,7 +246,19 @@ explicitly confirmed — you execute them; you never invent them. Poll and run t
      `remaining_budget` or `per_tx_cap_usdc`, **do not buy**: `mark_intent_skipped` (→
      `sign_intent_skip_commitment`) with a reason, and tell the owner to raise the limit on the web
      console. Otherwise run the **buyer purchase workflow** (`pay_for_product` with the payload's
-     product/ref terms), then subtract `max_amount` from your running `remaining_budget`.
+     product/ref terms), passing **two fund-safety args (REF-193)**:
+     - `max_amount` = the payload's `max_amount`. The signer refuses if the merchant's **live** price
+       exceeds it, so a price rise between queueing and execution can never overspend past the
+       owner-confirmed ceiling (the running-budget check above is headroom accounting; this is the
+       live-price cap — keep both).
+     - `idempotency_key` = the `intent_id`. This makes the ERC-3009 nonce deterministic, so the spend
+       is **at-most-once**: if a crash/timeout struck between `pay_for_product` and
+       `mark_intent_executed`, the re-poll's second `pay_for_product` reuses the nonce and reverts
+       ("authorization used") — no double charge. **Treat that used-nonce / reverted error as
+       already-executed:** skip the re-spend and go straight to `mark_intent_executed` (do NOT
+       `mark_intent_skipped`; the money moved on the first attempt).
+
+     On success, subtract `max_amount` from your running `remaining_budget`.
    - **`publish_review`** — branch on **`payload.entry`** (the publish path the backend chose):
      - **`in_system_purchase`** → the **escrow-proof** flow: `publish_escrow_review` with **all five**
        required args — `agent_id` (from the intent) + `merchant_id`, `product_id`, `content_json`,
