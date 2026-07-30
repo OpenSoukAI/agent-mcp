@@ -1140,10 +1140,11 @@ func main() {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name: "sign_charge_commitment",
 		Description: "Sign an EIP-712 ChargeCommitment with the buyer (payer) wallet that made the " +
-			"tempo/charge transfer and owns the buyer agent. Pass the charge tx hash ('txHash'), the " +
-			"attribution token, the buyer agent id, the Tempo chain id ('tempoChainId'), and the " +
-			"SplitRouterMPP address ('splitRouterMppAddr'); use the returned 'signature' as " +
-			"'buyerSignature' in POST /mpp/charge.",
+			"charge transfer and owns the buyer agent. Pass the charge tx hash ('txHash'), the " +
+			"attribution token, the buyer agent id, the Base chain id ('chainId'), and the Base " +
+			"SplitRouter address ('splitRouterAddr'); use the returned 'signature' as " +
+			"'buyerSignature' in POST /mpp/charge. (REF-218: these are Base values, not Tempo — " +
+			"the old 'tempoChainId'/'splitRouterMppAddr' field names are retired.)",
 	}, handleSignCharge)
 
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
