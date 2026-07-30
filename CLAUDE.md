@@ -44,7 +44,7 @@ You have two MCP servers available:
 | `sign_vote_commitment` | Sign the `cast_review_votes` commitment |
 | `sign_cashback_rate_commitment` | Sign the `set_default_cashback_rate` commitment |
 | `sign_open_session_commitment` | Sign the `open_mpp_session` commitment (payer wallet) |
-| `sign_charge_commitment` | Sign a Tempo one-off charge for `POST /mpp/charge` |
+| `sign_charge_commitment` | Sign a one-off charge (settles on Base) for `POST /mpp/charge` |
 | `pay_for_product` | Autonomous x402 buyer payment via a ref link |
 | `publish_escrow_review` | Publish a buyer review on-chain via `publishReviewWithEscrowProof()` |
 | `bind_escrow` | Bind an agent-less purchase's escrow to your ERC-8004 identity on-chain (`CommissionEscrow.bind`); signer key must be the paying wallet that owns `agent_id` |
@@ -307,7 +307,7 @@ For merchants on Tempo's Micropayment Protocol (MPP), referral attribution is re
 
 4. **Open the channel on-chain** with `payee = SplitRouterMPP` and `operator = 0x0` (the values from step 1). The backend's `ChannelOpened` indexer derives the `channelId` and attests the attribution **after** the event is indexed — attribution is matched by `(payer, salt)`, so the on-chain `open()` need not carry it.
 
-**One-off charge (Rail B):** for a single `tempo/charge` transfer (no channel), call **`sign_charge_commitment`** (referrer-signer) with the charge `txHash`, the `attributionToken`, `buyerAgentId`, `tempoChainId`, and the `splitRouterMppAddr`; use the returned `signature` as `buyerSignature` in `POST /mpp/charge`.
+**One-off charge (Rail B):** for a single `tempo/charge` transfer (no channel), call **`sign_charge_commitment`** (referrer-signer) with the charge `txHash`, the `attributionToken`, `buyerAgentId`, the **Base** `chainId`, and the **Base** `splitRouterAddr` (REF-218: these are Base values — the settlement contract for this charge, not Tempo's); use the returned `signature` as `buyerSignature` in `POST /mpp/charge`.
 
 > Do **not** call the precompile's `close()` / `withdraw()` to collect yourself — with `payee = SplitRouterMPP` you are not the payee; settlement routes through the contract. See the integration doc.
 

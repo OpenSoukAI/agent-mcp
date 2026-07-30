@@ -22,11 +22,11 @@ var chargeCommitmentTypehash = crypto.Keccak256Hash([]byte(chargeCommitmentTypeS
 const chargeDomainName = "ReferrerMPPCharge"
 
 type signChargeInput struct {
-	TxHash             string `json:"txHash"`             // 0x-prefixed 32-byte charge tx hash (= paymentRef)
-	AttributionToken   string `json:"attributionToken"`   // base64url signed attribution token
-	BuyerAgentID       string `json:"buyerAgentId"`       // buyer agent NFT id (decimal)
-	TempoChainID       int64  `json:"tempoChainId"`       // EIP-712 domain chainId
-	SplitRouterMPPAddr string `json:"splitRouterMppAddr"` // EIP-712 domain verifyingContract
+	TxHash           string `json:"txHash"`           // 0x-prefixed 32-byte charge tx hash (= paymentRef)
+	AttributionToken string `json:"attributionToken"` // base64url signed attribution token
+	BuyerAgentID     string `json:"buyerAgentId"`     // buyer agent NFT id (decimal)
+	ChainID          int64  `json:"chainId"`          // EIP-712 domain chainId (Base)
+	SplitRouterAddr  string `json:"splitRouterAddr"`  // EIP-712 domain verifyingContract (Base SplitRouter)
 }
 
 // computeChargeDigest mirrors backend signing.ChargeDigest exactly.
@@ -69,6 +69,23 @@ func handleSignCharge(
 	_ *sdkmcp.CallToolRequest,
 	in signChargeInput,
 ) (*sdkmcp.CallToolResult, signOutput, error) {
+	// REF-218: chainId/splitRouterAddr are MCP tool inputs, supplied by the caller — not values the
+	// backend sends. A zero chainId or empty/zero splitRouterAddr silently digests to a wrong
+	// signer (chainId=0 or verifyingContract=0x0..0), which fails at recover with no diagnostic
+	// pointing at the cause. Reject both loudly here instead, and name the old field names
+	// explicitly since a caller still on tempoChainId/splitRouterMppAddr would otherwise land
+	// exactly in that silent-zero trap.
+	if in.ChainID == 0 {
+		return nil, signOutput{}, fmt.Errorf(
+			"chainId is required and must be nonzero (Base chainId — e.g. 84532 for Base Sepolia). " +
+				"If you're passing the old field name 'tempoChainId', rename it to 'chainId'.")
+	}
+	if in.SplitRouterAddr == "" || common.HexToAddress(in.SplitRouterAddr) == (common.Address{}) {
+		return nil, signOutput{}, fmt.Errorf(
+			"splitRouterAddr is required and must be a nonzero address (the Base SplitRouter contract). " +
+				"If you're passing the old field name 'splitRouterMppAddr', rename it to 'splitRouterAddr'.")
+	}
+
 	privKey, err := signerKeys.KeyFor(in.BuyerAgentID)
 	if err != nil {
 		return nil, signOutput{}, err
@@ -89,7 +106,7 @@ func handleSignCharge(
 		return nil, signOutput{}, fmt.Errorf("invalid buyerAgentId: %q", in.BuyerAgentID)
 	}
 
-	digest, err := computeChargeDigest(payer, ref, buyerAgentID, tokenHash, in.TempoChainID, common.HexToAddress(in.SplitRouterMPPAddr))
+	digest, err := computeChargeDigest(payer, ref, buyerAgentID, tokenHash, in.ChainID, common.HexToAddress(in.SplitRouterAddr))
 	if err != nil {
 		return nil, signOutput{}, fmt.Errorf("compute digest: %w", err)
 	}
