@@ -2,10 +2,68 @@ package main
 
 import (
 	"math/big"
+	"strings"
 	"testing"
 
 	"github.com/ethereum/go-ethereum/common"
 )
+
+// validChargeInput returns a signChargeInput with every field set to something that would pass
+// its own check, so each guard test below can zero out exactly one field and know that field
+// alone is what triggers the rejection.
+func validChargeInput() signChargeInput {
+	return signChargeInput{
+		TxHash:           "0x" + strings.Repeat("ab", 32),
+		AttributionToken: "AA", // decodes fine as base64url; guards run before it's used anyway
+		BuyerAgentID:     "7",
+		ChainID:          84532,
+		SplitRouterAddr:  "0x2222222222222222222222222222222222222222",
+	}
+}
+
+// TestHandleSignCharge_RejectsZeroChainID pins the REF-218 guard converting a silent chainId=0
+// (e.g. from a stale caller still on the retired 'tempoChainId' field) into a loud, named error —
+// this guard is the central deliverable of REF-218's agent-mcp side, and had no coverage before
+// this test.
+func TestHandleSignCharge_RejectsZeroChainID(t *testing.T) {
+	in := validChargeInput()
+	in.ChainID = 0
+	_, _, err := handleSignCharge(nil, nil, in)
+	if err == nil {
+		t.Fatal("expected error for chainId == 0, got nil")
+	}
+	if !strings.Contains(err.Error(), "tempoChainId") {
+		t.Errorf("error does not name the retired field 'tempoChainId' to help a stale caller: %v", err)
+	}
+}
+
+// TestHandleSignCharge_RejectsEmptySplitRouterAddr covers the empty-string path distinctly from
+// the zero-address path below — they reach the guard's OR condition differently.
+func TestHandleSignCharge_RejectsEmptySplitRouterAddr(t *testing.T) {
+	in := validChargeInput()
+	in.SplitRouterAddr = ""
+	_, _, err := handleSignCharge(nil, nil, in)
+	if err == nil {
+		t.Fatal("expected error for empty splitRouterAddr, got nil")
+	}
+	if !strings.Contains(err.Error(), "splitRouterMppAddr") {
+		t.Errorf("error does not name the retired field 'splitRouterMppAddr' to help a stale caller: %v", err)
+	}
+}
+
+// TestHandleSignCharge_RejectsZeroSplitRouterAddr covers the zero-address path (a well-formed hex
+// string that resolves to common.Address{}), distinct from the empty-string case above.
+func TestHandleSignCharge_RejectsZeroSplitRouterAddr(t *testing.T) {
+	in := validChargeInput()
+	in.SplitRouterAddr = "0x0000000000000000000000000000000000000000"
+	_, _, err := handleSignCharge(nil, nil, in)
+	if err == nil {
+		t.Fatal("expected error for zero-address splitRouterAddr, got nil")
+	}
+	if !strings.Contains(err.Error(), "splitRouterMppAddr") {
+		t.Errorf("error does not name the retired field 'splitRouterMppAddr' to help a stale caller: %v", err)
+	}
+}
 
 // TestComputeChargeDigest_CrossRepoParityVector_REF218 is the frozen cross-repo digest-parity
 // vector (REF-218), mirrored byte-for-byte from backend/internal/signing/charge_commitment_test.go
