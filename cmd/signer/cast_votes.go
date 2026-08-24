@@ -17,10 +17,13 @@ import (
 // transport (tests only). Production leaves it nil and dials mcpURL.
 var testVoteTransport sdkmcp.Transport
 
-const voteRetryAttempts = 12
+// voteRetryAttempts × voteRetryDelay must clear the indexer's worst-case latency:
+// pollInterval (15s) + confirmationDepth (6 blocks) can require two ticks to clear
+// safeHead, up to ~30s. 15×3s=45s leaves real margin over that (F-07).
+const voteRetryAttempts = 15
 
-// voteRetryDelay is a var (not const) so tests can shrink it; production is 2s.
-var voteRetryDelay = 2 * time.Second
+// voteRetryDelay is a var (not const) so tests can shrink it; production is 3s.
+var voteRetryDelay = 3 * time.Second
 
 // castVotesViaBackend drives the backend's cast_review_votes two-step as an MCP client:
 // step 1 (get commitment) → sign locally with the buyer key → step 2 (record), retrying
