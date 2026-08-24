@@ -6,7 +6,7 @@
 
 **Architecture:** A send-from-signer tool mirroring the existing `publish_escrow_review` (`handlePublishEscrowReview`): dial `BASE_RPC_URL`, build a keyed transactor from `signerKeys.KeyFor(agentId)`, `bind.NewBoundContract` on the `COMMISSION_ESCROW_ADDRESS` with the (extended) inline `commissionEscrowABI`, `Transact("bind", escrowId, agentId)`, `WaitMined`, check status. Bind is send-only — the backend indexer reacts to the emitted `EscrowBound` event (REF-137); no backend change. Custom-error reverts (`NotBuyerWallet`/`NotAgentController`/`AlreadyBound`) are decoded to friendly messages.
 
-**Tech Stack:** Go, `github.com/ethereum/go-ethereum` (`ethclient`, `accounts/abi`, `accounts/abi/bind`, `common`, `crypto`, `core/types`), `sdkmcp` MCP SDK. Module `github.com/Ref-Agent/agent-mcp`, signer under `cmd/signer/` (`package main`).
+**Tech Stack:** Go, `github.com/ethereum/go-ethereum` (`ethclient`, `accounts/abi`, `accounts/abi/bind`, `common`, `crypto`, `core/types`), `sdkmcp` MCP SDK. Module `github.com/OpenSoukAI/agent-mcp`, signer under `cmd/signer/` (`package main`).
 
 ## Global Constraints
 

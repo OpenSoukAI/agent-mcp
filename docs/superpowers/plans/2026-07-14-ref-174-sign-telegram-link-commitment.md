@@ -6,12 +6,12 @@
 
 **Architecture:** The signer already exposes 5 `sign_*` commitment tools. `link_telegram` on the backend added a **dedicated** `TelegramLinkCommitment` EIP-712 type; the signer has no matching signer. This ticket adds that signer as a byte-for-byte mirror of the existing `sign_cashback_rate_commitment` tool, **minus** the `uint16 cashbackOfCommissionBps` field. The signer defines its own EIP-712 constants (it does not import the backend `signing` package); the domain (name/version/chainId/verifyingContract) is read verbatim from the commitment payload the agent passes in.
 
-**Tech Stack:** Go, `github.com/ethereum/go-ethereum` (`crypto`, `accounts/abi`, `common`), `github.com/modelcontextprotocol/go-sdk/mcp` (alias `sdkmcp`). Module `github.com/Ref-Agent/agent-mcp`, all signer code under `cmd/signer/` (`package main`).
+**Tech Stack:** Go, `github.com/ethereum/go-ethereum` (`crypto`, `accounts/abi`, `common`), `github.com/modelcontextprotocol/go-sdk/mcp` (alias `sdkmcp`). Module `github.com/OpenSoukAI/agent-mcp`, all signer code under `cmd/signer/` (`package main`).
 
 ## Global Constraints
 
 - **Repo/branch:** `agent-mcp` module. Its default/integration branch is **`main`** (no `dev`). Branch from `main`; **confirm the PR target is `main`** before opening the PR (unlike backend, which targets `dev`).
-- **Signer owns its own EIP-712 constants** — no import of `github.com/Ref-Agent/backend`. The digest reads `Domain.{Name,Version,ChainID,VerifyingContract}` **verbatim** from the payload the agent passes (which is backend `link_telegram` step-1 output). A `telegramLinkDomainName` const is added for documentation/parity only and is intentionally unreferenced (mirrors the existing unused `cashbackRateDomainName`).
+- **Signer owns its own EIP-712 constants** — no import of `github.com/OpenSoukAI/backend`. The digest reads `Domain.{Name,Version,ChainID,VerifyingContract}` **verbatim** from the payload the agent passes (which is backend `link_telegram` step-1 output). A `telegramLinkDomainName` const is added for documentation/parity only and is intentionally unreferenced (mirrors the existing unused `cashbackRateDomainName`).
 - **PARITY IS LOAD-BEARING — must match backend `internal/signing/telegram_link_commitment.go` char-for-char:**
   - Type string (verbatim): `TelegramLinkCommitment(uint256 agentId,bytes32 nonce,uint256 expiry)`
   - Struct ABI-encode order/types: `bytes32(typehash), uint256(agentId), bytes32(nonce), uint256(expiry)`

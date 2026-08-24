@@ -1,4 +1,4 @@
-module github.com/Ref-Agent/agent-mcp
+module github.com/OpenSoukAI/agent-mcp
 
 go 1.26.2
 

@@ -19,7 +19,7 @@ Two MCP servers are registered:
 ## Setup
 
 ```bash
-git clone https://github.com/Ref-Agent/agent-mcp
+git clone https://github.com/OpenSoukAI/agent-mcp
 cd agent-mcp
 bash scripts/setup-mcp.sh
 ```
