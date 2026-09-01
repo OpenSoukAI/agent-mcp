@@ -4,15 +4,11 @@ import (
 	"context"
 	"fmt"
 	"math/big"
-	"os"
-	"strconv"
 	"strings"
 
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
-	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
-	"github.com/ethereum/go-ethereum/ethclient"
 
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -71,30 +67,14 @@ func handleBindEscrow(
 		return nil, bindEscrowOutput{}, err
 	}
 
-	rpcURL := os.Getenv("BASE_RPC_URL")
-	if rpcURL == "" {
-		return nil, bindEscrowOutput{}, fmt.Errorf("BASE_RPC_URL env var not set")
-	}
-	escrowAddrHex := os.Getenv("COMMISSION_ESCROW_ADDRESS")
-	if escrowAddrHex == "" {
-		return nil, bindEscrowOutput{}, fmt.Errorf("COMMISSION_ESCROW_ADDRESS env var not set")
+	escrowAddr, err := requireAddr("COMMISSION_ESCROW_ADDRESS")
+	if err != nil {
+		return nil, bindEscrowOutput{}, err
 	}
 
-	chainIDStr := in.ChainID
-	if chainIDStr == "" {
-		chainIDStr = os.Getenv("CHAIN_ID")
-	}
-	if chainIDStr == "" {
-		chainIDStr = "84532" // Base Sepolia
-	}
-	chainIDInt, err := strconv.ParseInt(chainIDStr, 10, 64)
+	client, chainIDInt, err := dialChain(ctx, in.ChainID)
 	if err != nil {
-		return nil, bindEscrowOutput{}, fmt.Errorf("invalid chain id %q: %w", chainIDStr, err)
-	}
-
-	client, err := ethclient.DialContext(ctx, rpcURL)
-	if err != nil {
-		return nil, bindEscrowOutput{}, fmt.Errorf("dial rpc: %w", err)
+		return nil, bindEscrowOutput{}, err
 	}
 	defer client.Close()
 
@@ -103,7 +83,6 @@ func handleBindEscrow(
 		return nil, bindEscrowOutput{}, fmt.Errorf("build transactor: %w", err)
 	}
 
-	escrowAddr := common.HexToAddress(escrowAddrHex)
 	contract := bind.NewBoundContract(escrowAddr, commissionEscrowABI, client, client, client)
 
 	tx, err := contract.Transact(auth, "bind", escrowID, agentID)

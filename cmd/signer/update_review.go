@@ -6,16 +6,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"math/big"
-	"os"
-	"strconv"
 	"strings"
 	"time"
 
 	ethereum "github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
-	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
-	"github.com/ethereum/go-ethereum/ethclient"
 
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -134,34 +130,16 @@ func handleUpdateReviewContentOnchain(
 		return nil, updateReviewOnchainOutput{}, err
 	}
 
-	rpcURL := os.Getenv("BASE_RPC_URL")
-	if rpcURL == "" {
-		return nil, updateReviewOnchainOutput{}, fmt.Errorf("BASE_RPC_URL env var not set")
-	}
-	registryAddrHex := os.Getenv("REVIEW_REGISTRY_ADDRESS")
-	if registryAddrHex == "" {
-		return nil, updateReviewOnchainOutput{}, fmt.Errorf("REVIEW_REGISTRY_ADDRESS env var not set")
+	registryAddr, err := requireAddr("REVIEW_REGISTRY_ADDRESS")
+	if err != nil {
+		return nil, updateReviewOnchainOutput{}, err
 	}
 
-	chainIDStr := in.ChainID
-	if chainIDStr == "" {
-		chainIDStr = os.Getenv("CHAIN_ID")
-	}
-	if chainIDStr == "" {
-		chainIDStr = "84532" // Base Sepolia
-	}
-	chainIDInt, err := strconv.ParseInt(chainIDStr, 10, 64)
+	client, chainIDInt, err := dialChain(ctx, in.ChainID)
 	if err != nil {
-		return nil, updateReviewOnchainOutput{}, fmt.Errorf("invalid chain id %q: %w", chainIDStr, err)
-	}
-
-	client, err := ethclient.DialContext(ctx, rpcURL)
-	if err != nil {
-		return nil, updateReviewOnchainOutput{}, fmt.Errorf("dial rpc: %w", err)
+		return nil, updateReviewOnchainOutput{}, err
 	}
 	defer client.Close()
-
-	registryAddr := common.HexToAddress(registryAddrHex)
 
 	// ── read the review: it supplies BOTH the hash preimage ids and the key to sign with ──
 	callData, err := reviewRegistryABI.Pack("getReview", reviewID)

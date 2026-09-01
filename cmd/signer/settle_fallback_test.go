@@ -232,7 +232,8 @@ func TestSettleFallback_KeyLookupNormalizesAgentID(t *testing.T) {
 	signerKeys = ks
 	t.Cleanup(func() { signerKeys = prev })
 
-	t.Setenv("BASE_RPC_URL", "") // handler stops here, AFTER a successful KeyFor
+	t.Setenv("COMMISSION_ESCROW_ADDRESS", "0x000000000000000000000000000000000000dEaD") // config is read before the dial
+	t.Setenv("BASE_RPC_URL", "")                                                        // handler stops here, AFTER a successful KeyFor
 	_, _, err = handleTriggerSettleFallback(context.Background(), nil, settleFallbackInput{AgentID: " 7 ", EscrowID: "1"})
 	if err == nil {
 		t.Fatal("expected an error (BASE_RPC_URL unset)")

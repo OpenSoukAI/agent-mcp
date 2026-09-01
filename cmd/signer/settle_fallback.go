@@ -4,17 +4,13 @@ import (
 	"context"
 	"fmt"
 	"math/big"
-	"os"
-	"strconv"
 	"strings"
 	"time"
 
 	ethereum "github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
-	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
-	"github.com/ethereum/go-ethereum/ethclient"
 
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -111,34 +107,16 @@ func handleTriggerSettleFallback(
 		return nil, settleFallbackOutput{}, err
 	}
 
-	rpcURL := os.Getenv("BASE_RPC_URL")
-	if rpcURL == "" {
-		return nil, settleFallbackOutput{}, fmt.Errorf("BASE_RPC_URL env var not set")
-	}
-	escrowAddrHex := os.Getenv("COMMISSION_ESCROW_ADDRESS")
-	if escrowAddrHex == "" {
-		return nil, settleFallbackOutput{}, fmt.Errorf("COMMISSION_ESCROW_ADDRESS env var not set")
+	escrowAddr, err := requireAddr("COMMISSION_ESCROW_ADDRESS")
+	if err != nil {
+		return nil, settleFallbackOutput{}, err
 	}
 
-	chainIDStr := in.ChainID
-	if chainIDStr == "" {
-		chainIDStr = os.Getenv("CHAIN_ID")
-	}
-	if chainIDStr == "" {
-		chainIDStr = "84532" // Base Sepolia
-	}
-	chainIDInt, err := strconv.ParseInt(chainIDStr, 10, 64)
+	client, chainIDInt, err := dialChain(ctx, in.ChainID)
 	if err != nil {
-		return nil, settleFallbackOutput{}, fmt.Errorf("invalid chain id %q: %w", chainIDStr, err)
-	}
-
-	client, err := ethclient.DialContext(ctx, rpcURL)
-	if err != nil {
-		return nil, settleFallbackOutput{}, fmt.Errorf("dial rpc: %w", err)
+		return nil, settleFallbackOutput{}, err
 	}
 	defer client.Close()
-
-	escrowAddr := common.HexToAddress(escrowAddrHex)
 
 	// ── preflight: explain the two common refusals before paying for a tx ──────
 	callData, err := commissionEscrowABI.Pack("getEscrow", escrowID)

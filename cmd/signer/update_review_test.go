@@ -206,6 +206,9 @@ func TestDecodeUpdateReviewRevert_FromError(t *testing.T) {
 // TestUpdateReview_StopsBeforeRPCWithoutURL proves the handler validates inputs before it
 // needs a chain, so a malformed call fails fast with a useful message.
 func TestUpdateReview_StopsBeforeRPCWithoutURL(t *testing.T) {
+	// Config is checked before the dial (requireAddr, then dialChain), so the address must
+	// be present for the run to reach the BASE_RPC_URL check this test asserts on.
+	t.Setenv("REVIEW_REGISTRY_ADDRESS", "0x000000000000000000000000000000000000dEaD")
 	t.Setenv("BASE_RPC_URL", "")
 	_, _, err := handleUpdateReviewContentOnchain(context.Background(), nil,
 		updateReviewOnchainInput{ReviewID: "9", ContentJSON: `{"rating":4}`})
