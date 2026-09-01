@@ -2,8 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/hex"
-	"errors"
 	"fmt"
 	"math/big"
 	"os"
@@ -46,48 +44,17 @@ func parseBindInputs(in bindEscrowInput) (escrowID, agentID *big.Int, err error)
 	return escrowID, agentID, nil
 }
 
-// bindRevertMessages maps a CommissionEscrow custom-error selector (hex, 4 bytes) to a
-// caller-facing explanation. Selectors are computed at runtime from the error signatures so
-// there is no hand-copied hex to drift.
-func bindRevertMessages() map[string]string {
-	sel := func(sig string) string { return hex.EncodeToString(crypto.Keccak256([]byte(sig))[:4]) }
-	return map[string]string{
-		sel("NotBuyerWallet(uint256,address)"):     "the signer key is not the wallet that paid for this escrow — bind must be sent from the exact wallet that made the agent-less purchase",
-		sel("NotAgentController(uint256,address)"): "the signer wallet does not own agent_id — register the ERC-8004 identity from the paying wallet first (register() is out of scope for this tool)",
-		sel("AlreadyBound(uint256)"):               "this escrow is already bound to an agent (bind is one-shot)",
-		sel("AlreadySettled(uint256)"):             "this escrow is already settled — too late to bind",
-		sel("EscrowNotFound(uint256)"):             "no escrow found for that escrow_id",
-	}
-}
-
-// dataError is the interface go-ethereum's RPC errors implement to expose revert data.
-type dataError interface{ ErrorData() interface{} }
-
-func decodeBindRevertData(data []byte) (string, bool) {
-	if len(data) < 4 {
-		return "", false
-	}
-	msg, ok := bindRevertMessages()[hex.EncodeToString(data[:4])]
-	return msg, ok
-}
-
-// decodeBindRevert extracts revert data from a go-ethereum tx/estimate error and maps its
-// custom-error selector to a friendly message. Returns ("", false) if it can't decode one.
-func decodeBindRevert(err error) (string, bool) {
-	var de dataError
-	if !errors.As(err, &de) {
-		return "", false
-	}
-	hexData, ok := de.ErrorData().(string)
-	if !ok {
-		return "", false
-	}
-	raw, e := hex.DecodeString(strings.TrimPrefix(hexData, "0x"))
-	if e != nil {
-		return "", false
-	}
-	return decodeBindRevertData(raw)
-}
+// bindRevertTable maps the CommissionEscrow custom errors reachable from bind() to
+// bind-specific advice. Wording is deliberately not shared with settle_fallback's table:
+// the same AlreadySettled/EscrowNotFound selectors mean something different to a caller
+// trying to bind than to one forcing a settle. See revert.go.
+var bindRevertTable = newRevertTable(map[string]string{
+	"NotBuyerWallet(uint256,address)":     "the signer key is not the wallet that paid for this escrow — bind must be sent from the exact wallet that made the agent-less purchase",
+	"NotAgentController(uint256,address)": "the signer wallet does not own agent_id — register the ERC-8004 identity from the paying wallet first (register() is out of scope for this tool)",
+	"AlreadyBound(uint256)":               "this escrow is already bound to an agent (bind is one-shot)",
+	"AlreadySettled(uint256)":             "this escrow is already settled — too late to bind",
+	"EscrowNotFound(uint256)":             "no escrow found for that escrow_id",
+})
 
 func handleBindEscrow(
 	ctx context.Context,
@@ -141,7 +108,7 @@ func handleBindEscrow(
 
 	tx, err := contract.Transact(auth, "bind", escrowID, agentID)
 	if err != nil {
-		if msg, ok := decodeBindRevert(err); ok {
+		if msg, ok := bindRevertTable.lookupErr(err); ok {
 			return nil, bindEscrowOutput{}, fmt.Errorf("bind would revert: %s", msg)
 		}
 		return nil, bindEscrowOutput{}, fmt.Errorf("bind tx: %w (check: is the signer key the wallet that paid this escrow, does it own agent_id, and is the escrow still unbound?)", err)

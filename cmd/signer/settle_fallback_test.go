@@ -87,12 +87,12 @@ func TestDecodeSettleFallbackRevert(t *testing.T) {
 	} {
 		sel := crypto.Keccak256([]byte(sig))[:4]
 		data := append(append([]byte{}, sel...), make([]byte, 96)...)
-		msg, ok := decodeSettleFallbackRevertData(data)
+		msg, ok := settleFallbackRevertTable.lookupData(data)
 		if !ok || msg == "" {
 			t.Fatalf("%s: expected a decoded message, got ok=%v msg=%q", sig, ok, msg)
 		}
 	}
-	if _, ok := decodeSettleFallbackRevertData([]byte{0x01, 0x02}); ok {
+	if _, ok := settleFallbackRevertTable.lookupData([]byte{0x01, 0x02}); ok {
 		t.Fatal("short data must not decode")
 	}
 }
@@ -115,12 +115,12 @@ func TestDecodeSettleFallbackRevert_FromError(t *testing.T) {
 	data := append(append([]byte{}, sel...), make([]byte, 32)...)
 	fake := fakeEscrowRevertErr{data: "0x" + hex.EncodeToString(data)}
 
-	msg, ok := decodeSettleFallbackRevert(fake)
+	msg, ok := settleFallbackRevertTable.lookupErr(fake)
 	if !ok || msg == "" {
 		t.Fatalf("expected a decoded message from a fake revert error, got ok=%v msg=%q", ok, msg)
 	}
 
-	if _, ok := decodeSettleFallbackRevert(errors.New("boom")); ok {
+	if _, ok := settleFallbackRevertTable.lookupErr(errors.New("boom")); ok {
 		t.Fatal("a plain error with no revert data must not decode")
 	}
 }

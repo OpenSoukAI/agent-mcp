@@ -88,7 +88,7 @@ func TestDecodeBindRevert(t *testing.T) {
 	sel := crypto.Keccak256([]byte("AlreadyBound(uint256)"))[:4]
 	// revert data = selector + abi-encoded uint256 arg (value irrelevant to the selector match)
 	data := append(append([]byte{}, sel...), make([]byte, 32)...)
-	msg, ok := decodeBindRevertData(data)
+	msg, ok := bindRevertTable.lookupData(data)
 	if !ok || msg == "" {
 		t.Fatalf("expected AlreadyBound decode, got ok=%v msg=%q", ok, msg)
 	}

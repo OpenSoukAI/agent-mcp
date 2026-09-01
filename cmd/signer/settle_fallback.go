@@ -2,8 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/hex"
-	"errors"
 	"fmt"
 	"math/big"
 	"os"
@@ -87,45 +85,16 @@ func decodeEscrowWindowEndAndState(raw []byte) (windowEnd, state int64, err erro
 	return windowEnd, state, nil
 }
 
-// settleFallbackRevertMessages maps a custom-error selector (hex, 4 bytes) to a caller-facing
-// explanation. Selectors are computed at runtime from the signatures, so there is no
-// hand-copied hex to drift. EnforcedPause is OpenZeppelin v5's Pausable error, reachable
-// because triggerSettleFallback is `whenNotPaused`.
-func settleFallbackRevertMessages() map[string]string {
-	sel := func(sig string) string { return hex.EncodeToString(crypto.Keccak256([]byte(sig))[:4]) }
-	return map[string]string{
-		sel("AlreadySettled(uint256)"):           "this escrow is already settled — the oracle got there first, nothing is stuck",
-		sel("EscrowNotFound(uint256)"):           "no escrow found for that escrow_id",
-		sel("TooEarly(uint256,uint256,uint256)"): "the public fallback is not open yet — it opens 10 days after the escrow's windowEnd (day ~70)",
-		sel("EnforcedPause()"):                   "CommissionEscrow is paused by the protocol admin — no settlement of any kind can run until it is unpaused",
-	}
-}
-
-func decodeSettleFallbackRevertData(data []byte) (string, bool) {
-	if len(data) < 4 {
-		return "", false
-	}
-	msg, ok := settleFallbackRevertMessages()[hex.EncodeToString(data[:4])]
-	return msg, ok
-}
-
-// decodeSettleFallbackRevert extracts revert data from a go-ethereum tx/estimate error and
-// maps its selector to a friendly message. Returns ("", false) if it can't decode one.
-func decodeSettleFallbackRevert(err error) (string, bool) {
-	var de dataError
-	if !errors.As(err, &de) {
-		return "", false
-	}
-	hexData, ok := de.ErrorData().(string)
-	if !ok {
-		return "", false
-	}
-	raw, e := hex.DecodeString(strings.TrimPrefix(hexData, "0x"))
-	if e != nil {
-		return "", false
-	}
-	return decodeSettleFallbackRevertData(raw)
-}
+// settleFallbackRevertTable maps the custom errors reachable from
+// triggerSettleFallback to fallback-specific advice. EnforcedPause is OpenZeppelin v5's
+// Pausable error, reachable because the function is `whenNotPaused`. Wording is
+// deliberately not shared with bind_escrow's table — see revert.go.
+var settleFallbackRevertTable = newRevertTable(map[string]string{
+	"AlreadySettled(uint256)":           "this escrow is already settled — the oracle got there first, nothing is stuck",
+	"EscrowNotFound(uint256)":           "no escrow found for that escrow_id",
+	"TooEarly(uint256,uint256,uint256)": "the public fallback is not open yet — it opens 10 days after the escrow's windowEnd (day ~70)",
+	"EnforcedPause()":                   "CommissionEscrow is paused by the protocol admin — no settlement of any kind can run until it is unpaused",
+})
 
 func handleTriggerSettleFallback(
 	ctx context.Context,
@@ -178,7 +147,7 @@ func handleTriggerSettleFallback(
 	}
 	raw, err := client.CallContract(ctx, ethereum.CallMsg{To: &escrowAddr, Data: callData}, nil)
 	if err != nil {
-		if msg, ok := decodeSettleFallbackRevert(err); ok {
+		if msg, ok := settleFallbackRevertTable.lookupErr(err); ok {
 			return nil, settleFallbackOutput{}, fmt.Errorf("getEscrow(%s): %s", escrowID, msg)
 		}
 		return nil, settleFallbackOutput{}, fmt.Errorf("getEscrow(%s): %w (is escrow_id right, and is BASE_RPC_URL on chain %d?)", escrowID, err, chainIDInt)
@@ -206,7 +175,7 @@ func handleTriggerSettleFallback(
 
 	tx, err := contract.Transact(auth, "triggerSettleFallback", escrowID)
 	if err != nil {
-		if msg, ok := decodeSettleFallbackRevert(err); ok {
+		if msg, ok := settleFallbackRevertTable.lookupErr(err); ok {
 			return nil, settleFallbackOutput{}, fmt.Errorf("triggerSettleFallback would revert: %s", msg)
 		}
 		return nil, settleFallbackOutput{}, fmt.Errorf("triggerSettleFallback tx: %w", err)

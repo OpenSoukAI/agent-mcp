@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"math/big"
 	"os"
@@ -16,7 +15,6 @@ import (
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
-	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/ethclient"
 
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
@@ -116,39 +114,15 @@ func parseUpdateReviewInput(in updateReviewOnchainInput) (reviewID *big.Int, err
 	return reviewID, nil
 }
 
-func updateReviewRevertMessages() map[string]string {
-	sel := func(sig string) string { return hex.EncodeToString(crypto.Keccak256([]byte(sig))[:4]) }
-	return map[string]string{
-		sel("ReviewNotFound(uint256)"):              "no review exists on-chain for that review_id (is it the on-chain id, not the internal database id?)",
-		sel("NotEditablePath(uint256)"):             "only a buyer review published with an escrow proof (ProofType.InSystemPurchase) is editable — an admin-approved or oracle-attested review is not",
-		sel("CallerNotAgentOwner(uint256,address)"): "the signer key is neither the reviewer agent's owner nor its registered agent wallet — only those two may edit the review",
-		sel("EditWindowClosed(uint256)"):            "the 7-day on-chain edit window for this review has closed; the content is now immutable",
-	}
-}
-
-func decodeUpdateReviewRevertData(data []byte) (string, bool) {
-	if len(data) < 4 {
-		return "", false
-	}
-	msg, ok := updateReviewRevertMessages()[hex.EncodeToString(data[:4])]
-	return msg, ok
-}
-
-func decodeUpdateReviewRevert(err error) (string, bool) {
-	var de dataError
-	if !errors.As(err, &de) {
-		return "", false
-	}
-	hexData, ok := de.ErrorData().(string)
-	if !ok {
-		return "", false
-	}
-	raw, e := hex.DecodeString(strings.TrimPrefix(hexData, "0x"))
-	if e != nil {
-		return "", false
-	}
-	return decodeUpdateReviewRevertData(raw)
-}
+// updateReviewRevertTable maps the ReviewRegistry custom errors reachable from
+// updateReviewContent to edit-specific advice. Note there is no EnforcedPause entry:
+// unlike CommissionEscrow's write path, updateReviewContent carries no pause modifier.
+var updateReviewRevertTable = newRevertTable(map[string]string{
+	"ReviewNotFound(uint256)":              "no review exists on-chain for that review_id (is it the on-chain id, not the internal database id?)",
+	"NotEditablePath(uint256)":             "only a buyer review published with an escrow proof (ProofType.InSystemPurchase) is editable — an admin-approved or oracle-attested review is not",
+	"CallerNotAgentOwner(uint256,address)": "the signer key is neither the reviewer agent's owner nor its registered agent wallet — only those two may edit the review",
+	"EditWindowClosed(uint256)":            "the 7-day on-chain edit window for this review has closed; the content is now immutable",
+})
 
 func handleUpdateReviewContentOnchain(
 	ctx context.Context,
@@ -196,7 +170,7 @@ func handleUpdateReviewContentOnchain(
 	}
 	raw, err := client.CallContract(ctx, ethereum.CallMsg{To: &registryAddr, Data: callData}, nil)
 	if err != nil {
-		if msg, ok := decodeUpdateReviewRevert(err); ok {
+		if msg, ok := updateReviewRevertTable.lookupErr(err); ok {
 			return nil, updateReviewOnchainOutput{}, fmt.Errorf("getReview(%s): %s", reviewID, msg)
 		}
 		return nil, updateReviewOnchainOutput{}, fmt.Errorf("getReview(%s): %w (is review_id the ON-CHAIN id, and is BASE_RPC_URL on chain %d?)", reviewID, err, chainIDInt)
@@ -250,7 +224,7 @@ func handleUpdateReviewContentOnchain(
 
 	tx, err := contract.Transact(auth, "updateReviewContent", reviewID, newHash)
 	if err != nil {
-		if msg, ok := decodeUpdateReviewRevert(err); ok {
+		if msg, ok := updateReviewRevertTable.lookupErr(err); ok {
 			return nil, updateReviewOnchainOutput{}, fmt.Errorf("updateReviewContent would revert: %s", msg)
 		}
 		return nil, updateReviewOnchainOutput{}, fmt.Errorf("updateReviewContent tx: %w", err)
