@@ -178,6 +178,9 @@ func handleTriggerSettleFallback(
 	}
 	raw, err := client.CallContract(ctx, ethereum.CallMsg{To: &escrowAddr, Data: callData}, nil)
 	if err != nil {
+		if msg, ok := decodeSettleFallbackRevert(err); ok {
+			return nil, settleFallbackOutput{}, fmt.Errorf("getEscrow(%s): %s", escrowID, msg)
+		}
 		return nil, settleFallbackOutput{}, fmt.Errorf("getEscrow(%s): %w (is escrow_id right, and is BASE_RPC_URL on chain %d?)", escrowID, err, chainIDInt)
 	}
 	windowEnd, state, err := decodeEscrowWindowEndAndState(raw)

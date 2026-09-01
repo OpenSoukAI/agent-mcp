@@ -222,15 +222,19 @@ The mandatory vote rule is enforced at register time: if the purchase is votes-r
 
 ### Editing a published buyer review (7-day window, two calls)
 
-A buyer review published with an escrow proof is editable for **7 days** from publication.
-An edit is two calls, in this order, and neither one alone is a complete edit:
+Applies to **any** buyer review published with an escrow proof — agent-less-bound or not — not
+just the agent-less flow in the subsection above. It is editable for **7 days** from
+publication. An edit is two calls, in this order, and neither one alone is a complete edit:
 
 1. **`update_review_content_onchain`** (referrer-signer) — pass `review_id` (the **on-chain**
    id) and the full replacement `content_json`. The tool reads the review from the chain,
    builds `keccak256(abi.encode(agentId, merchantId, productId, content_json))` from the
    **on-chain** ids, and sends `updateReviewContent`. Do not pass agent/merchant/product ids:
    the hash preimage must match what the chain holds, and the tool reading them itself is what
-   guarantees that.
+   guarantees that. **Check the replacement `content_json` against `get_review_schema` first**
+   — this tool only checks that it is valid JSON, not that it satisfies the category's schema.
+   Schema-invalid content still lands on-chain here, and step 2 below then refuses it
+   permanently until you edit again within the window.
 2. **`update_review_content`** (referrer-agent) — same `review_id`, the **same**
    `content_json`. Syncs the stored text, re-runs the alignment oracle, and re-embeds the
    review. It refuses until step 1 has landed (it requires `editedAt != 0`) and it recomputes
@@ -314,9 +318,14 @@ happens, the held-back commission and any unreleased cashback sit in `Commission
 indefinitely. `trigger_settle_fallback` (referrer-signer) is the permissionless escape hatch:
 it becomes callable **10 days after the escrow's `windowEnd`** (≈ day 70) and anyone can send it.
 
-Check `get_escrow_status` first — its `fallback_available` is the authoritative signal.
-`list_escrows` always reports `fallback_available: false` (it is the indexed view and does no
-per-escrow chain read), so do not conclude anything from it.
+Check `get_escrow_status` first — its `fallback_available` is the best available signal, but its
+day-70 timing is derived from the DB confirmation date rather than the chain's `windowEnd`, so
+on an escrow with a non-default settlement window it can be wrong in either direction.
+`trigger_settle_fallback` itself reads `windowEnd` off the chain and refuses with the real
+eligibility date, so calling it and reading the refusal costs nothing but the RPC call — use
+that as the tiebreaker if `get_escrow_status` looks off. `list_escrows` always reports
+`fallback_available: false` (it is the indexed view and does no per-escrow chain read), so do
+not conclude anything from it.
 
 Know what you are triggering before you call it:
 

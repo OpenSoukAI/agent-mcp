@@ -196,6 +196,9 @@ func handleUpdateReviewContentOnchain(
 	}
 	raw, err := client.CallContract(ctx, ethereum.CallMsg{To: &registryAddr, Data: callData}, nil)
 	if err != nil {
+		if msg, ok := decodeUpdateReviewRevert(err); ok {
+			return nil, updateReviewOnchainOutput{}, fmt.Errorf("getReview(%s): %s", reviewID, msg)
+		}
 		return nil, updateReviewOnchainOutput{}, fmt.Errorf("getReview(%s): %w (is review_id the ON-CHAIN id, and is BASE_RPC_URL on chain %d?)", reviewID, err, chainIDInt)
 	}
 	review, err := decodeGetReview(raw)
@@ -214,8 +217,12 @@ func handleUpdateReviewContentOnchain(
 			reviewID, time.Unix(closesAt, 0).UTC().Format(time.RFC3339))
 	}
 
-	// The signing key is selected by the ON-CHAIN reviewer id, so a caller cannot aim this
-	// at someone else's review with its own key and get a confusing chain-level revert.
+	// The signing key is selected by the ON-CHAIN reviewer id, so a caller cannot CHOOSE to
+	// sign with a different agent's key on purpose. It does not by itself stop a wrong-agent
+	// edit: with AGENT_PRIVATE_KEY set, KeyFor's fallback returns that key for ANY agent id,
+	// including one that is not review.AgentID. What actually blocks that case is the contract's
+	// _isAgentCaller check plus the CallerNotAgentOwner entry in the revert map below — the
+	// estimate fails, no gas is spent, and the caller gets a clear reason why.
 	privKey, err := signerKeys.KeyFor(review.AgentID.String())
 	if err != nil {
 		return nil, updateReviewOnchainOutput{}, fmt.Errorf("review %s belongs to agent %s: %w", reviewID, review.AgentID, err)
@@ -228,7 +235,10 @@ func handleUpdateReviewContentOnchain(
 	}
 	if newHash == review.ContentHash {
 		return nil, updateReviewOnchainOutput{}, fmt.Errorf(
-			"content_json hashes to the value already stored on-chain for review %s — nothing to update", reviewID)
+			"content_json hashes to the value already stored on-chain for review %s — nothing to update "+
+				"(no transaction was sent). If you already ran this tool successfully for this edit, the "+
+				"on-chain half is DONE — call update_review_content (referrer-agent) with this review_id "+
+				"and the same content_json to finish syncing it", reviewID)
 	}
 
 	// ── send ───────────────────────────────────────────────────────────────────

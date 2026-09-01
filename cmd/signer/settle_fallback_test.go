@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/hex"
+	"errors"
 	"math/big"
 	"strings"
 	"testing"
@@ -93,6 +94,34 @@ func TestDecodeSettleFallbackRevert(t *testing.T) {
 	}
 	if _, ok := decodeSettleFallbackRevertData([]byte{0x01, 0x02}); ok {
 		t.Fatal("short data must not decode")
+	}
+}
+
+// fakeEscrowRevertErr implements dataError so decodeSettleFallbackRevert can be exercised
+// without a live RPC error. Used to lock in the preflight-getEscrow decode path added in the
+// whole-branch review fix wave (M1): a nonexistent escrow_id now decodes EscrowNotFound at the
+// getEscrow CallContract error instead of only at the later Transact error, which was
+// unreachable because getEscrow itself reverts first for a nonexistent id.
+type fakeEscrowRevertErr struct{ data string }
+
+func (e fakeEscrowRevertErr) Error() string          { return "execution reverted" }
+func (e fakeEscrowRevertErr) ErrorData() interface{} { return e.data }
+
+// TestDecodeSettleFallbackRevert_FromError proves decodeSettleFallbackRevert (the err-based
+// wrapper used at both the getEscrow preflight and the Transact call site) correctly unwraps a
+// go-ethereum-shaped revert error, and that a plain error (no revert data) does not decode.
+func TestDecodeSettleFallbackRevert_FromError(t *testing.T) {
+	sel := crypto.Keccak256([]byte("EscrowNotFound(uint256)"))[:4]
+	data := append(append([]byte{}, sel...), make([]byte, 32)...)
+	fake := fakeEscrowRevertErr{data: "0x" + hex.EncodeToString(data)}
+
+	msg, ok := decodeSettleFallbackRevert(fake)
+	if !ok || msg == "" {
+		t.Fatalf("expected a decoded message from a fake revert error, got ok=%v msg=%q", ok, msg)
+	}
+
+	if _, ok := decodeSettleFallbackRevert(errors.New("boom")); ok {
+		t.Fatal("a plain error with no revert data must not decode")
 	}
 }
 

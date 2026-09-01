@@ -1168,7 +1168,10 @@ func main() {
 		Name: "trigger_settle_fallback",
 		Description: "Force-settle an escrow the oracle never settled (CommissionEscrow.triggerSettleFallback). " +
 			"Permissionless — any agent may call it — and it opens 10 days after the escrow's windowEnd (~day 70). " +
-			"Confirm fallback_available via get_escrow_status (referrer-agent) first; list_escrows always reports it false. " +
+			"Check fallback_available via get_escrow_status (referrer-agent) first, but note its day-70 timing is " +
+			"derived from the DB confirmation date, not this contract's windowEnd, so on a non-default settlement " +
+			"window it can be wrong; this tool reads windowEnd itself and refuses with the real date, so calling it " +
+			"and reading a refusal costs only the RPC call. list_escrows always reports fallback_available false. " +
 			"This is NOT a claim and it does not pay you: the held-back commission goes to the protocol TREASURY (so a " +
 			"reviewer calling this forfeits what a normal day-60 settle would have paid it), any unreleased cashback goes " +
 			"to the REVIEWER's wallet (the buyer never published its review, so the cashback reverts to its funder), and " +
@@ -1185,7 +1188,13 @@ func main() {
 			"difference. Pass review_id (the ON-CHAIN id) and the full replacement content_json; the tool " +
 			"reads the review from the chain to build the hash and to pick the signing key, so do not pass " +
 			"agent/merchant/product ids. Only a buyer review published with an escrow proof is editable, " +
-			"and only by the reviewer agent's owner or its registered agent wallet.",
+			"and only by the reviewer agent's owner or its registered agent wallet. IMPORTANT: this tool " +
+			"only checks that content_json is valid JSON — it does NOT validate it against the product's " +
+			"content schema. Call get_review_schema (referrer-agent) for the product's category and check " +
+			"your replacement content against it BEFORE calling this: content that fails that schema (e.g. " +
+			"a missing rating, or a description with '<'/'>') still lands on-chain here, and " +
+			"update_review_content will then refuse it permanently — leaving the review's stored text and " +
+			"its on-chain hash disagreeing until you edit again within the window.",
 	}, handleUpdateReviewContentOnchain)
 
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{

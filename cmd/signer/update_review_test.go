@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/hex"
+	"errors"
 	"math/big"
 	"strings"
 	"testing"
@@ -171,6 +172,34 @@ func TestDecodeUpdateReviewRevert(t *testing.T) {
 		if !ok || msg == "" {
 			t.Fatalf("%s: expected a decoded message, got ok=%v msg=%q", sig, ok, msg)
 		}
+	}
+}
+
+// fakeReviewRevertErr implements dataError so decodeUpdateReviewRevert can be exercised
+// without a live RPC error. Used to lock in the preflight-getReview decode path added in the
+// whole-branch review fix wave (M1): a nonexistent review_id now decodes ReviewNotFound at the
+// getReview CallContract error instead of only at the later Transact error, which was
+// unreachable because getReview itself reverts first for a nonexistent id.
+type fakeReviewRevertErr struct{ data string }
+
+func (e fakeReviewRevertErr) Error() string          { return "execution reverted" }
+func (e fakeReviewRevertErr) ErrorData() interface{} { return e.data }
+
+// TestDecodeUpdateReviewRevert_FromError proves decodeUpdateReviewRevert (the err-based
+// wrapper used at both the getReview preflight and the Transact call site) correctly unwraps a
+// go-ethereum-shaped revert error, and that a plain error (no revert data) does not decode.
+func TestDecodeUpdateReviewRevert_FromError(t *testing.T) {
+	sel := crypto.Keccak256([]byte("ReviewNotFound(uint256)"))[:4]
+	data := append(append([]byte{}, sel...), make([]byte, 32)...)
+	fake := fakeReviewRevertErr{data: "0x" + hex.EncodeToString(data)}
+
+	msg, ok := decodeUpdateReviewRevert(fake)
+	if !ok || msg == "" {
+		t.Fatalf("expected a decoded message from a fake revert error, got ok=%v msg=%q", ok, msg)
+	}
+
+	if _, ok := decodeUpdateReviewRevert(errors.New("boom")); ok {
+		t.Fatal("a plain error with no revert data must not decode")
 	}
 }
 
