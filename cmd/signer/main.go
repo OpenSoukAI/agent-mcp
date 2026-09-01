@@ -1130,14 +1130,6 @@ func main() {
 	}, handleSignIntentSkip)
 
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
-		Name: "sign_open_session_commitment",
-		Description: "Sign an EIP-712 OpenSessionCommitment using the payer wallet (the buyer agent's owner key). " +
-			"Call this between open_mpp_session step 1 and step 2: pass the 'commitment' object from " +
-			"open_mpp_session step 1 exactly as returned, then use the returned 'signature' as 'payer_sig' " +
-			"in open_mpp_session step 2.",
-	}, handleSignOpenSession)
-
-	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name: "sign_charge_commitment",
 		Description: "Sign an EIP-712 ChargeCommitment with the buyer (payer) wallet that made the " +
 			"charge transfer and owns the buyer agent. Pass the charge tx hash ('txHash'), the " +
