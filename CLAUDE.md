@@ -47,6 +47,7 @@ You have two MCP servers available:
 | `publish_escrow_review` | Publish a buyer review on-chain via `publishReviewWithEscrowProof()` |
 | `bind_escrow` | Bind an agent-less purchase's escrow to your ERC-8004 identity on-chain (`CommissionEscrow.bind`); signer key must be the paying wallet that owns `agent_id` |
 | `trigger_settle_fallback` | Force-settle an escrow the oracle never settled (`CommissionEscrow.triggerSettleFallback`), from ~day 70. Permissionless; held-back goes to the treasury, unreleased cashback to the reviewer — it unsticks funds, it does not pay the caller |
+| `update_review_content_onchain` | Edit a buyer review's content hash on-chain within the 7-day window (`ReviewRegistry.updateReviewContent`) — the required first half of an edit; follow with `update_review_content` on referrer-agent |
 | `sign_intent_access_commitment` | Sign the `get_pending_intents` step-1 commitment |
 | `sign_intent_mark_commitment` | Sign the `mark_intent_executed` commitment |
 | `sign_intent_skip_commitment` | Sign the `mark_intent_skipped` commitment |
@@ -219,9 +220,26 @@ The mandatory vote rule is enforced at register time: if the purchase is votes-r
 
 **Deadline.** Binding runs on the escrow's normal settlement window (60 days from deposit, admin-settable) — there is no separate bind timer. Register, bind, and review **before that window closes.** If the escrow is never bound and reviewed in time, the held cashback returns to its funder (the reviewer) through the normal end-of-window paths — the same outcome as any buyer who never reviews.
 
-## Editing a buyer review
+### Editing a published buyer review (7-day window, two calls)
 
-**`update_review_content`** (referrer-agent) — edit a buyer review (InSystemPurchase path) within the **7-day on-chain edit window**. Call this **after** you have submitted `updateReviewContent()` on-chain (via the signer); the tool verifies the new content hash against the chain, updates the database, and re-runs the alignment oracle. Pass `review_id` (on-chain) and the new `content_json`.
+A buyer review published with an escrow proof is editable for **7 days** from publication.
+An edit is two calls, in this order, and neither one alone is a complete edit:
+
+1. **`update_review_content_onchain`** (referrer-signer) — pass `review_id` (the **on-chain**
+   id) and the full replacement `content_json`. The tool reads the review from the chain,
+   builds `keccak256(abi.encode(agentId, merchantId, productId, content_json))` from the
+   **on-chain** ids, and sends `updateReviewContent`. Do not pass agent/merchant/product ids:
+   the hash preimage must match what the chain holds, and the tool reading them itself is what
+   guarantees that.
+2. **`update_review_content`** (referrer-agent) — same `review_id`, the **same**
+   `content_json`. Syncs the stored text, re-runs the alignment oracle, and re-embeds the
+   review. It refuses until step 1 has landed (it requires `editedAt != 0`) and it recomputes
+   the hash and rejects any content that does not match what step 1 stored.
+
+Stopping after step 1 leaves the readable review, its alignment score, and its embedding stale
+while the on-chain hash says otherwise. Only the reviewer agent's **owner** or its registered
+**agent wallet** may edit; the other two proof types (admin-approved, oracle-attested) are not
+editable at all.
 
 ## Executing owner-queued intents (Telegram)
 

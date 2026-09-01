@@ -43,9 +43,10 @@ var (
 	domainTypehash     = crypto.Keccak256Hash([]byte(domainTypeString))
 	commitmentTypehash = crypto.Keccak256Hash([]byte(commitmentTypeString))
 
-	reviewPublishedTopic = crypto.Keccak256Hash([]byte("ReviewPublished(uint256,uint256,uint256,bytes32,bytes32,uint8,uint40)"))
-	escrowDepositedTopic = crypto.Keccak256Hash([]byte("EscrowDeposited(uint256,uint256,uint256,address,uint256,uint256,bytes32,uint128,uint128)"))
-	fallbackSettledTopic = crypto.Keccak256Hash([]byte("FallbackSettled(uint256,address,uint128,uint128)"))
+	reviewPublishedTopic      = crypto.Keccak256Hash([]byte("ReviewPublished(uint256,uint256,uint256,bytes32,bytes32,uint8,uint40)"))
+	escrowDepositedTopic      = crypto.Keccak256Hash([]byte("EscrowDeposited(uint256,uint256,uint256,address,uint256,uint256,bytes32,uint128,uint128)"))
+	fallbackSettledTopic      = crypto.Keccak256Hash([]byte("FallbackSettled(uint256,address,uint128,uint128)"))
+	reviewContentUpdatedTopic = crypto.Keccak256Hash([]byte("ReviewContentUpdated(uint256,bytes32,uint40)"))
 
 	abiUint256 = mustABIType("uint256")
 	abiBytes32 = mustABIType("bytes32")
@@ -54,7 +55,10 @@ var (
 
 	reviewRegistryABI = mustParseABI(`[
 		{"inputs":[{"name":"agentId","type":"uint256"},{"name":"contentHash","type":"bytes32"},{"name":"escrowId","type":"uint256"}],"name":"publishReviewWithEscrowProof","outputs":[{"name":"reviewId","type":"uint256"}],"stateMutability":"nonpayable","type":"function"},
-		{"anonymous":false,"inputs":[{"indexed":true,"name":"reviewId","type":"uint256"},{"indexed":true,"name":"agentId","type":"uint256"},{"indexed":true,"name":"merchantId","type":"uint256"},{"indexed":false,"name":"productId","type":"bytes32"},{"indexed":false,"name":"contentHash","type":"bytes32"},{"indexed":false,"name":"proofType","type":"uint8"},{"indexed":false,"name":"timestamp","type":"uint40"}],"name":"ReviewPublished","type":"event"}
+		{"anonymous":false,"inputs":[{"indexed":true,"name":"reviewId","type":"uint256"},{"indexed":true,"name":"agentId","type":"uint256"},{"indexed":true,"name":"merchantId","type":"uint256"},{"indexed":false,"name":"productId","type":"bytes32"},{"indexed":false,"name":"contentHash","type":"bytes32"},{"indexed":false,"name":"proofType","type":"uint8"},{"indexed":false,"name":"timestamp","type":"uint40"}],"name":"ReviewPublished","type":"event"},
+		{"inputs":[{"name":"reviewId","type":"uint256"}],"name":"getReview","outputs":[{"components":[{"name":"agentId","type":"uint256"},{"name":"merchantId","type":"uint256"},{"name":"productId","type":"bytes32"},{"name":"contentHash","type":"bytes32"},{"name":"proofType","type":"uint8"},{"name":"timestamp","type":"uint40"},{"name":"editedAt","type":"uint40"}],"name":"","type":"tuple"}],"stateMutability":"view","type":"function"},
+		{"inputs":[{"name":"reviewId","type":"uint256"},{"name":"newContentHash","type":"bytes32"}],"name":"updateReviewContent","outputs":[],"stateMutability":"nonpayable","type":"function"},
+		{"anonymous":false,"inputs":[{"indexed":true,"name":"reviewId","type":"uint256"},{"indexed":true,"name":"contentHash","type":"bytes32"},{"indexed":false,"name":"editedAt","type":"uint40"}],"name":"ReviewContentUpdated","type":"event"}
 	]`)
 
 	commissionEscrowABI = mustParseABI(`[
@@ -1170,6 +1174,19 @@ func main() {
 			"to the REVIEWER's wallet (the buyer never published its review, so the cashback reverts to its funder), and " +
 			"you pay the gas. Call it to unstick funds after an oracle failure, not to get paid.",
 	}, handleTriggerSettleFallback)
+
+	sdkmcp.AddTool(srv, &sdkmcp.Tool{
+		Name: "update_review_content_onchain",
+		Description: "Edit a buyer review's content on-chain within its 7-day window " +
+			"(ReviewRegistry.updateReviewContent). This is the FIRST of two calls: it updates only the " +
+			"on-chain content hash. Afterwards you MUST call update_review_content (referrer-agent) with " +
+			"the same review_id and the SAME content_json to sync the stored text and re-run the alignment " +
+			"oracle — that tool verifies your content against the hash this one stored and rejects any " +
+			"difference. Pass review_id (the ON-CHAIN id) and the full replacement content_json; the tool " +
+			"reads the review from the chain to build the hash and to pick the signing key, so do not pass " +
+			"agent/merchant/product ids. Only a buyer review published with an escrow proof is editable, " +
+			"and only by the reviewer agent's owner or its registered agent wallet.",
+	}, handleUpdateReviewContentOnchain)
 
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name: "pay_for_product",
