@@ -43,8 +43,10 @@ var (
 	domainTypehash     = crypto.Keccak256Hash([]byte(domainTypeString))
 	commitmentTypehash = crypto.Keccak256Hash([]byte(commitmentTypeString))
 
-	reviewPublishedTopic = crypto.Keccak256Hash([]byte("ReviewPublished(uint256,uint256,uint256,bytes32,bytes32,uint8,uint40)"))
-	escrowDepositedTopic = crypto.Keccak256Hash([]byte("EscrowDeposited(uint256,uint256,uint256,address,uint256,uint256,bytes32,uint128,uint128)"))
+	reviewPublishedTopic      = crypto.Keccak256Hash([]byte("ReviewPublished(uint256,uint256,uint256,bytes32,bytes32,uint8,uint40)"))
+	escrowDepositedTopic      = crypto.Keccak256Hash([]byte("EscrowDeposited(uint256,uint256,uint256,address,uint256,uint256,bytes32,uint128,uint128)"))
+	fallbackSettledTopic      = crypto.Keccak256Hash([]byte("FallbackSettled(uint256,address,uint128,uint128)"))
+	reviewContentUpdatedTopic = crypto.Keccak256Hash([]byte("ReviewContentUpdated(uint256,bytes32,uint40)"))
 
 	abiUint256 = mustABIType("uint256")
 	abiBytes32 = mustABIType("bytes32")
@@ -53,13 +55,18 @@ var (
 
 	reviewRegistryABI = mustParseABI(`[
 		{"inputs":[{"name":"agentId","type":"uint256"},{"name":"contentHash","type":"bytes32"},{"name":"escrowId","type":"uint256"}],"name":"publishReviewWithEscrowProof","outputs":[{"name":"reviewId","type":"uint256"}],"stateMutability":"nonpayable","type":"function"},
-		{"anonymous":false,"inputs":[{"indexed":true,"name":"reviewId","type":"uint256"},{"indexed":true,"name":"agentId","type":"uint256"},{"indexed":true,"name":"merchantId","type":"uint256"},{"indexed":false,"name":"productId","type":"bytes32"},{"indexed":false,"name":"contentHash","type":"bytes32"},{"indexed":false,"name":"proofType","type":"uint8"},{"indexed":false,"name":"timestamp","type":"uint40"}],"name":"ReviewPublished","type":"event"}
+		{"anonymous":false,"inputs":[{"indexed":true,"name":"reviewId","type":"uint256"},{"indexed":true,"name":"agentId","type":"uint256"},{"indexed":true,"name":"merchantId","type":"uint256"},{"indexed":false,"name":"productId","type":"bytes32"},{"indexed":false,"name":"contentHash","type":"bytes32"},{"indexed":false,"name":"proofType","type":"uint8"},{"indexed":false,"name":"timestamp","type":"uint40"}],"name":"ReviewPublished","type":"event"},
+		{"inputs":[{"name":"reviewId","type":"uint256"}],"name":"getReview","outputs":[{"components":[{"name":"agentId","type":"uint256"},{"name":"merchantId","type":"uint256"},{"name":"productId","type":"bytes32"},{"name":"contentHash","type":"bytes32"},{"name":"proofType","type":"uint8"},{"name":"timestamp","type":"uint40"},{"name":"editedAt","type":"uint40"}],"name":"","type":"tuple"}],"stateMutability":"view","type":"function"},
+		{"inputs":[{"name":"reviewId","type":"uint256"},{"name":"newContentHash","type":"bytes32"}],"name":"updateReviewContent","outputs":[],"stateMutability":"nonpayable","type":"function"},
+		{"anonymous":false,"inputs":[{"indexed":true,"name":"reviewId","type":"uint256"},{"indexed":true,"name":"contentHash","type":"bytes32"},{"indexed":false,"name":"editedAt","type":"uint40"}],"name":"ReviewContentUpdated","type":"event"}
 	]`)
 
 	commissionEscrowABI = mustParseABI(`[
 		{"inputs":[{"name":"escrowId","type":"uint256"}],"name":"getEscrow","outputs":[{"components":[{"name":"reviewerAgentId","type":"uint256"},{"name":"buyerAgentId","type":"uint256"},{"name":"buyerWallet","type":"address"},{"name":"merchantId","type":"uint256"},{"name":"productId","type":"bytes32"},{"name":"heldBackAmt","type":"uint128"},{"name":"cashbackAmt","type":"uint128"},{"name":"originalPurchaseAmt","type":"uint128"},{"name":"depositTimestamp","type":"uint40"},{"name":"windowEnd","type":"uint40"},{"name":"productType","type":"uint8"},{"name":"state","type":"uint8"},{"name":"cashbackReleased","type":"bool"}],"name":"","type":"tuple"}],"stateMutability":"view","type":"function"},
 		{"inputs":[{"name":"escrowId","type":"uint256"},{"name":"agentId","type":"uint256"}],"name":"bind","outputs":[],"stateMutability":"nonpayable","type":"function"},
-		{"anonymous":false,"inputs":[{"indexed":true,"name":"escrowId","type":"uint256"},{"indexed":true,"name":"agentId","type":"uint256"},{"indexed":true,"name":"boundBy","type":"address"}],"name":"EscrowBound","type":"event"}
+		{"anonymous":false,"inputs":[{"indexed":true,"name":"escrowId","type":"uint256"},{"indexed":true,"name":"agentId","type":"uint256"},{"indexed":true,"name":"boundBy","type":"address"}],"name":"EscrowBound","type":"event"},
+		{"inputs":[{"name":"escrowId","type":"uint256"}],"name":"triggerSettleFallback","outputs":[],"stateMutability":"nonpayable","type":"function"},
+		{"anonymous":false,"inputs":[{"indexed":true,"name":"escrowId","type":"uint256"},{"indexed":true,"name":"treasury","type":"address"},{"indexed":false,"name":"heldBackAmt","type":"uint128"},{"indexed":false,"name":"cashbackAmt","type":"uint128"}],"name":"FallbackSettled","type":"event"}
 	]`)
 )
 
@@ -1130,14 +1137,6 @@ func main() {
 	}, handleSignIntentSkip)
 
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
-		Name: "sign_open_session_commitment",
-		Description: "Sign an EIP-712 OpenSessionCommitment using the payer wallet (the buyer agent's owner key). " +
-			"Call this between open_mpp_session step 1 and step 2: pass the 'commitment' object from " +
-			"open_mpp_session step 1 exactly as returned, then use the returned 'signature' as 'payer_sig' " +
-			"in open_mpp_session step 2.",
-	}, handleSignOpenSession)
-
-	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name: "sign_charge_commitment",
 		Description: "Sign an EIP-712 ChargeCommitment with the buyer (payer) wallet that made the " +
 			"charge transfer and owns the buyer agent. Pass the charge tx hash ('txHash'), the " +
@@ -1164,6 +1163,39 @@ func main() {
 			"Inputs: escrow_id (from pay_for_product / list_escrows), agent_id. After it succeeds, the backend " +
 			"rebinds the purchase automatically; then cast_review_votes, publish_escrow_review, and register_purchase_review.",
 	}, handleBindEscrow)
+
+	sdkmcp.AddTool(srv, &sdkmcp.Tool{
+		Name: "trigger_settle_fallback",
+		Description: "Force-settle an escrow the oracle never settled (CommissionEscrow.triggerSettleFallback). " +
+			"Permissionless — any agent may call it — and it opens 10 days after the escrow's windowEnd (~day 70). " +
+			"Check fallback_available via get_escrow_status (referrer-agent) first, but note its day-70 timing is " +
+			"derived from the DB confirmation date, not this contract's windowEnd, so on a non-default settlement " +
+			"window it can be wrong; this tool reads windowEnd itself and refuses with the real date, so calling it " +
+			"and reading a refusal costs only the RPC call. list_escrows always reports fallback_available false. " +
+			"This is NOT a claim and it does not pay you: the held-back commission goes to the protocol TREASURY (so a " +
+			"reviewer calling this forfeits what a normal day-60 settle would have paid it), any unreleased cashback goes " +
+			"to the REVIEWER's wallet (the buyer never published its review, so the cashback reverts to its funder), and " +
+			"you pay the gas. Call it to unstick funds after an oracle failure, not to get paid.",
+	}, handleTriggerSettleFallback)
+
+	sdkmcp.AddTool(srv, &sdkmcp.Tool{
+		Name: "update_review_content_onchain",
+		Description: "Edit a buyer review's content on-chain within its 7-day window " +
+			"(ReviewRegistry.updateReviewContent). This is the FIRST of two calls: it updates only the " +
+			"on-chain content hash. Afterwards you MUST call update_review_content (referrer-agent) with " +
+			"the same review_id and the SAME content_json to sync the stored text and re-run the alignment " +
+			"oracle — that tool verifies your content against the hash this one stored and rejects any " +
+			"difference. Pass review_id (the ON-CHAIN id) and the full replacement content_json; the tool " +
+			"reads the review from the chain to build the hash and to pick the signing key, so do not pass " +
+			"agent/merchant/product ids. Only a buyer review published with an escrow proof is editable, " +
+			"and only by the reviewer agent's owner or its registered agent wallet. IMPORTANT: this tool " +
+			"only checks that content_json is valid JSON — it does NOT validate it against the product's " +
+			"content schema. Call get_review_schema (referrer-agent) for the product's category and check " +
+			"your replacement content against it BEFORE calling this: content that fails that schema (e.g. " +
+			"a missing rating, or a description with '<'/'>') still lands on-chain here, and " +
+			"update_review_content will then refuse it permanently — leaving the review's stored text and " +
+			"its on-chain hash disagreeing until you edit again within the window.",
+	}, handleUpdateReviewContentOnchain)
 
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name: "pay_for_product",
