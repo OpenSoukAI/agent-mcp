@@ -98,10 +98,15 @@ func TestDecodeSettleFallbackRevert(t *testing.T) {
 
 // TestDecodeEscrowWindowEndAndState packs a SYNTHETIC getEscrow return tuple (all 13
 // EscrowRecord fields, declaration order) and asserts windowEnd and state decode from the
-// right words. Every field gets a distinct nonzero value — including the neighbours of
-// windowEnd (depositTimestamp, productType) and state (productType, cashbackReleased) — so an
-// off-by-one-word slice bug would read a wrong-but-present neighbour value and fail the
-// assertion, rather than passing by coincidence against a mostly-zero fixture. No network call.
+// right words. Fixture contract: every one of the 13 words gets a DISTINCT value (numeric
+// fields distinct from every other numeric field; address/bytes32 are separately-typed words
+// that can't collide with a numeric read), so ANY single-word slip in either direction on
+// EITHER windowEnd (word 9) or state (word 11) reads a different word's value and fails an
+// assertion — it cannot coincidentally pass by reading a same-valued neighbour. In particular:
+// windowEnd's neighbours are depositTimestamp (word 8) and productType (word 10); state's
+// neighbours are productType (word 10) and cashbackReleased (word 12, ABI-encoded 0 for
+// false) — productType=2 and cashbackReleased=false were chosen specifically so neither equals
+// wantState=1. No network call.
 func TestDecodeEscrowWindowEndAndState(t *testing.T) {
 	mustType := func(t string) abi.Type {
 		typ, err := abi.NewType(t, "", nil)
@@ -128,8 +133,9 @@ func TestDecodeEscrowWindowEndAndState(t *testing.T) {
 		originalPurchaseAmt = 666
 		depositTimestamp    = 1_690_000_000
 		wantWindowEnd       = 1_700_000_000
-		productType         = 1
-		wantState           = 1
+		productType         = 2     // != wantState (1): guards state's word-10 neighbour
+		wantState           = 1     // EscrowState.Settled — the only value the handler branches on
+		cashbackReleased    = false // ABI-encodes to word value 0 != wantState (1): guards state's word-12 neighbour
 	)
 
 	packed, err := abi.Arguments{
@@ -159,7 +165,7 @@ func TestDecodeEscrowWindowEndAndState(t *testing.T) {
 		big.NewInt(wantWindowEnd),
 		uint8(productType),
 		uint8(wantState),
-		true,
+		cashbackReleased,
 	)
 	if err != nil {
 		t.Fatalf("pack synthetic getEscrow tuple: %v", err)
