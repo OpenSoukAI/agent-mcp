@@ -45,6 +45,7 @@ var (
 
 	reviewPublishedTopic = crypto.Keccak256Hash([]byte("ReviewPublished(uint256,uint256,uint256,bytes32,bytes32,uint8,uint40)"))
 	escrowDepositedTopic = crypto.Keccak256Hash([]byte("EscrowDeposited(uint256,uint256,uint256,address,uint256,uint256,bytes32,uint128,uint128)"))
+	fallbackSettledTopic = crypto.Keccak256Hash([]byte("FallbackSettled(uint256,address,uint128,uint128)"))
 
 	abiUint256 = mustABIType("uint256")
 	abiBytes32 = mustABIType("bytes32")
@@ -59,7 +60,9 @@ var (
 	commissionEscrowABI = mustParseABI(`[
 		{"inputs":[{"name":"escrowId","type":"uint256"}],"name":"getEscrow","outputs":[{"components":[{"name":"reviewerAgentId","type":"uint256"},{"name":"buyerAgentId","type":"uint256"},{"name":"buyerWallet","type":"address"},{"name":"merchantId","type":"uint256"},{"name":"productId","type":"bytes32"},{"name":"heldBackAmt","type":"uint128"},{"name":"cashbackAmt","type":"uint128"},{"name":"originalPurchaseAmt","type":"uint128"},{"name":"depositTimestamp","type":"uint40"},{"name":"windowEnd","type":"uint40"},{"name":"productType","type":"uint8"},{"name":"state","type":"uint8"},{"name":"cashbackReleased","type":"bool"}],"name":"","type":"tuple"}],"stateMutability":"view","type":"function"},
 		{"inputs":[{"name":"escrowId","type":"uint256"},{"name":"agentId","type":"uint256"}],"name":"bind","outputs":[],"stateMutability":"nonpayable","type":"function"},
-		{"anonymous":false,"inputs":[{"indexed":true,"name":"escrowId","type":"uint256"},{"indexed":true,"name":"agentId","type":"uint256"},{"indexed":true,"name":"boundBy","type":"address"}],"name":"EscrowBound","type":"event"}
+		{"anonymous":false,"inputs":[{"indexed":true,"name":"escrowId","type":"uint256"},{"indexed":true,"name":"agentId","type":"uint256"},{"indexed":true,"name":"boundBy","type":"address"}],"name":"EscrowBound","type":"event"},
+		{"inputs":[{"name":"escrowId","type":"uint256"}],"name":"triggerSettleFallback","outputs":[],"stateMutability":"nonpayable","type":"function"},
+		{"anonymous":false,"inputs":[{"indexed":true,"name":"escrowId","type":"uint256"},{"indexed":true,"name":"treasury","type":"address"},{"indexed":false,"name":"heldBackAmt","type":"uint128"},{"indexed":false,"name":"cashbackAmt","type":"uint128"}],"name":"FallbackSettled","type":"event"}
 	]`)
 )
 
@@ -1156,6 +1159,17 @@ func main() {
 			"Inputs: escrow_id (from pay_for_product / list_escrows), agent_id. After it succeeds, the backend " +
 			"rebinds the purchase automatically; then cast_review_votes, publish_escrow_review, and register_purchase_review.",
 	}, handleBindEscrow)
+
+	sdkmcp.AddTool(srv, &sdkmcp.Tool{
+		Name: "trigger_settle_fallback",
+		Description: "Force-settle an escrow the oracle never settled (CommissionEscrow.triggerSettleFallback). " +
+			"Permissionless — any agent may call it — and it opens 10 days after the escrow's windowEnd (~day 70). " +
+			"Confirm fallback_available via get_escrow_status (referrer-agent) first; list_escrows always reports it false. " +
+			"This is NOT a claim and it does not pay you: the held-back commission goes to the protocol TREASURY (so a " +
+			"reviewer calling this forfeits what a normal day-60 settle would have paid it), any unreleased cashback goes " +
+			"to the REVIEWER's wallet (the buyer never published its review, so the cashback reverts to its funder), and " +
+			"you pay the gas. Call it to unstick funds after an oracle failure, not to get paid.",
+	}, handleTriggerSettleFallback)
 
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name: "pay_for_product",

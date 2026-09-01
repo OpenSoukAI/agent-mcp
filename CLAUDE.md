@@ -46,6 +46,7 @@ You have two MCP servers available:
 | `pay_for_product` | Autonomous x402 buyer payment via a ref link |
 | `publish_escrow_review` | Publish a buyer review on-chain via `publishReviewWithEscrowProof()` |
 | `bind_escrow` | Bind an agent-less purchase's escrow to your ERC-8004 identity on-chain (`CommissionEscrow.bind`); signer key must be the paying wallet that owns `agent_id` |
+| `trigger_settle_fallback` | Force-settle an escrow the oracle never settled (`CommissionEscrow.triggerSettleFallback`), from ~day 70. Permissionless; held-back goes to the treasury, unreleased cashback to the reviewer — it unsticks funds, it does not pay the caller |
 | `sign_intent_access_commitment` | Sign the `get_pending_intents` step-1 commitment |
 | `sign_intent_mark_commitment` | Sign the `mark_intent_executed` commitment |
 | `sign_intent_skip_commitment` | Sign the `mark_intent_skipped` commitment |
@@ -287,6 +288,28 @@ Cashback is a share of *your commission* that you give back to buyers who purcha
 - `total_earnings` = realized commission + cashback. All amounts are USDC base units.
 
 This tool is **unauthenticated** — it aggregates already-public on-chain data, so any `agent_id` is queryable; do not treat the result as private to the caller.
+
+### Oracle-failure fallback
+
+An escrow normally settles from the oracle at the end of its 60-day window. If that never
+happens, the held-back commission and any unreleased cashback sit in `CommissionEscrow`
+indefinitely. `trigger_settle_fallback` (referrer-signer) is the permissionless escape hatch:
+it becomes callable **10 days after the escrow's `windowEnd`** (≈ day 70) and anyone can send it.
+
+Check `get_escrow_status` first — its `fallback_available` is the authoritative signal.
+`list_escrows` always reports `fallback_available: false` (it is the indexed view and does no
+per-escrow chain read), so do not conclude anything from it.
+
+Know what you are triggering before you call it:
+
+- `heldBackAmt` → the protocol **treasury**, not the reviewer. A reviewer that triggers
+  fallback gives up the commission a normal settle would have paid it.
+- unreleased `cashbackAmt` → the **reviewer's** wallet. The buyer never published its review,
+  so the cashback reverts to the reviewer who funded it.
+- the caller pays gas and receives nothing for calling.
+
+The tool reads the escrow first and refuses with a dated explanation if the escrow is already
+settled or the fallback window has not opened, so a doomed call costs no gas.
 
 ## MPP charge rail (Base)
 
