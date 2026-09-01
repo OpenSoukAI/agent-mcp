@@ -65,22 +65,6 @@ func fallbackEligibility(windowEnd, now int64) (eligibleAt int64, eligible bool)
 	return eligibleAt, now >= eligibleAt
 }
 
-// decodeEscrowWindowEndAndState pulls windowEnd and state out of getEscrow's raw ABI-encoded
-// return. All 13 EscrowRecord fields are static types, one 32-byte word each, in declaration
-// order: reviewerAgentId, buyerAgentId, buyerWallet, merchantId, productId, heldBackAmt,
-// cashbackAmt, originalPurchaseAmt, depositTimestamp, windowEnd, productType, state,
-// cashbackReleased. windowEnd is word 9 (bytes 288:320); state is word 11 (bytes 352:384).
-// Pure and unit-tested against a synthetic tuple so a future struct-field reorder (in this
-// file or a later contract version) fails a test instead of silently misreading a live chain.
-func decodeEscrowWindowEndAndState(raw []byte) (windowEnd, state int64, err error) {
-	if len(raw) < 384 {
-		return 0, 0, fmt.Errorf("getEscrow returned short data: %d bytes", len(raw))
-	}
-	windowEnd = new(big.Int).SetBytes(raw[288:320]).Int64()
-	state = new(big.Int).SetBytes(raw[352:384]).Int64()
-	return windowEnd, state, nil
-}
-
 // settleFallbackRevertTable maps the custom errors reachable from
 // triggerSettleFallback to fallback-specific advice. EnforcedPause is OpenZeppelin v5's
 // Pausable error, reachable because the function is `whenNotPaused`. Wording is
@@ -130,14 +114,14 @@ func handleTriggerSettleFallback(
 		}
 		return nil, settleFallbackOutput{}, fmt.Errorf("getEscrow(%s): %w (is escrow_id right, and is BASE_RPC_URL on chain %d?)", escrowID, err, chainIDInt)
 	}
-	windowEnd, state, err := decodeEscrowWindowEndAndState(raw)
+	escrow, err := decodeGetEscrow(raw)
 	if err != nil {
 		return nil, settleFallbackOutput{}, err
 	}
-	if state == 1 { // EscrowState.Settled
+	if escrow.State == escrowStateSettled {
 		return nil, settleFallbackOutput{}, fmt.Errorf("escrow %s is already settled — the oracle got there first, nothing is stuck", escrowID)
 	}
-	if eligibleAt, ok := fallbackEligibility(windowEnd, time.Now().Unix()); !ok {
+	if eligibleAt, ok := fallbackEligibility(escrow.WindowEnd, time.Now().Unix()); !ok {
 		return nil, settleFallbackOutput{}, fmt.Errorf(
 			"escrow %s is not fallback-eligible yet: the public fallback opens at %s (windowEnd + 10 days)",
 			escrowID, time.Unix(eligibleAt, 0).UTC().Format(time.RFC3339),

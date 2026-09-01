@@ -622,14 +622,11 @@ func handlePublishEscrowReview(
 	if err != nil {
 		return nil, publishEscrowReviewOutput{}, fmt.Errorf("getEscrow(%s): %w", in.EscrowID, err)
 	}
-	// ABI layout: (uint256 reviewerAgentId, uint256 buyerAgentId, address buyerWallet, uint256 merchantId, bytes32 productId, ...)
-	// All static types; each slot is 32 bytes (address is left-padded to 32 bytes).
-	if len(rawResult) < 160 {
-		return nil, publishEscrowReviewOutput{}, fmt.Errorf("getEscrow returned short data: %d bytes", len(rawResult))
+	escrow, err := decodeGetEscrow(rawResult)
+	if err != nil {
+		return nil, publishEscrowReviewOutput{}, err
 	}
-	merchantID := new(big.Int).SetBytes(rawResult[96:128])
-	var productID [32]byte
-	copy(productID[:], rawResult[128:160])
+	merchantID, productID := escrow.MerchantID, escrow.ProductID
 
 	if callerMerchantID.Cmp(merchantID) != 0 {
 		return nil, publishEscrowReviewOutput{}, fmt.Errorf(
