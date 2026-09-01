@@ -71,7 +71,8 @@ func TestBindEscrow_KeyLookupNormalizesAgentID(t *testing.T) {
 	signerKeys = ks
 	t.Cleanup(func() { signerKeys = prev })
 
-	t.Setenv("BASE_RPC_URL", "") // handler stops here AFTER a successful KeyFor
+	t.Setenv("COMMISSION_ESCROW_ADDRESS", "0x000000000000000000000000000000000000dEaD") // config is read before the dial
+	t.Setenv("BASE_RPC_URL", "")                                                        // handler stops here AFTER a successful KeyFor
 	_, _, err = handleBindEscrow(context.Background(), nil, bindEscrowInput{AgentID: " 7 ", EscrowID: "1"})
 	if err == nil {
 		t.Fatal("expected an error (BASE_RPC_URL unset)")
@@ -88,7 +89,7 @@ func TestDecodeBindRevert(t *testing.T) {
 	sel := crypto.Keccak256([]byte("AlreadyBound(uint256)"))[:4]
 	// revert data = selector + abi-encoded uint256 arg (value irrelevant to the selector match)
 	data := append(append([]byte{}, sel...), make([]byte, 32)...)
-	msg, ok := decodeBindRevertData(data)
+	msg, ok := bindRevertTable.lookupData(data)
 	if !ok || msg == "" {
 		t.Fatalf("expected AlreadyBound decode, got ok=%v msg=%q", ok, msg)
 	}

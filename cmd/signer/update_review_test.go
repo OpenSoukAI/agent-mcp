@@ -168,7 +168,7 @@ func TestDecodeUpdateReviewRevert(t *testing.T) {
 	} {
 		sel := crypto.Keccak256([]byte(sig))[:4]
 		data := append(append([]byte{}, sel...), make([]byte, 64)...)
-		msg, ok := decodeUpdateReviewRevertData(data)
+		msg, ok := updateReviewRevertTable.lookupData(data)
 		if !ok || msg == "" {
 			t.Fatalf("%s: expected a decoded message, got ok=%v msg=%q", sig, ok, msg)
 		}
@@ -193,12 +193,12 @@ func TestDecodeUpdateReviewRevert_FromError(t *testing.T) {
 	data := append(append([]byte{}, sel...), make([]byte, 32)...)
 	fake := fakeReviewRevertErr{data: "0x" + hex.EncodeToString(data)}
 
-	msg, ok := decodeUpdateReviewRevert(fake)
+	msg, ok := updateReviewRevertTable.lookupErr(fake)
 	if !ok || msg == "" {
 		t.Fatalf("expected a decoded message from a fake revert error, got ok=%v msg=%q", ok, msg)
 	}
 
-	if _, ok := decodeUpdateReviewRevert(errors.New("boom")); ok {
+	if _, ok := updateReviewRevertTable.lookupErr(errors.New("boom")); ok {
 		t.Fatal("a plain error with no revert data must not decode")
 	}
 }
@@ -206,6 +206,9 @@ func TestDecodeUpdateReviewRevert_FromError(t *testing.T) {
 // TestUpdateReview_StopsBeforeRPCWithoutURL proves the handler validates inputs before it
 // needs a chain, so a malformed call fails fast with a useful message.
 func TestUpdateReview_StopsBeforeRPCWithoutURL(t *testing.T) {
+	// Config is checked before the dial (requireAddr, then dialChain), so the address must
+	// be present for the run to reach the BASE_RPC_URL check this test asserts on.
+	t.Setenv("REVIEW_REGISTRY_ADDRESS", "0x000000000000000000000000000000000000dEaD")
 	t.Setenv("BASE_RPC_URL", "")
 	_, _, err := handleUpdateReviewContentOnchain(context.Background(), nil,
 		updateReviewOnchainInput{ReviewID: "9", ContentJSON: `{"rating":4}`})

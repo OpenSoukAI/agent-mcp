@@ -2,21 +2,15 @@ package main
 
 import (
 	"context"
-	"encoding/hex"
-	"errors"
 	"fmt"
 	"math/big"
-	"os"
-	"strconv"
 	"strings"
 	"time"
 
 	ethereum "github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
-	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
-	"github.com/ethereum/go-ethereum/ethclient"
 
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -71,61 +65,16 @@ func fallbackEligibility(windowEnd, now int64) (eligibleAt int64, eligible bool)
 	return eligibleAt, now >= eligibleAt
 }
 
-// decodeEscrowWindowEndAndState pulls windowEnd and state out of getEscrow's raw ABI-encoded
-// return. All 13 EscrowRecord fields are static types, one 32-byte word each, in declaration
-// order: reviewerAgentId, buyerAgentId, buyerWallet, merchantId, productId, heldBackAmt,
-// cashbackAmt, originalPurchaseAmt, depositTimestamp, windowEnd, productType, state,
-// cashbackReleased. windowEnd is word 9 (bytes 288:320); state is word 11 (bytes 352:384).
-// Pure and unit-tested against a synthetic tuple so a future struct-field reorder (in this
-// file or a later contract version) fails a test instead of silently misreading a live chain.
-func decodeEscrowWindowEndAndState(raw []byte) (windowEnd, state int64, err error) {
-	if len(raw) < 384 {
-		return 0, 0, fmt.Errorf("getEscrow returned short data: %d bytes", len(raw))
-	}
-	windowEnd = new(big.Int).SetBytes(raw[288:320]).Int64()
-	state = new(big.Int).SetBytes(raw[352:384]).Int64()
-	return windowEnd, state, nil
-}
-
-// settleFallbackRevertMessages maps a custom-error selector (hex, 4 bytes) to a caller-facing
-// explanation. Selectors are computed at runtime from the signatures, so there is no
-// hand-copied hex to drift. EnforcedPause is OpenZeppelin v5's Pausable error, reachable
-// because triggerSettleFallback is `whenNotPaused`.
-func settleFallbackRevertMessages() map[string]string {
-	sel := func(sig string) string { return hex.EncodeToString(crypto.Keccak256([]byte(sig))[:4]) }
-	return map[string]string{
-		sel("AlreadySettled(uint256)"):           "this escrow is already settled — the oracle got there first, nothing is stuck",
-		sel("EscrowNotFound(uint256)"):           "no escrow found for that escrow_id",
-		sel("TooEarly(uint256,uint256,uint256)"): "the public fallback is not open yet — it opens 10 days after the escrow's windowEnd (day ~70)",
-		sel("EnforcedPause()"):                   "CommissionEscrow is paused by the protocol admin — no settlement of any kind can run until it is unpaused",
-	}
-}
-
-func decodeSettleFallbackRevertData(data []byte) (string, bool) {
-	if len(data) < 4 {
-		return "", false
-	}
-	msg, ok := settleFallbackRevertMessages()[hex.EncodeToString(data[:4])]
-	return msg, ok
-}
-
-// decodeSettleFallbackRevert extracts revert data from a go-ethereum tx/estimate error and
-// maps its selector to a friendly message. Returns ("", false) if it can't decode one.
-func decodeSettleFallbackRevert(err error) (string, bool) {
-	var de dataError
-	if !errors.As(err, &de) {
-		return "", false
-	}
-	hexData, ok := de.ErrorData().(string)
-	if !ok {
-		return "", false
-	}
-	raw, e := hex.DecodeString(strings.TrimPrefix(hexData, "0x"))
-	if e != nil {
-		return "", false
-	}
-	return decodeSettleFallbackRevertData(raw)
-}
+// settleFallbackRevertTable maps the custom errors reachable from
+// triggerSettleFallback to fallback-specific advice. EnforcedPause is OpenZeppelin v5's
+// Pausable error, reachable because the function is `whenNotPaused`. Wording is
+// deliberately not shared with bind_escrow's table — see revert.go.
+var settleFallbackRevertTable = newRevertTable(map[string]string{
+	"AlreadySettled(uint256)":           "this escrow is already settled — the oracle got there first, nothing is stuck",
+	"EscrowNotFound(uint256)":           "no escrow found for that escrow_id",
+	"TooEarly(uint256,uint256,uint256)": "the public fallback is not open yet — it opens 10 days after the escrow's windowEnd (day ~70)",
+	"EnforcedPause()":                   "CommissionEscrow is paused by the protocol admin — no settlement of any kind can run until it is unpaused",
+})
 
 func handleTriggerSettleFallback(
 	ctx context.Context,
@@ -142,34 +91,16 @@ func handleTriggerSettleFallback(
 		return nil, settleFallbackOutput{}, err
 	}
 
-	rpcURL := os.Getenv("BASE_RPC_URL")
-	if rpcURL == "" {
-		return nil, settleFallbackOutput{}, fmt.Errorf("BASE_RPC_URL env var not set")
-	}
-	escrowAddrHex := os.Getenv("COMMISSION_ESCROW_ADDRESS")
-	if escrowAddrHex == "" {
-		return nil, settleFallbackOutput{}, fmt.Errorf("COMMISSION_ESCROW_ADDRESS env var not set")
+	escrowAddr, err := requireAddr("COMMISSION_ESCROW_ADDRESS")
+	if err != nil {
+		return nil, settleFallbackOutput{}, err
 	}
 
-	chainIDStr := in.ChainID
-	if chainIDStr == "" {
-		chainIDStr = os.Getenv("CHAIN_ID")
-	}
-	if chainIDStr == "" {
-		chainIDStr = "84532" // Base Sepolia
-	}
-	chainIDInt, err := strconv.ParseInt(chainIDStr, 10, 64)
+	client, chainIDInt, err := dialChain(ctx, in.ChainID)
 	if err != nil {
-		return nil, settleFallbackOutput{}, fmt.Errorf("invalid chain id %q: %w", chainIDStr, err)
-	}
-
-	client, err := ethclient.DialContext(ctx, rpcURL)
-	if err != nil {
-		return nil, settleFallbackOutput{}, fmt.Errorf("dial rpc: %w", err)
+		return nil, settleFallbackOutput{}, err
 	}
 	defer client.Close()
-
-	escrowAddr := common.HexToAddress(escrowAddrHex)
 
 	// ── preflight: explain the two common refusals before paying for a tx ──────
 	callData, err := commissionEscrowABI.Pack("getEscrow", escrowID)
@@ -178,19 +109,19 @@ func handleTriggerSettleFallback(
 	}
 	raw, err := client.CallContract(ctx, ethereum.CallMsg{To: &escrowAddr, Data: callData}, nil)
 	if err != nil {
-		if msg, ok := decodeSettleFallbackRevert(err); ok {
+		if msg, ok := settleFallbackRevertTable.lookupErr(err); ok {
 			return nil, settleFallbackOutput{}, fmt.Errorf("getEscrow(%s): %s", escrowID, msg)
 		}
 		return nil, settleFallbackOutput{}, fmt.Errorf("getEscrow(%s): %w (is escrow_id right, and is BASE_RPC_URL on chain %d?)", escrowID, err, chainIDInt)
 	}
-	windowEnd, state, err := decodeEscrowWindowEndAndState(raw)
+	escrow, err := decodeGetEscrow(raw)
 	if err != nil {
 		return nil, settleFallbackOutput{}, err
 	}
-	if state == 1 { // EscrowState.Settled
+	if escrow.State == escrowStateSettled {
 		return nil, settleFallbackOutput{}, fmt.Errorf("escrow %s is already settled — the oracle got there first, nothing is stuck", escrowID)
 	}
-	if eligibleAt, ok := fallbackEligibility(windowEnd, time.Now().Unix()); !ok {
+	if eligibleAt, ok := fallbackEligibility(escrow.WindowEnd, time.Now().Unix()); !ok {
 		return nil, settleFallbackOutput{}, fmt.Errorf(
 			"escrow %s is not fallback-eligible yet: the public fallback opens at %s (windowEnd + 10 days)",
 			escrowID, time.Unix(eligibleAt, 0).UTC().Format(time.RFC3339),
@@ -206,7 +137,7 @@ func handleTriggerSettleFallback(
 
 	tx, err := contract.Transact(auth, "triggerSettleFallback", escrowID)
 	if err != nil {
-		if msg, ok := decodeSettleFallbackRevert(err); ok {
+		if msg, ok := settleFallbackRevertTable.lookupErr(err); ok {
 			return nil, settleFallbackOutput{}, fmt.Errorf("triggerSettleFallback would revert: %s", msg)
 		}
 		return nil, settleFallbackOutput{}, fmt.Errorf("triggerSettleFallback tx: %w", err)

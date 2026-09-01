@@ -577,26 +577,15 @@ func handlePublishEscrowReview(
 	if err != nil {
 		return nil, publishEscrowReviewOutput{}, err
 	}
-	rpcURL := os.Getenv("BASE_RPC_URL")
-	if rpcURL == "" {
-		return nil, publishEscrowReviewOutput{}, fmt.Errorf("BASE_RPC_URL env var not set")
-	}
-	registryAddrHex := os.Getenv("REVIEW_REGISTRY_ADDRESS")
-	if registryAddrHex == "" {
-		return nil, publishEscrowReviewOutput{}, fmt.Errorf("REVIEW_REGISTRY_ADDRESS env var not set")
-	}
-	escrowAddrHex := os.Getenv("COMMISSION_ESCROW_ADDRESS")
-	if escrowAddrHex == "" {
-		return nil, publishEscrowReviewOutput{}, fmt.Errorf("COMMISSION_ESCROW_ADDRESS env var not set")
-	}
-
-	chainIDStr := os.Getenv("CHAIN_ID")
-	if chainIDStr == "" {
-		chainIDStr = "84532" // Base Sepolia
-	}
-	chainIDInt, err := strconv.ParseInt(chainIDStr, 10, 64)
+	// Two addresses, and no chain_id input on this tool — hence requireAddr twice and an
+	// empty override, rather than dialChain taking the addresses itself.
+	registryAddr, err := requireAddr("REVIEW_REGISTRY_ADDRESS")
 	if err != nil {
-		return nil, publishEscrowReviewOutput{}, fmt.Errorf("invalid CHAIN_ID: %w", err)
+		return nil, publishEscrowReviewOutput{}, err
+	}
+	escrowAddr, err := requireAddr("COMMISSION_ESCROW_ADDRESS")
+	if err != nil {
+		return nil, publishEscrowReviewOutput{}, err
 	}
 
 	agentID, ok := new(big.Int).SetString(in.AgentID, 10)
@@ -616,16 +605,15 @@ func handlePublishEscrowReview(
 		return nil, publishEscrowReviewOutput{}, fmt.Errorf("invalid product_id: %w", err)
 	}
 
-	client, err := ethclient.DialContext(ctx, rpcURL)
+	client, chainIDInt, err := dialChain(ctx, "")
 	if err != nil {
-		return nil, publishEscrowReviewOutput{}, fmt.Errorf("dial rpc: %w", err)
+		return nil, publishEscrowReviewOutput{}, err
 	}
 	defer client.Close()
 
 	// Fetch authoritative merchantId/productId from CommissionEscrow.
 	// The contract reads these from the escrow record and stores them in the on-chain Review;
 	// the content hash preimage must use the same values or verifiers cannot reproduce the hash.
-	escrowAddr := common.HexToAddress(escrowAddrHex)
 	callData, err := commissionEscrowABI.Pack("getEscrow", escrowID)
 	if err != nil {
 		return nil, publishEscrowReviewOutput{}, fmt.Errorf("pack getEscrow: %w", err)
@@ -634,14 +622,11 @@ func handlePublishEscrowReview(
 	if err != nil {
 		return nil, publishEscrowReviewOutput{}, fmt.Errorf("getEscrow(%s): %w", in.EscrowID, err)
 	}
-	// ABI layout: (uint256 reviewerAgentId, uint256 buyerAgentId, address buyerWallet, uint256 merchantId, bytes32 productId, ...)
-	// All static types; each slot is 32 bytes (address is left-padded to 32 bytes).
-	if len(rawResult) < 160 {
-		return nil, publishEscrowReviewOutput{}, fmt.Errorf("getEscrow returned short data: %d bytes", len(rawResult))
+	escrow, err := decodeGetEscrow(rawResult)
+	if err != nil {
+		return nil, publishEscrowReviewOutput{}, err
 	}
-	merchantID := new(big.Int).SetBytes(rawResult[96:128])
-	var productID [32]byte
-	copy(productID[:], rawResult[128:160])
+	merchantID, productID := escrow.MerchantID, escrow.ProductID
 
 	if callerMerchantID.Cmp(merchantID) != 0 {
 		return nil, publishEscrowReviewOutput{}, fmt.Errorf(
@@ -666,7 +651,6 @@ func handlePublishEscrowReview(
 		return nil, publishEscrowReviewOutput{}, fmt.Errorf("build transactor: %w", err)
 	}
 
-	registryAddr := common.HexToAddress(registryAddrHex)
 	contract := bind.NewBoundContract(registryAddr, reviewRegistryABI, client, client, client)
 
 	tx, err := contract.Transact(auth, "publishReviewWithEscrowProof",
