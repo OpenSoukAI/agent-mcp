@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/ethereum/go-ethereum/accounts/abi"
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
 )
 
@@ -91,6 +93,91 @@ func TestDecodeSettleFallbackRevert(t *testing.T) {
 	}
 	if _, ok := decodeSettleFallbackRevertData([]byte{0x01, 0x02}); ok {
 		t.Fatal("short data must not decode")
+	}
+}
+
+// TestDecodeEscrowWindowEndAndState packs a SYNTHETIC getEscrow return tuple (all 13
+// EscrowRecord fields, declaration order) and asserts windowEnd and state decode from the
+// right words. Every field gets a distinct nonzero value — including the neighbours of
+// windowEnd (depositTimestamp, productType) and state (productType, cashbackReleased) — so an
+// off-by-one-word slice bug would read a wrong-but-present neighbour value and fail the
+// assertion, rather than passing by coincidence against a mostly-zero fixture. No network call.
+func TestDecodeEscrowWindowEndAndState(t *testing.T) {
+	mustType := func(t string) abi.Type {
+		typ, err := abi.NewType(t, "", nil)
+		if err != nil {
+			panic(err)
+		}
+		return typ
+	}
+	uint128T := mustType("uint128")
+	uint40T := mustType("uint40")
+	uint8T := mustType("uint8")
+	boolT := mustType("bool")
+
+	var productID [32]byte
+	copy(productID[:], []byte("synthetic-product-id-32-bytes!!"))
+	buyerWallet := common.HexToAddress("0x00000000000000000000000000000000000ABC")
+
+	const (
+		reviewerAgentID     = 111
+		buyerAgentID        = 222
+		merchantID          = 333
+		heldBackAmt         = 444
+		cashbackAmt         = 555
+		originalPurchaseAmt = 666
+		depositTimestamp    = 1_690_000_000
+		wantWindowEnd       = 1_700_000_000
+		productType         = 1
+		wantState           = 1
+	)
+
+	packed, err := abi.Arguments{
+		{Type: abiUint256}, // reviewerAgentId
+		{Type: abiUint256}, // buyerAgentId
+		{Type: abiAddress}, // buyerWallet
+		{Type: abiUint256}, // merchantId
+		{Type: abiBytes32}, // productId
+		{Type: uint128T},   // heldBackAmt
+		{Type: uint128T},   // cashbackAmt
+		{Type: uint128T},   // originalPurchaseAmt
+		{Type: uint40T},    // depositTimestamp
+		{Type: uint40T},    // windowEnd
+		{Type: uint8T},     // productType
+		{Type: uint8T},     // state
+		{Type: boolT},      // cashbackReleased
+	}.Pack(
+		big.NewInt(reviewerAgentID),
+		big.NewInt(buyerAgentID),
+		buyerWallet,
+		big.NewInt(merchantID),
+		productID,
+		big.NewInt(heldBackAmt),
+		big.NewInt(cashbackAmt),
+		big.NewInt(originalPurchaseAmt),
+		big.NewInt(depositTimestamp),
+		big.NewInt(wantWindowEnd),
+		uint8(productType),
+		uint8(wantState),
+		true,
+	)
+	if err != nil {
+		t.Fatalf("pack synthetic getEscrow tuple: %v", err)
+	}
+
+	windowEnd, state, err := decodeEscrowWindowEndAndState(packed)
+	if err != nil {
+		t.Fatalf("decodeEscrowWindowEndAndState: %v", err)
+	}
+	if windowEnd != wantWindowEnd {
+		t.Fatalf("windowEnd = %d, want %d", windowEnd, wantWindowEnd)
+	}
+	if state != wantState {
+		t.Fatalf("state = %d, want %d", state, wantState)
+	}
+
+	if _, _, err := decodeEscrowWindowEndAndState(packed[:383]); err == nil {
+		t.Fatal("expected error on short data (383 bytes, one short of the 384 needed)")
 	}
 }
 

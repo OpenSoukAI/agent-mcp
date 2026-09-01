@@ -71,6 +71,22 @@ func fallbackEligibility(windowEnd, now int64) (eligibleAt int64, eligible bool)
 	return eligibleAt, now >= eligibleAt
 }
 
+// decodeEscrowWindowEndAndState pulls windowEnd and state out of getEscrow's raw ABI-encoded
+// return. All 13 EscrowRecord fields are static types, one 32-byte word each, in declaration
+// order: reviewerAgentId, buyerAgentId, buyerWallet, merchantId, productId, heldBackAmt,
+// cashbackAmt, originalPurchaseAmt, depositTimestamp, windowEnd, productType, state,
+// cashbackReleased. windowEnd is word 9 (bytes 288:320); state is word 11 (bytes 352:384).
+// Pure and unit-tested against a synthetic tuple so a future struct-field reorder (in this
+// file or a later contract version) fails a test instead of silently misreading a live chain.
+func decodeEscrowWindowEndAndState(raw []byte) (windowEnd, state int64, err error) {
+	if len(raw) < 384 {
+		return 0, 0, fmt.Errorf("getEscrow returned short data: %d bytes", len(raw))
+	}
+	windowEnd = new(big.Int).SetBytes(raw[288:320]).Int64()
+	state = new(big.Int).SetBytes(raw[352:384]).Int64()
+	return windowEnd, state, nil
+}
+
 // settleFallbackRevertMessages maps a custom-error selector (hex, 4 bytes) to a caller-facing
 // explanation. Selectors are computed at runtime from the signatures, so there is no
 // hand-copied hex to drift. EnforcedPause is OpenZeppelin v5's Pausable error, reachable
@@ -156,10 +172,6 @@ func handleTriggerSettleFallback(
 	escrowAddr := common.HexToAddress(escrowAddrHex)
 
 	// ── preflight: explain the two common refusals before paying for a tx ──────
-	// getEscrow's return is all static types, one 32-byte slot each, in declaration order:
-	// reviewerAgentId, buyerAgentId, buyerWallet, merchantId, productId, heldBackAmt,
-	// cashbackAmt, originalPurchaseAmt, depositTimestamp, windowEnd, productType, state,
-	// cashbackReleased. windowEnd is slot 9 (288:320); state is slot 11 (352:384).
 	callData, err := commissionEscrowABI.Pack("getEscrow", escrowID)
 	if err != nil {
 		return nil, settleFallbackOutput{}, fmt.Errorf("pack getEscrow: %w", err)
@@ -168,11 +180,10 @@ func handleTriggerSettleFallback(
 	if err != nil {
 		return nil, settleFallbackOutput{}, fmt.Errorf("getEscrow(%s): %w (is escrow_id right, and is BASE_RPC_URL on chain %d?)", escrowID, err, chainIDInt)
 	}
-	if len(raw) < 384 {
-		return nil, settleFallbackOutput{}, fmt.Errorf("getEscrow returned short data: %d bytes", len(raw))
+	windowEnd, state, err := decodeEscrowWindowEndAndState(raw)
+	if err != nil {
+		return nil, settleFallbackOutput{}, err
 	}
-	windowEnd := new(big.Int).SetBytes(raw[288:320]).Int64()
-	state := new(big.Int).SetBytes(raw[352:384]).Int64()
 	if state == 1 { // EscrowState.Settled
 		return nil, settleFallbackOutput{}, fmt.Errorf("escrow %s is already settled — the oracle got there first, nothing is stuck", escrowID)
 	}
