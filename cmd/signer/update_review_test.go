@@ -67,7 +67,7 @@ func TestDecodeGetReview(t *testing.T) {
 		{Type: uint256T}, {Type: uint256T}, {Type: bytes32T}, {Type: bytes32T},
 		{Type: uint8T}, {Type: uint40T}, {Type: uint40T},
 	}.Pack(big.NewInt(6080), big.NewInt(5943), productID, contentHash,
-		uint8(2), big.NewInt(1_700_000_000), big.NewInt(wantEditedAt))
+		proofTypeInSystemPurchase, big.NewInt(1_700_000_000), big.NewInt(wantEditedAt))
 	if err != nil {
 		t.Fatalf("pack fixture: %v", err)
 	}
@@ -82,8 +82,13 @@ func TestDecodeGetReview(t *testing.T) {
 	if got.ProductID != productID || got.ContentHash != contentHash {
 		t.Fatalf("productID/contentHash mismatch: %x / %x", got.ProductID, got.ContentHash)
 	}
-	if got.ProofType != 2 {
-		t.Fatalf("proofType = %d, want 2 (InSystemPurchase)", got.ProofType)
+	// Non-zero guard: a decoder bug that returns the zero value would slip past this
+	// assertion if InSystemPurchase were ever renumbered to ordinal 0.
+	if proofTypeInSystemPurchase == 0 {
+		t.Fatal("proofTypeInSystemPurchase is 0 — this fixture can no longer distinguish a decoded value from a zero value")
+	}
+	if got.ProofType != proofTypeInSystemPurchase {
+		t.Fatalf("proofType = %d, want %d (InSystemPurchase)", got.ProofType, proofTypeInSystemPurchase)
 	}
 	if got.Timestamp != 1_700_000_000 {
 		t.Fatalf("timestamp = %d, want 1700000000", got.Timestamp)

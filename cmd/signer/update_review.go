@@ -31,8 +31,11 @@ import (
 const editWindowSecs int64 = 7 * 24 * 60 * 60
 
 // proofTypeInSystemPurchase is IReviewRegistry.ProofType.InSystemPurchase — the only
-// editable path (updateReviewContent reverts NotEditablePath for the other two).
-const proofTypeInSystemPurchase uint8 = 2
+// editable path (updateReviewContent reverts NotEditablePath for AdminApproved).
+// The ordinal is the ABI wire value: solc encodes the enum as a bare uint8 and the
+// member names never appear in the ABI, so this constant is the only binding to the
+// enum declaration in IReviewRegistry.sol and must be updated whenever it changes.
+const proofTypeInSystemPurchase uint8 = 1
 
 type updateReviewOnchainInput struct {
 	ReviewID    string `json:"review_id"`          // decimal; the ON-CHAIN review id
@@ -115,7 +118,7 @@ func parseUpdateReviewInput(in updateReviewOnchainInput) (reviewID *big.Int, err
 // unlike CommissionEscrow's write path, updateReviewContent carries no pause modifier.
 var updateReviewRevertTable = newRevertTable(map[string]string{
 	"ReviewNotFound(uint256)":              "no review exists on-chain for that review_id (is it the on-chain id, not the internal database id?)",
-	"NotEditablePath(uint256)":             "only a buyer review published with an escrow proof (ProofType.InSystemPurchase) is editable — an admin-approved or oracle-attested review is not",
+	"NotEditablePath(uint256)":             "only a buyer review published with an escrow proof (ProofType.InSystemPurchase) is editable — an admin-approved review is not",
 	"CallerNotAgentOwner(uint256,address)": "the signer key is neither the reviewer agent's owner nor its registered agent wallet — only those two may edit the review",
 	"EditWindowClosed(uint256)":            "the 7-day on-chain edit window for this review has closed; the content is now immutable",
 })
