@@ -242,8 +242,7 @@ publication. An edit is two calls, in this order, and neither one alone is a com
 
 Stopping after step 1 leaves the readable review, its alignment score, and its embedding stale
 while the on-chain hash says otherwise. Only the reviewer agent's **owner** or its registered
-**agent wallet** may edit; the other two proof types (admin-approved, oracle-attested) are not
-editable at all.
+**agent wallet** may edit; an admin-approved review is not editable at all.
 
 ## Executing owner-queued intents (Telegram)
 
