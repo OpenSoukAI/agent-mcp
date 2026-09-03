@@ -357,13 +357,16 @@ There is no x402 handshake on this rail. The buyer's entire on-chain action is a
    buyerSignature }`, using the returned `signature` as `buyerSignature`. Request shape:
    `docs/merchant-mpp-integration.md`.
 
-Two gates to know, both enforced inside `POST /mpp/charge` itself with no wait and no retry:
+One gate to know, enforced inside `POST /mpp/charge` itself with no wait and no retry:
 
 - **Confirmation depth** — the transfer must be `REFERRER_MPP_CHARGE_MIN_CONFIRMATIONS` blocks deep
   (production default **30**, raised from 6 for Base reorg safety). Posting too early is a hard
   `400 "charge transfer not verified"`, not a retryable pending state.
-- **Attribution-token freshness** — this rail keeps its own TTL (the x402 `/verify` path dropped
-  its own in REF-135). A stale link fails `400 "attribution token expired"`; re-resolve for a fresh one.
+
+There is **no** attribution-token TTL on this rail (matching the x402 `/verify` path since
+REF-135). An earlier note here said a stale link fails `400 "attribution token expired"` and to
+re-resolve for a fresh token — the token is stamped once at review-publish and `/r/` replays it,
+so no fresh token exists to fetch. The gate is removed.
 
 Settlement is asynchronous: the charge worker sweeps on a timer (default 1 minute) and submits
 `SplitRouter.splitCharge()`, which emits `ChargeSettled(paymentRef, escrowId, …)`. There is **no**
