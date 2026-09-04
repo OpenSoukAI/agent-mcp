@@ -45,7 +45,7 @@ func TestEnforceMaxAmount(t *testing.T) {
 
 // REF-193 B: the ERC-3009 nonce derived from (payer, idempotency_key) must be
 // deterministic (so a retry of the same intent reuses the nonce and the second
-// transferWithAuthorization reverts — at-most-once), and must match
+// receiveWithAuthorization reverts — at-most-once), and must match
 // keccak256(payer ‖ idempotency_key).
 func TestDeriveNonce(t *testing.T) {
 	payer := common.HexToAddress("0x1111111111111111111111111111111111111111")
