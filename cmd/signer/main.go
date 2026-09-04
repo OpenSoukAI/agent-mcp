@@ -928,7 +928,12 @@ func handlePayForProduct(
 		ValidBefore: strconv.FormatInt(time.Now().Add(5*time.Minute).Unix(), 10),
 		Nonce:       "0x" + hex.EncodeToString(nonce32[:]),
 	}
-	erc3009Hash, err := evm.HashEIP3009Authorization(authz, chainID, tokenAddr, tokenName, tokenVersion)
+	// SplitRouter.route() calls receiveWithAuthorization, so this must be signed under the
+	// ReceiveWithAuthorization typehash. TransferWithAuthorization has identical fields under a
+	// different struct name and hashes differently, so real USDC rejects it inside the token
+	// (REF-269). evm.HashEIP3009Authorization pins Transfer inline with no config path, which is
+	// why it is no longer used here.
+	erc3009Hash, err := hashERC3009Receive(authz, chainID, tokenAddr, tokenName, tokenVersion)
 	if err != nil {
 		return nil, payForProductOutput{}, fmt.Errorf("hash erc3009: %w", err)
 	}
