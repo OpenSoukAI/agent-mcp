@@ -121,10 +121,18 @@ func handleTriggerSettleFallback(
 	if escrow.State == escrowStateSettled {
 		return nil, settleFallbackOutput{}, fmt.Errorf("escrow %s is already settled — the oracle got there first, nothing is stuck", escrowID)
 	}
-	if eligibleAt, ok := fallbackEligibility(escrow.WindowEnd, time.Now().Unix()); !ok {
+	// Judged against the CHAIN's clock, not this process's — see chainNow. Comparing the
+	// escrow's on-chain windowEnd against a wall clock is only correct while the two agree.
+	now, err := chainNow(ctx, client)
+	if err != nil {
+		return nil, settleFallbackOutput{}, err
+	}
+	if eligibleAt, ok := fallbackEligibility(escrow.WindowEnd, now); !ok {
 		return nil, settleFallbackOutput{}, fmt.Errorf(
-			"escrow %s is not fallback-eligible yet: the public fallback opens at %s (windowEnd + 10 days)",
-			escrowID, time.Unix(eligibleAt, 0).UTC().Format(time.RFC3339),
+			"escrow %s is not fallback-eligible yet: the public fallback opens at %s (windowEnd + 10 days); the chain's latest block is at %s",
+			escrowID,
+			time.Unix(eligibleAt, 0).UTC().Format(time.RFC3339),
+			time.Unix(now, 0).UTC().Format(time.RFC3339),
 		)
 	}
 

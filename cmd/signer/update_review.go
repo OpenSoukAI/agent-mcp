@@ -165,11 +165,20 @@ func handleUpdateReviewContentOnchain(
 			"review %s has proofType %d — only a buyer review published with an escrow proof (InSystemPurchase, %d) is editable",
 			reviewID, review.ProofType, proofTypeInSystemPurchase)
 	}
-	closesAt, open := editWindowState(review.Timestamp, time.Now().Unix())
+	// Judged against the CHAIN's clock, not this process's — see chainNow. The review's
+	// timestamp is a block timestamp, so the comparison is only meaningful against another.
+	now, err := chainNow(ctx, client)
+	if err != nil {
+		return nil, updateReviewOnchainOutput{}, err
+	}
+	closesAt, open := editWindowState(review.Timestamp, now)
 	if !open {
 		return nil, updateReviewOnchainOutput{}, fmt.Errorf(
-			"the 7-day edit window for review %s closed at %s; its content is now immutable",
-			reviewID, time.Unix(closesAt, 0).UTC().Format(time.RFC3339))
+			"the 7-day edit window for review %s closed at %s; its content is now immutable "+
+				"(the chain's latest block is at %s)",
+			reviewID,
+			time.Unix(closesAt, 0).UTC().Format(time.RFC3339),
+			time.Unix(now, 0).UTC().Format(time.RFC3339))
 	}
 
 	// The signing key is selected by the ON-CHAIN reviewer id, so a caller cannot CHOOSE to
