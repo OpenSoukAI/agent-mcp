@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/hex"
 	"errors"
+	"regexp"
 	"strings"
 
 	"github.com/ethereum/go-ethereum/crypto"
@@ -46,6 +47,22 @@ func (t revertTable) lookupData(data []byte) (string, bool) {
 		return "", false
 	}
 	msg, ok := t[hex.EncodeToString(data[:4])]
+	return msg, ok
+}
+
+// customErrorInText finds a selector rendered as "custom error 0x<hex>" in free text.
+var customErrorInText = regexp.MustCompile(`custom error 0x([0-9a-fA-F]{8})`)
+
+// lookupText maps a selector embedded in error TEXT to this table's explanation.
+//
+// A revert that reaches us through another service — the facilitator returns one inside a 402 JSON
+// body — arrives as rendered text, not as RPC revert data, so lookupErr cannot see it.
+func (t revertTable) lookupText(s string) (string, bool) {
+	m := customErrorInText.FindStringSubmatch(s)
+	if m == nil {
+		return "", false
+	}
+	msg, ok := t[strings.ToLower(m[1])]
 	return msg, ok
 }
 

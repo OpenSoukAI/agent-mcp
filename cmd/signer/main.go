@@ -753,6 +753,22 @@ const payVoteReminder = "If any reviews materially influenced this purchase, cas
 	"the purchase to be indexed. Vote deliberately, only for the reviews that shaped your " +
 	"decision; votes feed the platform's Review Rank."
 
+// payBindReminder is the agent-less next step (REF-265 item 1). cast_review_votes REQUIRES
+// agent_id, so the vote nudge is not merely premature there — it cannot be satisfied at all.
+const payBindReminder = "This was an agent-less purchase, so no votes can be cast yet: " +
+	"cast_review_votes requires an agent_id you do not have. Register an ERC-8004 identity, then " +
+	"bind this escrow to it with bind_escrow (sent from the same wallet that paid) — that also " +
+	"releases the held cashback and lets you publish the buyer review. Vote with " +
+	"cast_review_votes afterwards, using this escrow_id."
+
+// payNextSteps picks the advisory next step for a settled purchase.
+func payNextSteps(agentLess bool) string {
+	if agentLess {
+		return payBindReminder
+	}
+	return payVoteReminder
+}
+
 // enforceMaxAmount refuses a purchase whose LIVE merchant price exceeds the
 // owner-confirmed max_amount (REF-193 A). Both are USDC base-unit decimal
 // strings. An empty max is "no cap" (back-compat for non-intent callers). This
@@ -978,7 +994,7 @@ func handlePayForProduct(
 	defer phase2Resp.Body.Close()
 	phase2Body, _ := io.ReadAll(phase2Resp.Body)
 	if phase2Resp.StatusCode != http.StatusOK {
-		return nil, payForProductOutput{}, fmt.Errorf("phase 2: expected 200, got %d: %s", phase2Resp.StatusCode, phase2Body)
+		return nil, payForProductOutput{}, phase2Failure(phase2Resp.StatusCode, string(phase2Body))
 	}
 	var phase2Result map[string]any
 	if err := json.Unmarshal(phase2Body, &phase2Result); err != nil {
@@ -1018,7 +1034,7 @@ func handlePayForProduct(
 	out := payForProductOutput{
 		EscrowID:  escrowID.String(),
 		TxHash:    txHashStr,
-		NextSteps: payVoteReminder,
+		NextSteps: payNextSteps(buyerAgentIDStr == sentinelBuyerAgentID),
 	}
 	if len(in.SubmitVotes) > 0 {
 		// Payment has settled — cast the inline votes now. A vote failure must NOT fail the
@@ -1203,7 +1219,11 @@ func main() {
 			"two-step (retrying past indexer lag), returning votes_recorded. Omit submit_votes to skip voting. " +
 			"A vote failure never voids the payment — votes_error is set and the purchase still stands. " +
 			"Inline voting requires REFERRER_AGENT_MCP_URL to point at the referrer-agent MCP endpoint. " +
-			"The next_steps field is an advisory reminder to cast_review_votes on reviews that influenced the purchase.",
+			"The next_steps field is advisory and depends on the path: cast_review_votes for an " +
+			"agent-bound purchase, bind_escrow for an agent-less one (which cannot vote until bound). " +
+			"A retry whose idempotency_key was already used fails with an error prefixed " +
+			"\"already_paid:\" — the wallet was charged at most once, so treat the purchase as complete " +
+			"and mark the intent executed rather than retrying.",
 	}, handlePayForProduct)
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
