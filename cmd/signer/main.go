@@ -704,7 +704,7 @@ type payForProductInput struct {
 	MaxAmount string `json:"max_amount,omitempty"`
 	// Idempotency key for at-most-once execution (REF-193). When set, the ERC-3009 nonce is
 	// derived deterministically from (payer ‖ idempotency_key) instead of random, so a retry of
-	// the SAME purchase reuses the nonce and the second transferWithAuthorization reverts — the
+	// the SAME purchase reuses the nonce and the second receiveWithAuthorization reverts — the
 	// wallet is charged at most once. The runner passes the intent_id. Omit for a random nonce.
 	IdempotencyKey string `json:"idempotency_key,omitempty"`
 }
@@ -780,7 +780,7 @@ func enforceMaxAmount(live, max string) error {
 // deriveNonce produces a DETERMINISTIC ERC-3009 nonce from the payer and an
 // idempotency key (REF-193 B): keccak256(payer ‖ idempotency_key). Because
 // ERC-3009 tracks used nonces per authorizer on-chain, replaying the same
-// intent reuses the nonce, so the second transferWithAuthorization reverts
+// intent reuses the nonce, so the second receiveWithAuthorization reverts
 // ("authorization used") — at-most-once, chain-enforced. Callers that pass no
 // idempotency key keep the prior random-nonce behaviour.
 func deriveNonce(payer common.Address, idempotencyKey string) [32]byte {
@@ -928,7 +928,12 @@ func handlePayForProduct(
 		ValidBefore: strconv.FormatInt(time.Now().Add(5*time.Minute).Unix(), 10),
 		Nonce:       "0x" + hex.EncodeToString(nonce32[:]),
 	}
-	erc3009Hash, err := evm.HashEIP3009Authorization(authz, chainID, tokenAddr, tokenName, tokenVersion)
+	// SplitRouter.route() calls receiveWithAuthorization, so this must be signed under the
+	// ReceiveWithAuthorization typehash. TransferWithAuthorization has identical fields under a
+	// different struct name and hashes differently, so real USDC rejects it inside the token
+	// (REF-269). evm.HashEIP3009Authorization pins Transfer inline with no config path, which is
+	// why it is no longer used here.
+	erc3009Hash, err := hashERC3009Receive(authz, chainID, tokenAddr, tokenName, tokenVersion)
 	if err != nil {
 		return nil, payForProductOutput{}, fmt.Errorf("hash erc3009: %w", err)
 	}
