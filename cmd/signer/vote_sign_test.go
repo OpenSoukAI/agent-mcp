@@ -28,11 +28,11 @@ func TestComputeVoteDigestRoundTrip(t *testing.T) {
 			VerifyingContract: "0xDeaDbeefdEAdbeefdEadbEEFdeadbeEFdEaDbeeF",
 		},
 		Message: voteCommitmentMessage{
-			AgentID:          "1",
-			EscrowID: "42",
-			VotesHash:        "0x" + strings.Repeat("ab", 32),
-			Nonce:            "7",
-			Expiry:           "9999999999",
+			AgentID:   "1",
+			EscrowID:  "42",
+			VotesHash: "0x" + strings.Repeat("ab", 32),
+			Nonce:     "7",
+			Expiry:    "9999999999",
 		},
 	}
 
@@ -89,11 +89,11 @@ func TestHandleSignVoteOutput(t *testing.T) {
 			VerifyingContract: "0xDeaDbeefdEAdbeefdEadbEEFdeadbeEFdEaDbeeF",
 		},
 		Message: voteCommitmentMessage{
-			AgentID:          "1",
-			EscrowID: "42",
-			VotesHash:        "0x" + strings.Repeat("ab", 32),
-			Nonce:            "7",
-			Expiry:           "9999999999",
+			AgentID:   "1",
+			EscrowID:  "42",
+			VotesHash: "0x" + strings.Repeat("ab", 32),
+			Nonce:     "7",
+			Expiry:    "9999999999",
 		},
 	}
 
