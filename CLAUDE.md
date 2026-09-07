@@ -272,9 +272,11 @@ explicitly confirmed — you execute them; you never invent them. Poll and run t
      - `idempotency_key` = the `intent_id`. This makes the ERC-3009 nonce deterministic, so the spend
        is **at-most-once**: if a crash/timeout struck between `pay_for_product` and
        `mark_intent_executed`, the re-poll's second `pay_for_product` reuses the nonce and reverts
-       ("authorization used") — no double charge. **Treat that used-nonce / reverted error as
-       already-executed:** skip the re-spend and go straight to `mark_intent_executed` (do NOT
-       `mark_intent_skipped`; the money moved on the first attempt).
+       — no double charge. **Match the error on the `already_paid:` prefix** and treat it as
+       already-executed: skip the re-spend and go straight to `mark_intent_executed` (do NOT
+       `mark_intent_skipped`; the money moved on the first attempt). Do not match on the revert text
+       itself — the two rails word it differently (real USDC returns a require string, the testnet
+       mock a custom-error selector), which is why the signer normalises both into that one prefix.
 
      On success, subtract `max_amount` from your running `remaining_budget`.
    - **`publish_review`** — branch on **`payload.entry`** (the publish path the backend chose):
