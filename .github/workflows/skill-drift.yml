@@ -19,6 +19,9 @@ name: Skill drift
 on:
   push:
     branches: [main]
+  # Run it on demand. Without this, exercising the check means pushing a commit — and the first
+  # thing anyone wants after adding the secrets is to run it once and watch what happens.
+  workflow_dispatch:
   schedule:
     # Daily, and only in this repo. It is both a liveness canary — a check that stops running looks
     # exactly like a check that passes — and now the ONLY fast path for drift originating in skills,
