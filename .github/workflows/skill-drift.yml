@@ -31,6 +31,12 @@ on:
         description: "Linear team the issue belongs to."
         required: true
 
+# Nothing here needs a writable GITHUB_TOKEN: the three checkouts use a read-only PAT and the
+# only write is to Linear, over HTTPS with its own key. Declared explicitly because the default is
+# whatever the org sets, which is commonly read/write on everything.
+permissions:
+  contents: read
+
 # Two runs racing would fight over the same Linear issue.
 concurrency:
   group: skill-drift
@@ -45,7 +51,7 @@ jobs:
         with:
           repository: OpenSoukAI/agent-mcp
           path: agent-mcp
-          token: ${{ secrets.SKILLDRIFT_TOKEN || github.token }}
+          token: ${{ secrets.SKILLDRIFT_TOKEN }}
 
       # ref: dev is deliberate. backend's DEFAULT branch is main, which is ~850 commits behind and
       # has no internal/ directory at all — the Go layout lives on dev. Checking out the default
@@ -58,14 +64,14 @@ jobs:
           repository: OpenSoukAI/backend
           ref: dev
           path: backend
-          token: ${{ secrets.SKILLDRIFT_TOKEN || github.token }}
+          token: ${{ secrets.SKILLDRIFT_TOKEN }}
 
       - name: Check out skills (the inventory)
         uses: actions/checkout@v4
         with:
           repository: OpenSoukAI/skills
           path: skills
-          token: ${{ secrets.SKILLDRIFT_TOKEN || github.token }}
+          token: ${{ secrets.SKILLDRIFT_TOKEN }}
 
       - uses: actions/setup-go@v5
         with:
