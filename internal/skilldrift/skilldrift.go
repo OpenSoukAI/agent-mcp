@@ -105,11 +105,11 @@ func Documented(inventoryPath string) (map[string]string, error) {
 // Diff reports what the inventory and the registrations disagree about.
 type Diff struct {
 	// Undocumented is registered but absent from the inventory: an agent cannot know it exists.
-	Undocumented []string
+	Undocumented []string `json:"undocumented,omitempty"`
 	// Ghosts are in the inventory but registered nowhere: an agent calling one gets an error.
-	Ghosts []string
+	Ghosts []string `json:"ghosts,omitempty"`
 	// WrongServer is documented under the wrong MCP server.
-	WrongServer []string
+	WrongServer []string `json:"wrong_server,omitempty"`
 }
 
 func (d Diff) Empty() bool {

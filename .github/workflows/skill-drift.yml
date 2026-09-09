@@ -1,0 +1,115 @@
+# Keeps the referrer-agent-protocol skill's tool inventory level with what the two MCP servers
+# actually register (REF-248).
+#
+# Reusable, and called by backend and skills as well as running on this repo's own pushes: drift
+# can originate in any of the three — a tool added in backend or agent-mcp, or a row deleted from
+# the inventory in skills — and every source is a commit in one of them. Three independent
+# triggers also mean one breaking still leaves two.
+name: Skill drift
+
+on:
+  push:
+    branches: [main]
+  schedule:
+    # Weekly, purely as a liveness canary. A check that stops running looks exactly like a check
+    # that passes, so something has to prove the plumbing is alive even in a quiet week.
+    - cron: "17 6 * * 1"
+  workflow_call:
+    inputs:
+      source:
+        description: "What triggered this, e.g. backend@<sha>. Shown in the Linear issue."
+        type: string
+        required: false
+    secrets:
+      SKILLDRIFT_TOKEN:
+        description: "PAT with READ access to backend, agent-mcp and skills. No write scope needed."
+        required: true
+      LINEAR_API_KEY:
+        description: "Linear API key used to file or close the drift issue."
+        required: true
+      LINEAR_TEAM_ID:
+        description: "Linear team the issue belongs to."
+        required: true
+
+# Two runs racing would fight over the same Linear issue.
+concurrency:
+  group: skill-drift
+  cancel-in-progress: false
+
+jobs:
+  drift:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out agent-mcp (referrer-signer tools + the checker)
+        uses: actions/checkout@v4
+        with:
+          repository: OpenSoukAI/agent-mcp
+          path: agent-mcp
+          token: ${{ secrets.SKILLDRIFT_TOKEN || github.token }}
+
+      # ref: dev is deliberate. backend's DEFAULT branch is main, which is ~850 commits behind and
+      # has no internal/ directory at all — the Go layout lives on dev. Checking out the default
+      # would compare the skill against a backend that no longer exists; the checker exits 1 on
+      # "no tools found" rather than reporting every tool as undocumented, but the right ref is
+      # cheaper than the right error message.
+      - name: Check out backend@dev (referrer-agent tools)
+        uses: actions/checkout@v4
+        with:
+          repository: OpenSoukAI/backend
+          ref: dev
+          path: backend
+          token: ${{ secrets.SKILLDRIFT_TOKEN || github.token }}
+
+      - name: Check out skills (the inventory)
+        uses: actions/checkout@v4
+        with:
+          repository: OpenSoukAI/skills
+          path: skills
+          token: ${{ secrets.SKILLDRIFT_TOKEN || github.token }}
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: agent-mcp/go.mod
+          cache-dependency-path: agent-mcp/go.sum
+
+      # Built, not `go run`: go run reports a non-zero program exit as its own 1, which would
+      # collapse "drift found" (2) into "check broke" (1) — the distinction this step exists for.
+      - name: Build the checker
+        working-directory: agent-mcp
+        run: go build -o /tmp/skilldrift ./cmd/skilldrift
+
+      - name: Compare the inventory against the registrations
+        id: check
+        run: |
+          set +e
+          /tmp/skilldrift -signer agent-mcp -backend backend -skills skills > /tmp/diff.json
+          code=$?
+          set -e
+          cat /tmp/diff.json
+          case "$code" in
+            0) echo "drift=false" >> "$GITHUB_OUTPUT" ;;
+            2) echo "drift=true"  >> "$GITHUB_OUTPUT" ;;
+            *) echo "::error::the skill-drift check could not run — see the message above"; exit 1 ;;
+          esac
+
+      # Runs on both outcomes: on drift it files or updates the issue, and when the drift clears it
+      # closes the one it opened. Skipping the clean case would leave stale issues open forever.
+      - name: Report to Linear
+        env:
+          LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
+          LINEAR_TEAM_ID: ${{ secrets.LINEAR_TEAM_ID }}
+        run: |
+          python3 agent-mcp/scripts/report_skill_drift.py \
+            --diff /tmp/diff.json \
+            --source "${{ inputs.source || format('{0}@{1}', github.repository, github.sha) }}"
+
+      - name: Restate the drift in the job summary
+        if: steps.check.outputs.drift == 'true'
+        run: |
+          {
+            echo "### Skill inventory has drifted"
+            echo '```json'
+            cat /tmp/diff.json
+            echo '```'
+            echo "Filed to Linear. Fix \`reference/mcp-tools.md\` in the skills repo."
+          } >> "$GITHUB_STEP_SUMMARY"
