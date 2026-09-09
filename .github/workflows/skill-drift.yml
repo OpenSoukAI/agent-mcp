@@ -1,0 +1,119 @@
+# Keeps the referrer-agent-protocol skill's tool inventory level with what the two MCP servers
+# actually register (REF-248).
+#
+# This file is DUPLICATED, verbatim below the trigger, in backend and agent-mcp — and deliberately
+# NOT in skills. Drift can originate in any of the three repos, but skills is becoming PUBLIC, and
+# this job needs a token that reads backend and agent-mcp, which stay private. A public repo
+# holding that token is a lever to read private source, so the check does not run there at all;
+# skills-originated drift (a deleted inventory row) is caught by the next merge here or by the
+# daily canary instead. TestWorkflowCopiesAreIdentical asserts skills has no copy, so re-adding
+# one fails with the reason.
+#
+# Duplicated rather than a reusable `workflow_call` on purpose. Calling one across repositories
+# means trusting a mutable ref with secrets passed to it, and branch protection is not available
+# on this plan, so nothing would stand between a direct push to that repo and code running with
+# this repo's secrets. Copies cost two edits; that costs a review-free path to a read-only PAT
+# and a Linear key. The copies are kept identical by TestWorkflowCopiesAreIdentical in agent-mcp.
+name: Skill drift
+
+on:
+  push:
+    branches: [main]
+  # Run it on demand. Without this, exercising the check means pushing a commit — and the first
+  # thing anyone wants after adding the secrets is to run it once and watch what happens.
+  workflow_dispatch:
+  schedule:
+    # Daily, and only in this repo. It is both a liveness canary — a check that stops running looks
+    # exactly like a check that passes — and now the ONLY fast path for drift originating in skills,
+    # which no longer triggers the check because it is public. Weekly was defensible when all three
+    # repos triggered; it is not when the likeliest source of drift has no trigger of its own.
+    - cron: "17 6 * * *"
+# Nothing here needs a writable GITHUB_TOKEN: the three checkouts use a read-only PAT and the only
+# write is to Linear, over HTTPS with its own key. Declared explicitly because the default is
+# whatever the org sets, which is commonly read/write on everything.
+permissions:
+  contents: read
+
+# Two runs racing would fight over the same Linear issue. Note this group is per-repository, so it
+# cannot serialise runs triggered in the other two — the reporter closes duplicate issues instead.
+concurrency:
+  group: skill-drift
+  cancel-in-progress: false
+
+jobs:
+  drift:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out agent-mcp (referrer-signer tools + the checker)
+        uses: actions/checkout@v4
+        with:
+          repository: OpenSoukAI/agent-mcp
+          path: agent-mcp
+          token: ${{ secrets.SKILLDRIFT_TOKEN }}
+
+      # ref: dev is deliberate. backend's DEFAULT branch is main, which is ~850 commits behind and
+      # has no internal/ directory at all — the Go layout lives on dev. Checking out the default
+      # would compare the skill against a backend that no longer exists; the checker exits 1 on
+      # "no tools found" rather than reporting every tool as undocumented, but the right ref is
+      # cheaper than the right error message.
+      - name: Check out backend@dev (referrer-agent tools)
+        uses: actions/checkout@v4
+        with:
+          repository: OpenSoukAI/backend
+          ref: dev
+          path: backend
+          token: ${{ secrets.SKILLDRIFT_TOKEN }}
+
+      - name: Check out skills (the inventory)
+        uses: actions/checkout@v4
+        with:
+          repository: OpenSoukAI/skills
+          path: skills
+          token: ${{ secrets.SKILLDRIFT_TOKEN }}
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: agent-mcp/go.mod
+          cache-dependency-path: agent-mcp/go.sum
+
+      # Built, not `go run`: go run reports a non-zero program exit as its own 1, which would
+      # collapse "drift found" (2) into "check broke" (1) — the distinction this step exists for.
+      - name: Build the checker
+        working-directory: agent-mcp
+        run: go build -o /tmp/skilldrift ./cmd/skilldrift
+
+      - name: Compare the inventory against the registrations
+        id: check
+        run: |
+          set +e
+          /tmp/skilldrift -signer agent-mcp -backend backend -skills skills > /tmp/diff.json
+          code=$?
+          set -e
+          cat /tmp/diff.json
+          case "$code" in
+            0) echo "drift=false" >> "$GITHUB_OUTPUT" ;;
+            2) echo "drift=true"  >> "$GITHUB_OUTPUT" ;;
+            *) echo "::error::the skill-drift check could not run — see the message above"; exit 1 ;;
+          esac
+
+      # Runs on both outcomes: on drift it files or updates the issue, and when the drift clears it
+      # closes the one it opened. Skipping the clean case would leave stale issues open forever.
+      - name: Report to Linear
+        env:
+          LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
+          LINEAR_TEAM_ID: ${{ secrets.LINEAR_TEAM_ID }}
+        run: |
+          python3 agent-mcp/scripts/report_skill_drift.py \
+            --diff /tmp/diff.json \
+            --source "${{ github.repository }}@${{ github.sha }}"
+
+      - name: Restate the drift in the job summary
+        if: steps.check.outputs.drift == 'true'
+        run: |
+          {
+            echo "### Skill inventory has drifted"
+            echo '```json'
+            cat /tmp/diff.json
+            echo '```'
+            echo "Filed to Linear. Fix \`reference/mcp-tools.md\` in the skills repo."
+          } >> "$GITHUB_STEP_SUMMARY"
