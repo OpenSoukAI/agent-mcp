@@ -1,43 +1,33 @@
 # Keeps the referrer-agent-protocol skill's tool inventory level with what the two MCP servers
 # actually register (REF-248).
 #
-# Reusable, and called by backend and skills as well as running on this repo's own pushes: drift
-# can originate in any of the three — a tool added in backend or agent-mcp, or a row deleted from
-# the inventory in skills — and every source is a commit in one of them. Three independent
-# triggers also mean one breaking still leaves two.
+# This file is DUPLICATED, verbatim below the trigger, in backend, agent-mcp and skills. Drift can
+# originate in any of the three — a tool added in backend or agent-mcp, or a row deleted from the
+# inventory in skills — and every source is a commit in one of them, so each runs the check on its
+# own merges.
+#
+# Duplicated rather than a reusable `workflow_call` on purpose. Calling one across repositories
+# means trusting a mutable ref with secrets passed to it, and branch protection is not available
+# on this plan, so nothing would stand between a direct push to that repo and code running with
+# this repo's secrets. Copies cost three edits; that costs a review-free path to a read-only PAT
+# and a Linear key. The copies are kept identical by TestWorkflowCopiesAreIdentical in agent-mcp.
 name: Skill drift
 
 on:
   push:
     branches: [main]
   schedule:
-    # Weekly, purely as a liveness canary. A check that stops running looks exactly like a check
-    # that passes, so something has to prove the plumbing is alive even in a quiet week.
+    # Weekly, purely as a liveness canary, and only in this repo: a check that stops running looks
+    # exactly like a check that passes. Three weekly crons would add nothing but race chances.
     - cron: "17 6 * * 1"
-  workflow_call:
-    inputs:
-      source:
-        description: "What triggered this, e.g. backend@<sha>. Shown in the Linear issue."
-        type: string
-        required: false
-    secrets:
-      SKILLDRIFT_TOKEN:
-        description: "PAT with READ access to backend, agent-mcp and skills. No write scope needed."
-        required: true
-      LINEAR_API_KEY:
-        description: "Linear API key used to file or close the drift issue."
-        required: true
-      LINEAR_TEAM_ID:
-        description: "Linear team the issue belongs to."
-        required: true
-
-# Nothing here needs a writable GITHUB_TOKEN: the three checkouts use a read-only PAT and the
-# only write is to Linear, over HTTPS with its own key. Declared explicitly because the default is
+# Nothing here needs a writable GITHUB_TOKEN: the three checkouts use a read-only PAT and the only
+# write is to Linear, over HTTPS with its own key. Declared explicitly because the default is
 # whatever the org sets, which is commonly read/write on everything.
 permissions:
   contents: read
 
-# Two runs racing would fight over the same Linear issue.
+# Two runs racing would fight over the same Linear issue. Note this group is per-repository, so it
+# cannot serialise runs triggered in the other two — the reporter closes duplicate issues instead.
 concurrency:
   group: skill-drift
   cancel-in-progress: false
@@ -107,7 +97,7 @@ jobs:
         run: |
           python3 agent-mcp/scripts/report_skill_drift.py \
             --diff /tmp/diff.json \
-            --source "${{ inputs.source || format('{0}@{1}', github.repository, github.sha) }}"
+            --source "${{ github.repository }}@${{ github.sha }}"
 
       - name: Restate the drift in the job summary
         if: steps.check.outputs.drift == 'true'

@@ -95,9 +95,13 @@ def graphql(query: str, variables: dict, key: str) -> dict:
     return payload["data"]
 
 
+# first: 50, not 1. Three repositories trigger this check and GitHub's concurrency groups are
+# per-repository, so near-simultaneous merges can each find nothing and each create an issue —
+# realistic, since a cross-repo change lands three merges at once. Fetching several lets the run
+# keep the oldest and close the rest, so duplicates heal instead of accumulating.
 FIND = """
 query($team: ID!, $title: String!) {
-  issues(first: 1, filter: {
+  issues(first: 50, orderBy: createdAt, filter: {
     team: { id: { eq: $team } }
     title: { eq: $title }
     state: { type: { nin: ["completed", "canceled"] } }
@@ -152,6 +156,16 @@ def main() -> int:
         raise SystemExit("LINEAR_API_KEY and LINEAR_TEAM_ID are required")
 
     existing = graphql(FIND, {"team": team, "title": TITLE}, key)["issues"]["nodes"]
+
+    # Fold away duplicates a concurrent run may have created, keeping the oldest so links already
+    # shared stay valid.
+    if len(existing) > 1:
+        done = graphql(DONE_STATE, {"team": team}, key)["workflowStates"]["nodes"]
+        if done:
+            for dup in existing[1:]:
+                graphql(CLOSE, {"id": dup["id"], "state": done[0]["id"]}, key)
+                print(f"closed duplicate {dup['identifier']}")
+            existing = existing[:1]
 
     if drift:
         desc = body(diff, args.source)
