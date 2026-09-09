@@ -1,15 +1,18 @@
 # Keeps the referrer-agent-protocol skill's tool inventory level with what the two MCP servers
 # actually register (REF-248).
 #
-# This file is DUPLICATED, verbatim below the trigger, in backend, agent-mcp and skills. Drift can
-# originate in any of the three — a tool added in backend or agent-mcp, or a row deleted from the
-# inventory in skills — and every source is a commit in one of them, so each runs the check on its
-# own merges.
+# This file is DUPLICATED, verbatim below the trigger, in backend and agent-mcp — and deliberately
+# NOT in skills. Drift can originate in any of the three repos, but skills is becoming PUBLIC, and
+# this job needs a token that reads backend and agent-mcp, which stay private. A public repo
+# holding that token is a lever to read private source, so the check does not run there at all;
+# skills-originated drift (a deleted inventory row) is caught by the next merge here or by the
+# daily canary instead. TestWorkflowCopiesAreIdentical asserts skills has no copy, so re-adding
+# one fails with the reason.
 #
 # Duplicated rather than a reusable `workflow_call` on purpose. Calling one across repositories
 # means trusting a mutable ref with secrets passed to it, and branch protection is not available
 # on this plan, so nothing would stand between a direct push to that repo and code running with
-# this repo's secrets. Copies cost three edits; that costs a review-free path to a read-only PAT
+# this repo's secrets. Copies cost two edits; that costs a review-free path to a read-only PAT
 # and a Linear key. The copies are kept identical by TestWorkflowCopiesAreIdentical in agent-mcp.
 name: Skill drift
 
@@ -17,9 +20,11 @@ on:
   push:
     branches: [main]
   schedule:
-    # Weekly, purely as a liveness canary, and only in this repo: a check that stops running looks
-    # exactly like a check that passes. Three weekly crons would add nothing but race chances.
-    - cron: "17 6 * * 1"
+    # Daily, and only in this repo. It is both a liveness canary — a check that stops running looks
+    # exactly like a check that passes — and now the ONLY fast path for drift originating in skills,
+    # which no longer triggers the check because it is public. Weekly was defensible when all three
+    # repos triggered; it is not when the likeliest source of drift has no trigger of its own.
+    - cron: "17 6 * * *"
 # Nothing here needs a writable GITHUB_TOKEN: the three checkouts use a read-only PAT and the only
 # write is to Linear, over HTTPS with its own key. Declared explicitly because the default is
 # whatever the org sets, which is commonly read/write on everything.

@@ -7,21 +7,23 @@ import (
 	"testing"
 )
 
-// The skill-drift workflow is duplicated in all three repositories rather than shared as a
-// reusable workflow, because calling one across repos means trusting a mutable ref with secrets
-// passed to it and branch protection is not available on this plan (REF-248).
+const workflowRel = ".github/workflows/skill-drift.yml"
+
+// The skill-drift workflow is duplicated rather than shared as a reusable workflow, because
+// calling one across repos means trusting a mutable ref with secrets passed to it and branch
+// protection is not available on this plan (REF-248).
 //
 // Duplication has exactly one cost — the copies drift — so this is the check that they do not. It
 // compares everything from `permissions:` onward; the triggers above that line differ on purpose
-// (backend watches dev, only agent-mcp carries the weekly canary).
+// (backend watches dev, only agent-mcp carries the daily canary).
 func TestWorkflowCopiesAreIdentical(t *testing.T) {
 	const marker = "permissions:"
-	const rel = ".github/workflows/skill-drift.yml"
+	const rel = workflowRel
 
+	// skills is absent on purpose — see TestSkillsRepoHasNoWorkflow.
 	repos := map[string]string{
 		"agent-mcp": filepath.Join("..", ".."),
 		"backend":   dirFromEnv(t, envBackend, filepath.Join("..", "..", "..", "backend")),
-		"skills":    dirFromEnv(t, envSkills, filepath.Join("..", "..", "..", "skills")),
 	}
 
 	bodies := map[string]string{}
@@ -83,4 +85,31 @@ func itoa(n int) string {
 		n /= 10
 	}
 	return string(b)
+}
+
+// The skills repo must NOT carry this workflow, and that is a security constraint rather than an
+// omission (REF-248).
+//
+// skills is public. The job needs a token that reads backend and agent-mcp, which stay private, so
+// a copy in a public repo turns that repo into a lever for reading private source — and secrets
+// reach a workflow there the moment anyone adds a fork-triggerable event (`pull_request_target`,
+// `workflow_run`, `issue_comment`) or a third-party action, none of which is unlikely over time.
+//
+// Adding the check back would look like an improvement to whoever does it — "why isn't the repo
+// that owns the inventory checking it?" — so the reason is asserted here rather than left in a
+// comment nobody reads. The cost of not running it there is latency, not coverage: drift
+// originating in skills is caught by the next backend or agent-mcp merge, or by the daily canary.
+func TestSkillsRepoHasNoWorkflow(t *testing.T) {
+	skills := dirFromEnv(t, envSkills, filepath.Join("..", "..", "..", "skills"))
+	path := filepath.Join(skills, workflowRel)
+
+	if _, err := os.Stat(path); err == nil {
+		t.Errorf("%s exists.\n"+
+			"skills is a PUBLIC repo and this job needs a token that reads the private backend and\n"+
+			"agent-mcp repos — putting it there makes a public repo a lever for reading private code.\n"+
+			"Run the check from backend or agent-mcp instead; skills-originated drift is caught by\n"+
+			"their merges or the daily canary.", path)
+	} else if !os.IsNotExist(err) {
+		t.Fatalf("could not determine whether %s exists: %v", path, err)
+	}
 }
