@@ -1233,6 +1233,30 @@ func main() {
 	}, handleUpdateReviewContentOnchain)
 
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
+		Name: "set_product_commission",
+		Description: "Change the commission rate a merchant pays referrers for one product " +
+			"(ProductRegistry.setCommission), sent on-chain with the merchant's own key. merchant_id is " +
+			"the merchant's ERC-8004 agent id and product_id is the on-chain bytes32 (0x-prefixed, 32 " +
+			"bytes) — not a slug. commission_bps is 0-10000, where 1000 = 10%. IMPORTANT: the new rate is " +
+			"read LIVE by SplitRouter at settlement, so it applies to every purchase that settles after " +
+			"this call, including ref links already issued and payments already authorised under the old " +
+			"rate. Nothing on-chain locks the previous rate. The signer key must own merchant_id or hold " +
+			"COMMISSION_MANAGER for it; that role is separate from PRODUCT_MANAGER, so a key that can add " +
+			"products cannot necessarily reprice them.",
+	}, handleSetProductCommission)
+
+	sdkmcp.AddTool(srv, &sdkmcp.Tool{
+		Name: "set_product_active",
+		Description: "List or delist one of a merchant's products (ProductRegistry.setProductActive), " +
+			"sent on-chain with the merchant's own key. Pass active=true to accept new purchases and ref " +
+			"links for it, active=false to stop them; the field is required, so a call that omits it fails " +
+			"rather than delisting. merchant_id is the merchant's ERC-8004 agent id and product_id is the " +
+			"on-chain bytes32. Delisting does not touch existing escrows or published reviews, and does not " +
+			"remove the product — set it active again to relist. The signer key must own merchant_id or " +
+			"hold PRODUCT_MANAGER for it.",
+	}, handleSetProductActive)
+
+	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name: "pay_for_product",
 		Description: "Complete an x402 buyer payment for a product via a referral link. " +
 			"Decodes the self-contained ref link locally — verifying its Ed25519 signature against the " +
