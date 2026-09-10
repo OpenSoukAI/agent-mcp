@@ -1233,6 +1233,37 @@ func main() {
 	}, handleUpdateReviewContentOnchain)
 
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
+		Name: "activate_merchant",
+		Description: "Bring a merchant online: set its active flag on-chain (MerchantRegistry.setActive) " +
+			"and register both the agent and merchant records with the backend. THREE steps, in this " +
+			"order, because each is a precondition of the next — the merchant registration needs an " +
+			"agents row and refuses a merchant that is not active on-chain. merchant_id is the merchant's " +
+			"ERC-8004 agent id; the signer key must own it. Minting that identity is NOT done here — do " +
+			"it first. Safe to call repeatedly and that IS the retry path: the on-chain step is skipped " +
+			"when the flag is already set, and an already-registered record counts as done, so a call " +
+			"that failed partway through can simply be repeated. Suspended merchants cannot reactivate " +
+			"themselves. Call this before set_merchant_profile or add_product, both of which need the " +
+			"backend record this creates.",
+	}, handleActivateMerchant)
+
+	sdkmcp.AddTool(srv, &sdkmcp.Tool{
+		Name: "add_product",
+		Description: "Add a product to a merchant's catalogue: write it on-chain " +
+			"(ProductRegistry.addProduct, which holds the commission rate and active flag) and sync its " +
+			"metadata to the backend (name, description, category, endpoint_url) so it becomes " +
+			"discoverable. A product with only the on-chain half is payable but invisible. product_id is " +
+			"a 0x-prefixed 32-byte hex id, unique per merchant — typically keccak256 of a slug you " +
+			"choose. commission_bps is 0-10000 (1000 = 10%) and is read LIVE at settlement, so it can be " +
+			"changed later with set_product_commission. Requires the merchant to be active on-chain and " +
+			"registered with the backend: call activate_merchant first. Safe to call repeatedly and that " +
+			"IS the retry path: when the product already exists on-chain the chain write is skipped and " +
+			"only the metadata sync is repeated, because addProduct itself cannot be re-sent. If the " +
+			"product already exists at a different commission rate, the rate is NOT changed and a " +
+			"warning says so. All products are repeat-purchase; one-off products were retired from the " +
+			"protocol. Afterwards call check_product_readiness on the endpoint_url.",
+	}, handleAddProduct)
+
+	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name: "set_merchant_profile",
 		Description: "Set a merchant's public profile copy — description and landing page URL — via " +
 			"POST /v1/merchant/profile, signed with the merchant's own key. merchant_id is the merchant's " +

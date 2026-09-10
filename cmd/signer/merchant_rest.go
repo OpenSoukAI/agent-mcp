@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"math/big"
@@ -96,7 +97,9 @@ func callAuthedRaw(
 		return nil, fmt.Errorf("%s: read response: %w", tool, err)
 	}
 
-	if resp.StatusCode != http.StatusOK {
+	// Any 2xx is success. The register endpoints answer 201, not 200, and a client that
+	// insisted on 200 would treat every successful registration as a failure.
+	if resp.StatusCode < 200 || resp.StatusCode > 299 {
 		return nil, restError(tool, resp.StatusCode, raw, advice)
 	}
 	return raw, nil
@@ -146,7 +149,34 @@ func callAuthedInto(
 	return nil
 }
 
-// restError builds the caller-facing error for a non-200. The backend's own message is
+// restStatusError is a non-2xx response. It carries the status as a FIELD rather than only
+// in the message, because the composites have to act on it: a 409 "already registered" is a
+// successful outcome for a step that is being re-run, and matching that on error text would
+// break the first time the backend rewords it.
+type restStatusError struct {
+	Tool   string
+	Status int
+	Detail string // the backend's own message where it gave one
+	Advice string
+}
+
+func (e *restStatusError) Error() string {
+	if e.Advice != "" {
+		return fmt.Sprintf("%s failed (%d): %s — %s", e.Tool, e.Status, e.Detail, e.Advice)
+	}
+	return fmt.Sprintf("%s failed (%d): %s", e.Tool, e.Status, e.Detail)
+}
+
+// restStatus returns the HTTP status behind err, or 0 if err is not a status error.
+func restStatus(err error) int {
+	var se *restStatusError
+	if errors.As(err, &se) {
+		return se.Status
+	}
+	return 0
+}
+
+// restError builds the caller-facing error for a non-2xx. The backend's own message is
 // always included — it is more specific than anything derivable from the status — and the
 // per-status advice explains what to do about it.
 func restError(tool string, status int, raw []byte, advice map[int]string) error {
@@ -161,13 +191,11 @@ func restError(tool string, status int, raw []byte, advice map[int]string) error
 		detail = "(no message)"
 	}
 
-	if msg, ok := advice[status]; ok {
-		return fmt.Errorf("%s failed (%d): %s — %s", tool, status, detail, msg)
+	msg, ok := advice[status]
+	if !ok {
+		msg = genericRESTAdvice[status]
 	}
-	if generic, ok := genericRESTAdvice[status]; ok {
-		return fmt.Errorf("%s failed (%d): %s — %s", tool, status, detail, generic)
-	}
-	return fmt.Errorf("%s failed (%d): %s", tool, status, detail)
+	return &restStatusError{Tool: tool, Status: status, Detail: detail, Advice: msg}
 }
 
 // genericRESTAdvice covers the statuses that mean the same thing on every authenticated

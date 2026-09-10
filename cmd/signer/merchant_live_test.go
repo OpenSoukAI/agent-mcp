@@ -7,9 +7,11 @@ import (
 	"encoding/json"
 	"math/big"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -106,8 +108,14 @@ func (e liveEnv) use(t *testing.T, keyHex string) {
 	t.Setenv("PRODUCT_REGISTRY_ADDRESS", e.productRegistry)
 }
 
-// readProduct calls getProduct and returns the fields the tools change.
+// readProduct calls getProduct on the fixture's product.
 func (e liveEnv) readProduct(t *testing.T) (commissionBps uint16, active bool, productType uint8) {
+	t.Helper()
+	return e.readProductAt(t, e.productID)
+}
+
+// readProductAt calls getProduct and returns the fields the tools change.
+func (e liveEnv) readProductAt(t *testing.T, productIDHex string) (commissionBps uint16, active bool, productType uint8) {
 	t.Helper()
 
 	client, _, err := dialChain(context.Background(), e.chainID)
@@ -116,7 +124,7 @@ func (e liveEnv) readProduct(t *testing.T) (commissionBps uint16, active bool, p
 	}
 	defer client.Close()
 
-	productID, err := parseProductID(e.productID)
+	productID, err := parseProductID(productIDHex)
 	if err != nil {
 		t.Fatalf("parse product id: %v", err)
 	}
@@ -521,6 +529,404 @@ func TestLive_CheckProductReadiness(t *testing.T) {
 	for _, c := range out.Checks {
 		if c.Name == "" {
 			t.Errorf("a check came back unnamed: %+v", c)
+		}
+	}
+}
+
+// ── Live composite tests ────────────────────────────────────────────────────────
+//
+// These use the REAL chain and an in-test backend. That split is deliberate: what the
+// composites add over their parts is chain-state awareness — skip the write when the flag
+// is already set, skip addProduct when the product exists — and only a real chain has
+// state. The backend side is scripted because the interesting cases are its FAILURES,
+// which a running backend will not produce on demand.
+
+// fakeAPIFor points the REST half at a scripted backend while the chain half stays real.
+func (e liveEnv) fakeAPIFor(t *testing.T, h http.HandlerFunc) *httptest.Server {
+	t.Helper()
+
+	srv := httptest.NewServer(h)
+	t.Cleanup(srv.Close)
+	e.use(t, e.ownerKeyHex)
+	t.Setenv("REFERRER_API_URL", srv.URL)
+	return srv
+}
+
+// setMerchantActiveDirect forces the on-chain flag so a test can start from a KNOWN state.
+// Without it these tests inherit whatever an earlier run left behind: a merchant that is
+// already active makes activate_merchant skip its transaction, and the assertions about a
+// spent-gas failure then pass without ever reaching that branch.
+func (e liveEnv) setMerchantActiveDirect(t *testing.T, active bool) {
+	t.Helper()
+
+	w := merchantWrite{
+		tool:    "test_setup",
+		addrEnv: "MERCHANT_REGISTRY_ADDRESS",
+		abi:     merchantRegistryABI,
+		method:  "setActive",
+		reverts: setMerchantActiveRevertTable,
+		advice:  "test setup",
+	}
+	if _, _, err := w.send(context.Background(), mustBigInt(t, e.merchantID), e.chainID,
+		mustBigInt(t, e.merchantID), active); err != nil {
+		t.Fatalf("test setup: setActive(%v): %v", active, err)
+	}
+}
+
+// registrationsCreated answers 201 to both registration endpoints.
+func registrationsCreated(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
+	_, _ = w.Write([]byte(`{}`))
+}
+
+// TestLive_ActivateMerchant_IsIdempotent runs the whole composite twice. The second run is
+// what a resumed activation looks like, and it must succeed without sending a transaction —
+// that is the only thing that makes "call it again" a usable retry instruction.
+func TestLive_ActivateMerchant_IsIdempotent(t *testing.T) {
+	e := liveMerchantEnv(t)
+
+	var conflictAfterFirst bool
+	e.fakeAPIFor(t, func(w http.ResponseWriter, r *http.Request) {
+		if conflictAfterFirst {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusConflict)
+			_, _ = w.Write([]byte(`{"error":"already registered"}`))
+			return
+		}
+		registrationsCreated(w, r)
+	})
+
+	// Start from inactive, so the first run genuinely sends the transaction the second run
+	// must skip. Inheriting an already-active merchant would make both runs identical and
+	// the idempotency claim untested.
+	e.setMerchantActiveDirect(t, false)
+
+	_, out, err := handleActivateMerchant(t.Context(), nil, activateMerchantInput{
+		MerchantID: e.merchantID,
+		ChainID:    e.chainID,
+	})
+	if err != nil {
+		t.Fatalf("activate_merchant: %v", err)
+	}
+	if out.AlreadyActive {
+		t.Error("already_active = true on the first run, from an inactive merchant")
+	}
+	if out.TxHash == "" {
+		t.Fatal("the first run sent no transaction from an inactive merchant")
+	}
+	if !e.readMerchantActive(t) {
+		t.Fatal("the merchant is not active on-chain after activate_merchant")
+	}
+
+	// Second run: the flag is set now, so no transaction may be sent, and the backend's 409s
+	// must read as success.
+	conflictAfterFirst = true
+	_, again, err := handleActivateMerchant(t.Context(), nil, activateMerchantInput{
+		MerchantID: e.merchantID,
+		ChainID:    e.chainID,
+	})
+	if err != nil {
+		t.Fatalf("re-running activate_merchant failed, so a half-finished activation cannot be "+
+			"resumed: %v", err)
+	}
+	if !again.AlreadyActive {
+		t.Error("already_active = false on the second run")
+	}
+	if again.TxHash != "" {
+		t.Errorf("the second run sent a transaction (%s) — a retry must not cost gas", again.TxHash)
+	}
+	if again.AgentRegistered != "already_registered" || again.MerchantRegistered != "already_registered" {
+		t.Errorf("409s were not folded into success: agent=%q merchant=%q",
+			again.AgentRegistered, again.MerchantRegistered)
+	}
+	if out.MerchantID != e.merchantID {
+		t.Errorf("merchant_id = %q", out.MerchantID)
+	}
+}
+
+// TestLive_ActivateMerchant_SyncFailureIsRecoverable is the REF-254 hazard on the activation
+// path: the chain write lands and the backend does not. The error has to say the gas is
+// spent and that repeating the call is safe, and repeating it has to actually work.
+func TestLive_ActivateMerchant_SyncFailureIsRecoverable(t *testing.T) {
+	e := liveMerchantEnv(t)
+
+	failing := true
+	e.fakeAPIFor(t, func(w http.ResponseWriter, r *http.Request) {
+		if failing {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusInternalServerError)
+			_, _ = w.Write([]byte(`{"error":"internal error"}`))
+			return
+		}
+		registrationsCreated(w, r)
+	})
+
+	// Inactive first, so the failure happens AFTER a real transaction. Against an
+	// already-active merchant the tool sends nothing, and the "gas is spent" wording — the
+	// part that matters — is never produced.
+	e.setMerchantActiveDirect(t, false)
+
+	_, _, err := handleActivateMerchant(t.Context(), nil, activateMerchantInput{
+		MerchantID: e.merchantID,
+		ChainID:    e.chainID,
+	})
+	if err == nil {
+		t.Fatal("a 500 from the backend was reported as success")
+	}
+	for _, want := range []string{"STATE:", "SUCCEEDED", "gas is spent", "activate_merchant again"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("the failure does not mention %q: %v", want, err)
+		}
+	}
+
+	// The chain half must have landed regardless.
+	if !e.readMerchantActive(t) {
+		t.Fatal("the on-chain flag is not set, so the reported STATE was wrong")
+	}
+
+	// And the retry the message promises must succeed.
+	failing = false
+	if _, _, err := handleActivateMerchant(t.Context(), nil, activateMerchantInput{
+		MerchantID: e.merchantID,
+		ChainID:    e.chainID,
+	}); err != nil {
+		t.Fatalf("the retry the error instructed the agent to make failed: %v", err)
+	}
+}
+
+// freshProductID derives a product id no earlier run has used, so add_product's create path
+// is genuinely exercised rather than always taking the already-exists branch.
+func freshProductID(t *testing.T) string {
+	t.Helper()
+	h := crypto.Keccak256([]byte("ref-251-live-" + t.Name() + "-" + strconv.FormatInt(time.Now().UnixNano(), 10)))
+	return "0x" + hex.EncodeToString(h)
+}
+
+// TestLive_AddProduct_CreateThenRepeat covers both branches in one run: a product that does
+// not exist is written on-chain, and the same call repeated skips the write. The skip is
+// what makes the sync retryable at all — addProduct on its own reverts ProductAlreadyExists.
+func TestLive_AddProduct_CreateThenRepeat(t *testing.T) {
+	e := liveMerchantEnv(t)
+
+	var syncCalls int
+	e.fakeAPIFor(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/v1/merchant/product" {
+			syncCalls++
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		_, _ = w.Write([]byte(`{}`))
+	})
+
+	productID := freshProductID(t)
+	in := addProductInput{
+		MerchantID:    e.merchantID,
+		ProductID:     productID,
+		CommissionBps: 750,
+		EndpointURL:   "https://shop.example/buy",
+		Name:          "Live Widget",
+		Category:      "test",
+		ChainID:       e.chainID,
+	}
+
+	_, created, err := handleAddProduct(t.Context(), nil, in)
+	if err != nil {
+		t.Fatalf("add_product (create): %v", err)
+	}
+	if created.AlreadyOnChain {
+		t.Error("already_on_chain = true for a product id never used before")
+	}
+	if created.TxHash == "" {
+		t.Error("no transaction was sent for a new product")
+	}
+	if !created.MetadataSynced {
+		t.Error("metadata_synced = false")
+	}
+	if created.CommissionBps != 750 {
+		t.Errorf("commission_bps = %d, want 750", created.CommissionBps)
+	}
+
+	// Confirm on-chain rather than trusting the output: the rate must really be 750.
+	if got, _, err := readProductCommission(t.Context(), mustBigInt(t, e.merchantID),
+		mustProductID(t, productID), e.chainID); err != nil || got != 750 {
+		t.Fatalf("on-chain commission = %d (err %v), want 750", got, err)
+	}
+
+	// productType is the hand-mirrored enum ordinal: its member names are absent from the
+	// ABI, so reordering the Solidity enum leaves everything compiling and green. This round
+	// trip is the only thing that would catch it.
+	if _, _, gotType := e.readProductAt(t, productID); gotType != productTypeRepeat {
+		t.Fatalf("on-chain productType = %d, want Repeat (%d) — the enum ordinals mirrored in "+
+			"main.go no longer match IProductRegistry.ProductType", gotType, productTypeRepeat)
+	}
+
+	_, repeat, err := handleAddProduct(t.Context(), nil, in)
+	if err != nil {
+		t.Fatalf("add_product (repeat) failed, so a stranded product can never be synced: %v", err)
+	}
+	if !repeat.AlreadyOnChain {
+		t.Error("already_on_chain = false on the repeat")
+	}
+	if repeat.TxHash != "" {
+		t.Errorf("the repeat sent a transaction (%s) — addProduct would have reverted", repeat.TxHash)
+	}
+	if !repeat.MetadataSynced {
+		t.Error("the repeat did not re-run the sync, which is the only reason to repeat")
+	}
+	if syncCalls != 2 {
+		t.Errorf("the backend sync ran %d times, want 2", syncCalls)
+	}
+}
+
+// TestLive_AddProduct_DoesNotRepriceSilently: repeating add_product with a different rate
+// must not change it. Repricing is gated on a different role and moves money; doing it as a
+// side effect of a call the agent believed was a create would be silent.
+func TestLive_AddProduct_DoesNotRepriceSilently(t *testing.T) {
+	e := liveMerchantEnv(t)
+	e.fakeAPIFor(t, registrationsCreated)
+
+	productID := freshProductID(t)
+	in := addProductInput{
+		MerchantID:    e.merchantID,
+		ProductID:     productID,
+		CommissionBps: 750,
+		EndpointURL:   "https://shop.example/buy",
+		Name:          "Live Widget",
+		ChainID:       e.chainID,
+	}
+	if _, _, err := handleAddProduct(t.Context(), nil, in); err != nil {
+		t.Fatalf("add_product (create): %v", err)
+	}
+
+	in.CommissionBps = 1500
+	_, out, err := handleAddProduct(t.Context(), nil, in)
+	if err != nil {
+		t.Fatalf("add_product (reprice attempt): %v", err)
+	}
+	if out.CommissionWarning == "" {
+		t.Error("no warning for a rate that differs from the one on-chain")
+	}
+	if out.CommissionBps != 750 {
+		t.Errorf("reported commission_bps = %d, want the on-chain 750", out.CommissionBps)
+	}
+
+	got, _, err := readProductCommission(t.Context(), mustBigInt(t, e.merchantID),
+		mustProductID(t, productID), e.chainID)
+	if err != nil {
+		t.Fatalf("read commission: %v", err)
+	}
+	if got != 750 {
+		t.Fatalf("the rate was changed to %d by a call that only asked to add the product", got)
+	}
+}
+
+// TestLive_AddProduct_SyncFailureNamesRetry is the REF-254 hazard on the product path. A
+// product on-chain with no backend metadata is payable and undiscoverable, and the agent
+// cannot recover by calling addProduct again — so the message must point at this tool.
+func TestLive_AddProduct_SyncFailureNamesRetry(t *testing.T) {
+	e := liveMerchantEnv(t)
+
+	failing := true
+	e.fakeAPIFor(t, func(w http.ResponseWriter, r *http.Request) {
+		if failing {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusInternalServerError)
+			_, _ = w.Write([]byte(`{"error":"internal error"}`))
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		_, _ = w.Write([]byte(`{}`))
+	})
+
+	productID := freshProductID(t)
+	in := addProductInput{
+		MerchantID:    e.merchantID,
+		ProductID:     productID,
+		CommissionBps: 600,
+		EndpointURL:   "https://shop.example/buy",
+		Name:          "Stranded Widget",
+		ChainID:       e.chainID,
+	}
+
+	_, _, err := handleAddProduct(t.Context(), nil, in)
+	if err == nil {
+		t.Fatal("a failed sync was reported as success, leaving an undiscoverable product")
+	}
+	for _, want := range []string{"payable", "NOT discoverable", "add_product again"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("the failure does not mention %q: %v", want, err)
+		}
+	}
+
+	// The product really is on-chain — the message claimed as much.
+	if _, found, err := readProductCommission(t.Context(), mustBigInt(t, e.merchantID),
+		mustProductID(t, productID), e.chainID); err != nil || !found {
+		t.Fatalf("the product is NOT on-chain (found=%v, err=%v), so the reported STATE was wrong",
+			found, err)
+	}
+
+	failing = false
+	_, out, err := handleAddProduct(t.Context(), nil, in)
+	if err != nil {
+		t.Fatalf("the retry the error instructed the agent to make failed: %v", err)
+	}
+	if !out.AlreadyOnChain || out.TxHash != "" {
+		t.Errorf("the retry re-sent the chain write: already_on_chain=%v tx=%q",
+			out.AlreadyOnChain, out.TxHash)
+	}
+	if !out.MetadataSynced {
+		t.Error("the retry did not complete the sync")
+	}
+}
+
+func mustProductID(t *testing.T, s string) [32]byte {
+	t.Helper()
+	id, err := parseProductID(s)
+	if err != nil {
+		t.Fatalf("parseProductID(%s): %v", s, err)
+	}
+	return id
+}
+
+// TestLive_ActivateMerchant_RegistersAgentBeforeMerchant pins the order THROUGH the
+// composite. merchants carries a foreign key onto agents, so the reverse order fails on a
+// constraint that names neither endpoint.
+//
+// It has to run against a chain because the composite reads chain state before it posts
+// anything. An earlier version of this test called registerIdentity twice by hand instead —
+// which asserted the test's own ordering and passed happily when the composite's order was
+// swapped.
+func TestLive_ActivateMerchant_RegistersAgentBeforeMerchant(t *testing.T) {
+	e := liveMerchantEnv(t)
+
+	var mu sync.Mutex
+	var order []string
+
+	e.fakeAPIFor(t, func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		order = append(order, r.URL.Path)
+		mu.Unlock()
+		registrationsCreated(w, r)
+	})
+
+	if _, _, err := handleActivateMerchant(t.Context(), nil, activateMerchantInput{
+		MerchantID: e.merchantID,
+		ChainID:    e.chainID,
+	}); err != nil {
+		t.Fatalf("activate_merchant: %v", err)
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	want := []string{"/v1/agent/register", "/v1/merchant/register"}
+	if len(order) != len(want) {
+		t.Fatalf("the composite called %v, want exactly %v", order, want)
+	}
+	for i := range want {
+		if order[i] != want[i] {
+			t.Fatalf("call order = %v, want %v — merchants has a foreign key onto agents", order, want)
 		}
 	}
 }
