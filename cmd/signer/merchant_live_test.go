@@ -358,10 +358,66 @@ func (e liveEnv) useAPI(t *testing.T, api string) {
 	t.Setenv("REFERRER_API_URL", api)
 }
 
-func TestLive_GetMerchantStats(t *testing.T) {
+// ensureActivated runs activate_merchant against the REAL backend so the tests that need a
+// registered merchant have one. It is a precondition, not the subject: without it those
+// tests fail with a 409 or 404 that says nothing about the code under test.
+func (e liveEnv) ensureActivated(t *testing.T, api string) {
+	t.Helper()
+
+	e.useAPI(t, api)
+	if _, _, err := handleActivateMerchant(t.Context(), nil, activateMerchantInput{
+		MerchantID: e.merchantID,
+		ChainID:    e.chainID,
+	}); err != nil {
+		t.Fatalf("precondition: activate_merchant against %s: %v", api, err)
+	}
+}
+
+// TestLive_ActivateMerchant_AgainstRealBackend is the composite's only unscripted run. The
+// other activation tests script the backend so they can force its failures, which means
+// none of them check that a REAL /v1/agent/register and /v1/merchant/register accept what
+// this tool sends — the status codes, the field names, and the order.
+func TestLive_ActivateMerchant_AgainstRealBackend(t *testing.T) {
 	e := liveMerchantEnv(t)
 	api := liveAPI(t)
 	e.useAPI(t, api)
+
+	_, out, err := handleActivateMerchant(t.Context(), nil, activateMerchantInput{
+		MerchantID: e.merchantID,
+		ChainID:    e.chainID,
+	})
+	if err != nil {
+		t.Fatalf("activate_merchant: %v", err)
+	}
+	if out.AgentRegistered == "" || out.MerchantRegistered == "" {
+		t.Fatalf("a registration step reported nothing: %+v", out)
+	}
+	if !e.readMerchantActive(t) {
+		t.Fatal("the merchant is not active on-chain")
+	}
+
+	// Re-run: against the real backend both registrations must now come back as conflicts,
+	// which is what makes the retry instruction true rather than merely plausible.
+	_, again, err := handleActivateMerchant(t.Context(), nil, activateMerchantInput{
+		MerchantID: e.merchantID,
+		ChainID:    e.chainID,
+	})
+	if err != nil {
+		t.Fatalf("re-running activate_merchant against the real backend failed: %v", err)
+	}
+	if again.AgentRegistered != "already_registered" || again.MerchantRegistered != "already_registered" {
+		t.Errorf("the real backend's repeat responses were not folded into success: agent=%q merchant=%q",
+			again.AgentRegistered, again.MerchantRegistered)
+	}
+	if again.TxHash != "" {
+		t.Errorf("the second run sent a transaction (%s)", again.TxHash)
+	}
+}
+
+func TestLive_GetMerchantStats(t *testing.T) {
+	e := liveMerchantEnv(t)
+	api := liveAPI(t)
+	e.ensureActivated(t, api)
 
 	_, out, err := handleGetMerchantStats(t.Context(), nil, getMerchantStatsInput{
 		MerchantID: e.merchantID,
@@ -468,7 +524,7 @@ func TestLive_StatsRequiresSignature(t *testing.T) {
 func TestLive_SetMerchantProfile(t *testing.T) {
 	e := liveMerchantEnv(t)
 	api := liveAPI(t)
-	e.useAPI(t, api)
+	e.ensureActivated(t, api)
 
 	want := "REF-251 live profile " + strconv.FormatInt(time.Now().Unix(), 10)
 
@@ -928,5 +984,71 @@ func TestLive_ActivateMerchant_RegistersAgentBeforeMerchant(t *testing.T) {
 		if order[i] != want[i] {
 			t.Fatalf("call order = %v, want %v — merchants has a foreign key onto agents", order, want)
 		}
+	}
+}
+
+// TestLive_AddProduct_AgainstRealBackend is add_product's only unscripted run. The scripted
+// tests force the backend's failures, so none of them check that a REAL
+// POST /v1/merchant/product accepts what this tool sends — and that endpoint verifies the
+// product exists ON-CHAIN before it will store the metadata, which only a real pairing of
+// chain and backend exercises.
+func TestLive_AddProduct_AgainstRealBackend(t *testing.T) {
+	e := liveMerchantEnv(t)
+	api := liveAPI(t)
+	e.ensureActivated(t, api)
+
+	productID := freshProductID(t)
+	in := addProductInput{
+		MerchantID:    e.merchantID,
+		ProductID:     productID,
+		CommissionBps: 900,
+		EndpointURL:   "https://shop.example/buy",
+		Name:          "REF-251 Real Widget",
+		Description:   "added through add_product against a real backend",
+		Category:      "test",
+		ChainID:       e.chainID,
+	}
+
+	_, out, err := handleAddProduct(t.Context(), nil, in)
+	if err != nil {
+		t.Fatalf("add_product: %v", err)
+	}
+	if out.TxHash == "" || out.AlreadyOnChain {
+		t.Errorf("expected a fresh on-chain write: %+v", out)
+	}
+	if !out.MetadataSynced {
+		t.Fatal("metadata_synced = false against a real backend")
+	}
+
+	// Read the product back through the PUBLIC endpoint, so persistence is confirmed by a
+	// route other than the one that wrote it.
+	resp, err := http.Get(api + "/v1/merchant/product?merchant_id=" + e.merchantID +
+		"&product_id=" + productID)
+	if err != nil {
+		t.Fatalf("public product read: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("public product read returned %d — the metadata did not persist", resp.StatusCode)
+	}
+
+	var public map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&public); err != nil {
+		t.Fatalf("decode public product: %v", err)
+	}
+	if got, _ := public["name"].(string); got != in.Name {
+		t.Errorf("public name = %q, want %q", got, in.Name)
+	}
+
+	// And the repeat path against the real backend: no second chain write, sync repeated.
+	_, again, err := handleAddProduct(t.Context(), nil, in)
+	if err != nil {
+		t.Fatalf("re-running add_product against the real backend failed: %v", err)
+	}
+	if !again.AlreadyOnChain || again.TxHash != "" {
+		t.Errorf("the repeat re-sent the chain write: %+v", again)
+	}
+	if !again.MetadataSynced {
+		t.Error("the repeat did not re-run the sync")
 	}
 }

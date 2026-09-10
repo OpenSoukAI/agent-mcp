@@ -171,7 +171,13 @@ func handleGetMerchantStats(
 	// Decoded into the typed output directly, so the int64 counts stay exact.
 	out := getMerchantStatsOutput{MerchantID: merchantID.String()}
 	if err := callAuthedInto(ctx, "get_merchant_stats", http.MethodGet,
-		fmt.Sprintf("/v1/merchant/%d/stats", restID), nil, merchantID, nil, &out); err != nil {
+		fmt.Sprintf("/v1/merchant/%d/stats", restID), nil, merchantID, map[int]string{
+			// This route 404s for TWO unrelated reasons: no such identity on-chain, and no
+			// backend row for a merchant that does exist on-chain. The generic advice blamed
+			// the chain, which sends an agent looking at a registry where the identity is
+			// sitting perfectly fine.
+			http.StatusNotFound: "either no ERC-8004 identity exists for this merchant_id on this chain, or the merchant has no backend record yet — call activate_merchant if the identity is minted",
+		}, &out); err != nil {
 		return nil, getMerchantStatsOutput{}, err
 	}
 

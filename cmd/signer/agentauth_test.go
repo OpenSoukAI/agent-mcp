@@ -236,3 +236,148 @@ func recoverAgentAuth(body []byte, timestamp int64, sigHex string) (string, erro
 	}
 	return crypto.PubkeyToAddress(*pub).Hex(), nil
 }
+
+// ── Replay-safe timestamps ──────────────────────────────────────────────────────
+
+// TestFreshTimestampFor_SameBodyTwiceDiffers is the fix for a real 401 seen against the
+// running backend. The replay guard keys on keccak256(body||ts) with one-second resolution,
+// so the same body signed twice in the same second is the SAME authorized message and the
+// second request is rejected.
+func TestFreshTimestampFor_SameBodyTwiceDiffers(t *testing.T) {
+	resetSignedPayloads(t)
+
+	body := []byte(`{"agent_id":0}`)
+
+	first, err := freshTimestampFor(body)
+	if err != nil {
+		t.Fatalf("first: %v", err)
+	}
+	second, err := freshTimestampFor(body)
+	if err != nil {
+		t.Fatalf("second: %v", err)
+	}
+
+	if first == second {
+		t.Fatalf("both signings got timestamp %d, so the second request replays the first", first)
+	}
+}
+
+// The empty body is the case that makes this unavoidable: an authenticated GET signs the
+// timestamp alone, so two reads in the same second are byte-identical.
+func TestFreshTimestampFor_EmptyBodyTwiceDiffers(t *testing.T) {
+	resetSignedPayloads(t)
+
+	first, err := freshTimestampFor(nil)
+	if err != nil {
+		t.Fatalf("first: %v", err)
+	}
+	second, err := freshTimestampFor(nil)
+	if err != nil {
+		t.Fatalf("second: %v", err)
+	}
+	if first == second {
+		t.Fatalf("two empty-bodied reads both got %d — get_merchant_stats called twice in one "+
+			"second would 401", first)
+	}
+}
+
+// TestFreshTimestampFor_DistinctBodiesAreNotStepped guards against overcorrecting. Different
+// bodies already hash differently, so stepping them forward would inflate timestamps toward
+// the edge of the ±60s window for no reason.
+func TestFreshTimestampFor_DistinctBodiesAreNotStepped(t *testing.T) {
+	resetSignedPayloads(t)
+
+	now := time.Now().Unix()
+	for i := 0; i < 5; i++ {
+		body := []byte(fmt.Sprintf(`{"merchant_id":%d}`, i))
+		ts, err := freshTimestampFor(body)
+		if err != nil {
+			t.Fatalf("body %d: %v", i, err)
+		}
+		if ts < now || ts > now+1 {
+			t.Errorf("body %d got timestamp %d, want ~%d — distinct bodies do not collide and "+
+				"must not be stepped", i, ts, now)
+		}
+	}
+}
+
+// TestFreshTimestampFor_StaysInsideTheWindow: a stepped timestamp is only useful if the
+// server still accepts it. Stepping past +60s would trade a replay rejection for an
+// out-of-window rejection.
+func TestFreshTimestampFor_StaysInsideTheWindow(t *testing.T) {
+	resetSignedPayloads(t)
+
+	body := []byte(`{"same":"body"}`)
+	now := time.Now().Unix()
+
+	for i := 0; i < 30; i++ {
+		ts, err := freshTimestampFor(body)
+		if err != nil {
+			t.Fatalf("signing %d: %v", i, err)
+		}
+		if ts > now+60 {
+			t.Fatalf("signing %d stepped to %d, which is beyond the server's +60s window (now %d)",
+				i, ts, now)
+		}
+	}
+}
+
+// TestFreshTimestampFor_Exhaustion prefers a named error over silently returning a timestamp
+// the server will reject.
+func TestFreshTimestampFor_Exhaustion(t *testing.T) {
+	resetSignedPayloads(t)
+
+	body := []byte(`{"same":"body"}`)
+	var lastErr error
+	for i := 0; i < replayWindowSeconds+5; i++ {
+		if _, err := freshTimestampFor(body); err != nil {
+			lastErr = err
+			break
+		}
+	}
+	if lastErr == nil {
+		t.Fatal("no error after exhausting every second in the window")
+	}
+	if !strings.Contains(lastErr.Error(), "replay") {
+		t.Errorf("exhaustion error does not explain itself: %v", lastErr)
+	}
+}
+
+// TestNewAuthedRequest_RepeatedCallsDoNotReplay is the same property through the request
+// builder, which is where every tool reaches it.
+func TestNewAuthedRequest_RepeatedCallsDoNotReplay(t *testing.T) {
+	resetSignedPayloads(t)
+
+	key := goldenKey(t)
+	seen := map[string]bool{}
+
+	for i := 0; i < 5; i++ {
+		req, err := newAuthedRequest(context.Background(), http.MethodGet,
+			"http://localhost:8080/v1/merchant/4/stats", nil, key)
+		if err != nil {
+			t.Fatalf("request %d: %v", i, err)
+		}
+		sig := req.Header.Get(agentSignatureHeader)
+		if seen[sig] {
+			t.Fatalf("request %d reused a signature the process had already sent", i)
+		}
+		seen[sig] = true
+	}
+}
+
+// resetSignedPayloads clears the process-wide dedup map so tests do not inherit each
+// other's timestamps, and restores it afterwards.
+func resetSignedPayloads(t *testing.T) {
+	t.Helper()
+
+	signedMu.Lock()
+	prev := signedAt
+	signedAt = map[string]int64{}
+	signedMu.Unlock()
+
+	t.Cleanup(func() {
+		signedMu.Lock()
+		signedAt = prev
+		signedMu.Unlock()
+	})
+}

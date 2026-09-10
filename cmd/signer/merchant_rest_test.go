@@ -212,13 +212,18 @@ func TestRESTError_UnauthorizedExplainsEveryCause(t *testing.T) {
 	}
 }
 
+// The 404 case asserts BOTH causes. GET /v1/merchant/{id}/stats 404s when no identity
+// exists on-chain AND when a merchant that does exist on-chain has no backend row — a live
+// run against the real backend produced the second while the advice named only the first,
+// which sends an agent to inspect a registry where its identity is sitting perfectly fine.
 func TestRESTError_ForbiddenAndNotFoundAreDistinct(t *testing.T) {
 	for _, tc := range []struct {
 		status int
 		want   string
 	}{
 		{http.StatusForbidden, "does not own"},
-		{http.StatusNotFound, "no such merchant"},
+		{http.StatusNotFound, "no ERC-8004 identity"},
+		{http.StatusNotFound, "no backend record"},
 	} {
 		var got capturedRequest
 		srv := fakeBackend(t, tc.status, `{"error":"nope"}`, &got)
