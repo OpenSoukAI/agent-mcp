@@ -68,6 +68,36 @@ var (
 		{"inputs":[{"name":"escrowId","type":"uint256"}],"name":"triggerSettleFallback","outputs":[],"stateMutability":"nonpayable","type":"function"},
 		{"anonymous":false,"inputs":[{"indexed":true,"name":"escrowId","type":"uint256"},{"indexed":true,"name":"treasury","type":"address"},{"indexed":false,"name":"heldBackAmt","type":"uint128"},{"indexed":false,"name":"cashbackAmt","type":"uint128"}],"name":"FallbackSettled","type":"event"}
 	]`)
+
+	// MerchantRegistry and ProductRegistry carry the merchant-side writes (REF-251). Both
+	// literals are trimmed to what the tools call; entries are added when a tool needs one,
+	// so an unused entry here means something was removed and its ABI was not.
+	//
+	// merchantId IS the ERC-8004 agentId — MerchantRegistry mints nothing. isActive is here
+	// because setActive's receipt does not prove the flag: a suspended merchant's
+	// self-reactivation reverts, and only a read distinguishes that from success.
+	merchantRegistryABI = mustParseABI(`[
+		{"inputs":[{"name":"merchantId","type":"uint256"},{"name":"active","type":"bool"}],"name":"setActive","outputs":[],"stateMutability":"nonpayable","type":"function"},
+		{"inputs":[{"name":"merchantId","type":"uint256"}],"name":"isActive","outputs":[{"name":"","type":"bool"}],"stateMutability":"view","type":"function"}
+	]`)
+
+	// productType is `enum ProductType` in Solidity, which the ABI flattens to uint8. The
+	// ordinals are hand-mirrored in productType* below and nothing in the ABI would catch a
+	// reordering of the enum.
+	productRegistryABI = mustParseABI(`[
+		{"inputs":[{"name":"merchantId","type":"uint256"},{"name":"productId","type":"bytes32"},{"name":"commissionBps","type":"uint16"},{"name":"productType","type":"uint8"},{"name":"productCardURI","type":"string"}],"name":"addProduct","outputs":[],"stateMutability":"nonpayable","type":"function"},
+		{"inputs":[{"name":"merchantId","type":"uint256"},{"name":"productId","type":"bytes32"},{"name":"commissionBps","type":"uint16"}],"name":"setCommission","outputs":[],"stateMutability":"nonpayable","type":"function"},
+		{"inputs":[{"name":"merchantId","type":"uint256"},{"name":"productId","type":"bytes32"},{"name":"active","type":"bool"}],"name":"setProductActive","outputs":[],"stateMutability":"nonpayable","type":"function"},
+		{"inputs":[{"name":"merchantId","type":"uint256"},{"name":"productId","type":"bytes32"}],"name":"getProduct","outputs":[{"components":[{"name":"merchantId","type":"uint256"},{"name":"productId","type":"bytes32"},{"name":"commissionBps","type":"uint16"},{"name":"active","type":"bool"},{"name":"productCardURI","type":"string"},{"name":"createdAt","type":"uint40"},{"name":"productType","type":"uint8"}],"name":"","type":"tuple"}],"stateMutability":"view","type":"function"}
+	]`)
+)
+
+// ProductType ordinals, mirrored from IProductRegistry.ProductType. Enum member names are
+// absent from the ABI, so a reordering in Solidity leaves both repos compiling and green
+// while every add_product call writes the wrong type.
+const (
+	productTypeRepeat uint8 = 0
+	productTypeOneOff uint8 = 1
 )
 
 func mustABIType(t string) abi.Type {
