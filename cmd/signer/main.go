@@ -68,6 +68,36 @@ var (
 		{"inputs":[{"name":"escrowId","type":"uint256"}],"name":"triggerSettleFallback","outputs":[],"stateMutability":"nonpayable","type":"function"},
 		{"anonymous":false,"inputs":[{"indexed":true,"name":"escrowId","type":"uint256"},{"indexed":true,"name":"treasury","type":"address"},{"indexed":false,"name":"heldBackAmt","type":"uint128"},{"indexed":false,"name":"cashbackAmt","type":"uint128"}],"name":"FallbackSettled","type":"event"}
 	]`)
+
+	// MerchantRegistry and ProductRegistry carry the merchant-side writes (REF-251). Both
+	// literals are trimmed to what the tools call; entries are added when a tool needs one,
+	// so an unused entry here means something was removed and its ABI was not.
+	//
+	// merchantId IS the ERC-8004 agentId — MerchantRegistry mints nothing. isActive is here
+	// because setActive's receipt does not prove the flag: a suspended merchant's
+	// self-reactivation reverts, and only a read distinguishes that from success.
+	merchantRegistryABI = mustParseABI(`[
+		{"inputs":[{"name":"merchantId","type":"uint256"},{"name":"active","type":"bool"}],"name":"setActive","outputs":[],"stateMutability":"nonpayable","type":"function"},
+		{"inputs":[{"name":"merchantId","type":"uint256"}],"name":"isActive","outputs":[{"name":"","type":"bool"}],"stateMutability":"view","type":"function"}
+	]`)
+
+	// productType is `enum ProductType` in Solidity, which the ABI flattens to uint8. The
+	// ordinals are hand-mirrored in productType* below and nothing in the ABI would catch a
+	// reordering of the enum.
+	productRegistryABI = mustParseABI(`[
+		{"inputs":[{"name":"merchantId","type":"uint256"},{"name":"productId","type":"bytes32"},{"name":"commissionBps","type":"uint16"},{"name":"productType","type":"uint8"},{"name":"productCardURI","type":"string"}],"name":"addProduct","outputs":[],"stateMutability":"nonpayable","type":"function"},
+		{"inputs":[{"name":"merchantId","type":"uint256"},{"name":"productId","type":"bytes32"},{"name":"commissionBps","type":"uint16"}],"name":"setCommission","outputs":[],"stateMutability":"nonpayable","type":"function"},
+		{"inputs":[{"name":"merchantId","type":"uint256"},{"name":"productId","type":"bytes32"},{"name":"active","type":"bool"}],"name":"setProductActive","outputs":[],"stateMutability":"nonpayable","type":"function"},
+		{"inputs":[{"name":"merchantId","type":"uint256"},{"name":"productId","type":"bytes32"}],"name":"getProduct","outputs":[{"components":[{"name":"merchantId","type":"uint256"},{"name":"productId","type":"bytes32"},{"name":"commissionBps","type":"uint16"},{"name":"active","type":"bool"},{"name":"productCardURI","type":"string"},{"name":"createdAt","type":"uint40"},{"name":"productType","type":"uint8"}],"name":"","type":"tuple"}],"stateMutability":"view","type":"function"}
+	]`)
+)
+
+// ProductType ordinals, mirrored from IProductRegistry.ProductType. Enum member names are
+// absent from the ABI, so a reordering in Solidity leaves both repos compiling and green
+// while every add_product call writes the wrong type.
+const (
+	productTypeRepeat uint8 = 0
+	productTypeOneOff uint8 = 1
 )
 
 func mustABIType(t string) abi.Type {
@@ -1201,6 +1231,96 @@ func main() {
 			"update_review_content will then refuse it permanently — leaving the review's stored text and " +
 			"its on-chain hash disagreeing until you edit again within the window.",
 	}, handleUpdateReviewContentOnchain)
+
+	sdkmcp.AddTool(srv, &sdkmcp.Tool{
+		Name: "activate_merchant",
+		Description: "Bring a merchant online: set its active flag on-chain (MerchantRegistry.setActive) " +
+			"and register both the agent and merchant records with the backend. THREE steps, in this " +
+			"order, because each is a precondition of the next — the merchant registration needs an " +
+			"agents row and refuses a merchant that is not active on-chain. merchant_id is the merchant's " +
+			"ERC-8004 agent id; the signer key must own it. Minting that identity is NOT done here — do " +
+			"it first. Safe to call repeatedly and that IS the retry path: the on-chain step is skipped " +
+			"when the flag is already set, and an already-registered record counts as done, so a call " +
+			"that failed partway through can simply be repeated. Suspended merchants cannot reactivate " +
+			"themselves. Call this before set_merchant_profile or add_product, both of which need the " +
+			"backend record this creates.",
+	}, handleActivateMerchant)
+
+	sdkmcp.AddTool(srv, &sdkmcp.Tool{
+		Name: "add_product",
+		Description: "Add a product to a merchant's catalogue: write it on-chain " +
+			"(ProductRegistry.addProduct, which holds the commission rate and active flag) and sync its " +
+			"metadata to the backend (name, description, category, endpoint_url) so it becomes " +
+			"discoverable. A product with only the on-chain half is payable but invisible. product_id is " +
+			"a 0x-prefixed 32-byte hex id, unique per merchant — typically keccak256 of a slug you " +
+			"choose. commission_bps is 0-10000 (1000 = 10%) and is read LIVE at settlement, so it can be " +
+			"changed later with set_product_commission. Requires the merchant to be active on-chain and " +
+			"registered with the backend: call activate_merchant first. Safe to call repeatedly and that " +
+			"IS the retry path: when the product already exists on-chain the chain write is skipped and " +
+			"only the metadata sync is repeated, because addProduct itself cannot be re-sent. If the " +
+			"product already exists at a different commission rate, the rate is NOT changed and a " +
+			"warning says so. All products are repeat-purchase; one-off products were retired from the " +
+			"protocol. Afterwards call check_product_readiness on the endpoint_url.",
+	}, handleAddProduct)
+
+	sdkmcp.AddTool(srv, &sdkmcp.Tool{
+		Name: "set_merchant_profile",
+		Description: "Set a merchant's public profile copy — description and landing page URL — via " +
+			"POST /v1/merchant/profile, signed with the merchant's own key. merchant_id is the merchant's " +
+			"ERC-8004 agent id, and the signing key must own it. IMPORTANT: this REPLACES the profile " +
+			"rather than patching it, so an omitted field is cleared — to change only the description, " +
+			"pass the landing_page_url you want kept. Both fields are public. The backend owns the limits " +
+			"(description length, http(s)-only URL) and its rejection message names the offending field. " +
+			"Requires the merchant to be activated first: without a backend record this fails with a " +
+			"conflict pointing at activate_merchant.",
+	}, handleSetMerchantProfile)
+
+	sdkmcp.AddTool(srv, &sdkmcp.Tool{
+		Name: "check_product_readiness",
+		Description: "Probe a product's x402 endpoint and report whether it is wired correctly for " +
+			"referral payments (POST /v1/merchant/product/readiness). The backend GETs the resource with " +
+			"the referral-mode header set and checks that it answers 402, that payTo is this chain's " +
+			"SplitRouter, and that the attribution token is echoed back. Call it after add_product and " +
+			"before advertising a product: a product whose endpoint fails these checks takes payments that " +
+			"never attribute a referral. A misconfigured endpoint returns pass=false with a per-check " +
+			"breakdown — that is a successful probe, not an error. merchant_id only selects the signing " +
+			"key; the endpoint is authenticated but not owner-scoped, so it does not assert that you own " +
+			"the resource.",
+	}, handleCheckProductReadiness)
+
+	sdkmcp.AddTool(srv, &sdkmcp.Tool{
+		Name: "get_merchant_stats",
+		Description: "Read a merchant's own performance figures (GET /v1/merchant/{id}/stats): " +
+			"conversions, gross revenue, escrow amounts still holding vs settled, and product counts. " +
+			"Authenticated and owner-only — a merchant sees only its own revenue, which is why this lives " +
+			"on referrer-signer rather than the keyless server. merchant_id is the merchant's ERC-8004 " +
+			"agent id and the signing key must own it. Amounts are USDC base units (6 decimals). " +
+			"product_count includes inactive products; active_product_count is the subset that is listed.",
+	}, handleGetMerchantStats)
+
+	sdkmcp.AddTool(srv, &sdkmcp.Tool{
+		Name: "set_product_commission",
+		Description: "Change the commission rate a merchant pays referrers for one product " +
+			"(ProductRegistry.setCommission), sent on-chain with the merchant's own key. merchant_id is " +
+			"the merchant's ERC-8004 agent id and product_id is the on-chain bytes32 (0x-prefixed, 32 " +
+			"bytes) — not a slug. commission_bps is 0-10000, where 1000 = 10%. IMPORTANT: the new rate is " +
+			"read LIVE by SplitRouter at settlement, so it applies to every purchase that settles after " +
+			"this call, including ref links already issued and payments already authorised under the old " +
+			"rate. Nothing on-chain locks the previous rate. The signer key must own merchant_id or hold " +
+			"COMMISSION_MANAGER for it; that role is separate from PRODUCT_MANAGER, so a key that can add " +
+			"products cannot necessarily reprice them.",
+	}, handleSetProductCommission)
+
+	sdkmcp.AddTool(srv, &sdkmcp.Tool{
+		Name: "set_product_active",
+		Description: "List or delist one of a merchant's products (ProductRegistry.setProductActive), " +
+			"sent on-chain with the merchant's own key. Pass active=true to accept new purchases and ref " +
+			"links for it, active=false to stop them; the field is required, so a call that omits it fails " +
+			"rather than delisting. merchant_id is the merchant's ERC-8004 agent id and product_id is the " +
+			"on-chain bytes32. Delisting does not touch existing escrows or published reviews, and does not " +
+			"remove the product — set it active again to relist. The signer key must own merchant_id or " +
+			"hold PRODUCT_MANAGER for it.",
+	}, handleSetProductActive)
 
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name: "pay_for_product",
