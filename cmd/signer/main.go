@@ -1233,6 +1233,41 @@ func main() {
 	}, handleUpdateReviewContentOnchain)
 
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
+		Name: "set_merchant_profile",
+		Description: "Set a merchant's public profile copy — description and landing page URL — via " +
+			"POST /v1/merchant/profile, signed with the merchant's own key. merchant_id is the merchant's " +
+			"ERC-8004 agent id, and the signing key must own it. IMPORTANT: this REPLACES the profile " +
+			"rather than patching it, so an omitted field is cleared — to change only the description, " +
+			"pass the landing_page_url you want kept. Both fields are public. The backend owns the limits " +
+			"(description length, http(s)-only URL) and its rejection message names the offending field. " +
+			"Requires the merchant to be activated first: without a backend record this fails with a " +
+			"conflict pointing at activate_merchant.",
+	}, handleSetMerchantProfile)
+
+	sdkmcp.AddTool(srv, &sdkmcp.Tool{
+		Name: "check_product_readiness",
+		Description: "Probe a product's x402 endpoint and report whether it is wired correctly for " +
+			"referral payments (POST /v1/merchant/product/readiness). The backend GETs the resource with " +
+			"the referral-mode header set and checks that it answers 402, that payTo is this chain's " +
+			"SplitRouter, and that the attribution token is echoed back. Call it after add_product and " +
+			"before advertising a product: a product whose endpoint fails these checks takes payments that " +
+			"never attribute a referral. A misconfigured endpoint returns pass=false with a per-check " +
+			"breakdown — that is a successful probe, not an error. merchant_id only selects the signing " +
+			"key; the endpoint is authenticated but not owner-scoped, so it does not assert that you own " +
+			"the resource.",
+	}, handleCheckProductReadiness)
+
+	sdkmcp.AddTool(srv, &sdkmcp.Tool{
+		Name: "get_merchant_stats",
+		Description: "Read a merchant's own performance figures (GET /v1/merchant/{id}/stats): " +
+			"conversions, gross revenue, escrow amounts still holding vs settled, and product counts. " +
+			"Authenticated and owner-only — a merchant sees only its own revenue, which is why this lives " +
+			"on referrer-signer rather than the keyless server. merchant_id is the merchant's ERC-8004 " +
+			"agent id and the signing key must own it. Amounts are USDC base units (6 decimals). " +
+			"product_count includes inactive products; active_product_count is the subset that is listed.",
+	}, handleGetMerchantStats)
+
+	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name: "set_product_commission",
 		Description: "Change the commission rate a merchant pays referrers for one product " +
 			"(ProductRegistry.setCommission), sent on-chain with the merchant's own key. merchant_id is " +

@@ -1,12 +1,17 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/hex"
+	"encoding/json"
 	"math/big"
+	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/crypto"
@@ -310,5 +315,212 @@ func TestLive_UnauthorisedIsFriendly(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "COMMISSION_MANAGER") {
 		t.Errorf("Unauthorised did not decode to its advice: %v", err)
+	}
+}
+
+// ── Live REST tests ─────────────────────────────────────────────────────────────
+//
+// Gated separately on MERCHANT_LIVE_API, because a chain can be up without the backend.
+//
+// These are deliberately thin. The signature scheme itself is pinned by the golden vector
+// in agentauth_test.go, and the backend's own middleware tests already cover unsigned,
+// stale, replayed and tampered requests far better than a round trip from here could.
+// What only a live backend can prove is the part merchant_rest_test.go's fake cannot: that
+// the path exists, that the field names are the ones the handler binds, and that a success
+// really is a 200 with the body these tools decode.
+
+// liveAPI returns the backend base URL, or skips.
+func liveAPI(t *testing.T) string {
+	t.Helper()
+
+	api := os.Getenv("MERCHANT_LIVE_API")
+	if api == "" {
+		t.Skip("MERCHANT_LIVE_API not set; skipping the live backend calls. Set it to the " +
+			"backend base URL (e.g. http://localhost:8080) alongside the MERCHANT_LIVE_* " +
+			"chain variables.")
+	}
+	return strings.TrimSuffix(api, "/")
+}
+
+// useAPI installs the merchant's key and points the REST tools at the live backend.
+func (e liveEnv) useAPI(t *testing.T, api string) {
+	t.Helper()
+
+	e.use(t, e.ownerKeyHex)
+	t.Setenv("REFERRER_API_URL", api)
+}
+
+func TestLive_GetMerchantStats(t *testing.T) {
+	e := liveMerchantEnv(t)
+	api := liveAPI(t)
+	e.useAPI(t, api)
+
+	_, out, err := handleGetMerchantStats(t.Context(), nil, getMerchantStatsInput{
+		MerchantID: e.merchantID,
+	})
+	if err != nil {
+		t.Fatalf("get_merchant_stats: %v", err)
+	}
+
+	if out.MerchantID != e.merchantID {
+		t.Errorf("merchant_id = %q, want %q", out.MerchantID, e.merchantID)
+	}
+
+	// The figures depend on the fixture, so their VALUES are not assertable — which means
+	// value assertions alone cannot tell a decoded stats body from an empty object: every
+	// field would be zero and "active <= total" would hold. So check the keys are actually
+	// present in the response. Found by mutation: pointing the tool at a path that returns a
+	// different 200 object passed every value check.
+	merchantID, err := parseMerchantID(e.merchantID)
+	if err != nil {
+		t.Fatalf("parse merchant id: %v", err)
+	}
+	rawBody, err := callAuthedRaw(t.Context(), "live_stats", http.MethodGet,
+		"/v1/merchant/"+e.merchantID+"/stats", nil, merchantID, nil)
+	if err != nil {
+		t.Fatalf("raw stats read: %v", err)
+	}
+
+	// json.Number, not map[string]any: a generic decode turns every number into a float64
+	// and rounds anything above 2^53, which would make this comparison disagree with a
+	// correct tool on a large revenue figure. (It did, before this.)
+	dec := json.NewDecoder(bytes.NewReader(rawBody))
+	dec.UseNumber()
+	var raw map[string]json.Number
+	if err := dec.Decode(&raw); err != nil {
+		t.Fatalf("decode raw stats: %v", err)
+	}
+	// Compare the tool's output to that raw read field by field. Presence alone is not
+	// enough: the raw read uses its own path, so it cannot see where the TOOL went. Equality
+	// can — a tool pointed at a different endpoint reports zeros while the raw read does not.
+	for key, want := range map[string]int64{
+		"conversions":          out.Conversions,
+		"revenue_gross":        out.RevenueGross,
+		"escrow_holding":       out.EscrowHolding,
+		"escrow_settled":       out.EscrowSettled,
+		"product_count":        out.ProductCount,
+		"active_product_count": out.ActiveProductCount,
+	} {
+		v, present := raw[key]
+		if !present {
+			t.Errorf("the stats response has no %q field — this is not the stats endpoint's "+
+				"body, or its field names have changed", key)
+			continue
+		}
+		got, err := strconv.ParseInt(v.String(), 10, 64)
+		if err != nil {
+			t.Errorf("%q came back as %q, want an integer", key, v)
+			continue
+		}
+		if got != want {
+			t.Errorf("%s: the tool reported %d but the stats endpoint says %d — the tool is not "+
+				"reading this endpoint", key, want, got)
+		}
+	}
+
+	// The active subset can never exceed the total; a decode that crossed the two fields
+	// would routinely break this.
+	if out.ActiveProductCount > out.ProductCount {
+		t.Errorf("active_product_count %d exceeds product_count %d — the fields are crossed",
+			out.ActiveProductCount, out.ProductCount)
+	}
+	if out.Conversions < 0 || out.RevenueGross < 0 {
+		t.Errorf("negative figures: %+v", out)
+	}
+}
+
+// TestLive_StatsRequiresSignature guards against the tools being pointed at an endpoint
+// that never checked the signature. Every other live test would pass just as happily
+// against an open route, which would mean shipping a merchant's revenue unauthenticated.
+func TestLive_StatsRequiresSignature(t *testing.T) {
+	e := liveMerchantEnv(t)
+	api := liveAPI(t)
+
+	url := api + "/v1/merchant/" + e.merchantID + "/stats"
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, url, nil)
+	if err != nil {
+		t.Fatalf("build request: %v", err)
+	}
+
+	resp, err := (&http.Client{Timeout: restTimeout}).Do(req)
+	if err != nil {
+		t.Fatalf("GET %s: %v", url, err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("unsigned GET %s returned %d, want 401 — this route is not authenticated, so "+
+			"the merchant's revenue is readable by anyone", url, resp.StatusCode)
+	}
+}
+
+// TestLive_SetMerchantProfile writes the profile and reads it back through the PUBLIC
+// merchant endpoint, so persistence is confirmed by a different route than the one that
+// wrote it. A handler that accepted the request and stored nothing would still 200.
+func TestLive_SetMerchantProfile(t *testing.T) {
+	e := liveMerchantEnv(t)
+	api := liveAPI(t)
+	e.useAPI(t, api)
+
+	want := "REF-251 live profile " + strconv.FormatInt(time.Now().Unix(), 10)
+
+	_, out, err := handleSetMerchantProfile(t.Context(), nil, setMerchantProfileInput{
+		MerchantID:     e.merchantID,
+		Description:    want,
+		LandingPageURL: "https://example.com/ref-251",
+	})
+	if err != nil {
+		t.Fatalf("set_merchant_profile: %v", err)
+	}
+	if out.Description != want {
+		t.Errorf("returned description = %q, want %q", out.Description, want)
+	}
+
+	resp, err := http.Get(api + "/v1/merchant/" + e.merchantID)
+	if err != nil {
+		t.Fatalf("public merchant read: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("public merchant read returned %d", resp.StatusCode)
+	}
+
+	var public map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&public); err != nil {
+		t.Fatalf("decode public merchant: %v", err)
+	}
+	if got, _ := public["description"].(string); got != want {
+		t.Fatalf("the profile did not persist: public description = %q, want %q", got, want)
+	}
+}
+
+// TestLive_CheckProductReadiness proves the probe endpoint answers this client. pass is
+// NOT asserted: whether the fixture's endpoint is correctly wired is the fixture's
+// business, and a false here is a successful probe.
+func TestLive_CheckProductReadiness(t *testing.T) {
+	e := liveMerchantEnv(t)
+	api := liveAPI(t)
+	e.useAPI(t, api)
+
+	resource := os.Getenv("MERCHANT_LIVE_RESOURCE")
+	if resource == "" {
+		t.Skip("MERCHANT_LIVE_RESOURCE not set; skipping the readiness probe (it needs a " +
+			"product endpoint URL to probe).")
+	}
+
+	_, out, err := handleCheckProductReadiness(t.Context(), nil, checkProductReadinessInput{
+		MerchantID: e.merchantID,
+		Resource:   resource,
+	})
+	if err != nil {
+		t.Fatalf("check_product_readiness: %v", err)
+	}
+	if len(out.Checks) == 0 {
+		t.Fatal("the probe returned no checks — the response shape is not what this tool decodes")
+	}
+	for _, c := range out.Checks {
+		if c.Name == "" {
+			t.Errorf("a check came back unnamed: %+v", c)
+		}
 	}
 }

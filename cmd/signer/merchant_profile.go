@@ -1,0 +1,186 @@
+package main
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"net/http"
+
+	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
+)
+
+// ── set_merchant_profile ────────────────────────────────────────────────────────
+
+type setMerchantProfileInput struct {
+	MerchantID     string `json:"merchant_id"`                // decimal; the merchant's own ERC-8004 id
+	Description    string `json:"description,omitempty"`      // public profile copy; "" clears it
+	LandingPageURL string `json:"landing_page_url,omitempty"` // public http(s) link; "" clears it
+}
+
+type setMerchantProfileOutput struct {
+	MerchantID     string `json:"merchant_id"`
+	Description    string `json:"description"`
+	LandingPageURL string `json:"landing_page_url"`
+}
+
+func handleSetMerchantProfile(
+	ctx context.Context,
+	_ *sdkmcp.CallToolRequest,
+	in setMerchantProfileInput,
+) (*sdkmcp.CallToolResult, setMerchantProfileOutput, error) {
+	merchantID, err := parseMerchantID(in.MerchantID)
+	if err != nil {
+		return nil, setMerchantProfileOutput{}, err
+	}
+	restID, err := merchantIDForREST(merchantID)
+	if err != nil {
+		return nil, setMerchantProfileOutput{}, err
+	}
+
+	// Both fields are always sent, including when empty: the endpoint replaces the profile
+	// rather than patching it, so omitting a field clears it. An agent editing only the
+	// description must pass the landing page URL it wants kept.
+	body, err := json.Marshal(map[string]any{
+		"merchant_id":      restID,
+		"description":      in.Description,
+		"landing_page_url": in.LandingPageURL,
+	})
+	if err != nil {
+		return nil, setMerchantProfileOutput{}, fmt.Errorf("encode request: %w", err)
+	}
+
+	resp, err := callAuthedJSON(ctx, "set_merchant_profile", http.MethodPost, "/v1/merchant/profile",
+		body, merchantID, map[int]string{
+			http.StatusConflict:   "this merchant has no backend record yet — call activate_merchant first, then set the profile",
+			http.StatusBadRequest: "the backend rejected a field; the message above names which one",
+		})
+	if err != nil {
+		return nil, setMerchantProfileOutput{}, err
+	}
+
+	// Echo what the backend stored rather than what was sent, so a value it normalised is
+	// visible to the caller.
+	return nil, setMerchantProfileOutput{
+		MerchantID:     merchantID.String(),
+		Description:    stringField(resp, "description"),
+		LandingPageURL: stringField(resp, "landing_page_url"),
+	}, nil
+}
+
+// ── check_product_readiness ─────────────────────────────────────────────────────
+
+type checkProductReadinessInput struct {
+	// MerchantID selects the signing key ONLY. The endpoint is authenticated but not
+	// owner-scoped — it probes whatever URL it is given — so this is not a claim about who
+	// owns the resource.
+	MerchantID string `json:"merchant_id"`
+	Resource   string `json:"resource"` // the product's x402 endpoint URL
+}
+
+type readinessCheckResult struct {
+	Name   string `json:"name"`
+	OK     bool   `json:"ok"`
+	Detail string `json:"detail,omitempty"`
+}
+
+type checkProductReadinessOutput struct {
+	Pass     bool                   `json:"pass"`
+	Checks   []readinessCheckResult `json:"checks"`
+	Resource string                 `json:"resource"`
+}
+
+func handleCheckProductReadiness(
+	ctx context.Context,
+	_ *sdkmcp.CallToolRequest,
+	in checkProductReadinessInput,
+) (*sdkmcp.CallToolResult, checkProductReadinessOutput, error) {
+	merchantID, err := parseMerchantID(in.MerchantID)
+	if err != nil {
+		return nil, checkProductReadinessOutput{}, err
+	}
+	if in.Resource == "" {
+		return nil, checkProductReadinessOutput{}, fmt.Errorf("resource is required (the product's x402 endpoint URL)")
+	}
+
+	body, err := json.Marshal(map[string]any{"resource": in.Resource})
+	if err != nil {
+		return nil, checkProductReadinessOutput{}, fmt.Errorf("encode request: %w", err)
+	}
+
+	resp, err := callAuthedJSON(ctx, "check_product_readiness", http.MethodPost,
+		"/v1/merchant/product/readiness", body, merchantID, map[int]string{
+			http.StatusBadRequest: "resource must be an absolute http(s) URL",
+		})
+	if err != nil {
+		return nil, checkProductReadinessOutput{}, err
+	}
+
+	// A probe that ran and found the endpoint misconfigured is a 200 with pass=false, so a
+	// failing check is data here, not an error. Only the probe failing to run is an error.
+	out := checkProductReadinessOutput{Resource: in.Resource}
+	if v, ok := resp["pass"].(bool); ok {
+		out.Pass = v
+	}
+	if rawChecks, ok := resp["checks"].([]any); ok {
+		for _, rc := range rawChecks {
+			m, ok := rc.(map[string]any)
+			if !ok {
+				continue
+			}
+			out.Checks = append(out.Checks, readinessCheckResult{
+				Name:   stringField(m, "name"),
+				OK:     m["ok"] == true,
+				Detail: stringField(m, "detail"),
+			})
+		}
+	}
+	return nil, out, nil
+}
+
+// ── get_merchant_stats ──────────────────────────────────────────────────────────
+
+type getMerchantStatsInput struct {
+	MerchantID string `json:"merchant_id"`
+}
+
+type getMerchantStatsOutput struct {
+	MerchantID         string `json:"merchant_id"`
+	Conversions        int64  `json:"conversions"`
+	RevenueGross       int64  `json:"revenue_gross"`
+	EscrowHolding      int64  `json:"escrow_holding"`
+	EscrowSettled      int64  `json:"escrow_settled"`
+	ProductCount       int64  `json:"product_count"`
+	ActiveProductCount int64  `json:"active_product_count"`
+}
+
+func handleGetMerchantStats(
+	ctx context.Context,
+	_ *sdkmcp.CallToolRequest,
+	in getMerchantStatsInput,
+) (*sdkmcp.CallToolResult, getMerchantStatsOutput, error) {
+	merchantID, err := parseMerchantID(in.MerchantID)
+	if err != nil {
+		return nil, getMerchantStatsOutput{}, err
+	}
+	restID, err := merchantIDForREST(merchantID)
+	if err != nil {
+		return nil, getMerchantStatsOutput{}, err
+	}
+
+	// A GET with no body: the signed payload is the timestamp alone (see agentauth.go).
+	// Decoded into the typed output directly, so the int64 counts stay exact.
+	out := getMerchantStatsOutput{MerchantID: merchantID.String()}
+	if err := callAuthedInto(ctx, "get_merchant_stats", http.MethodGet,
+		fmt.Sprintf("/v1/merchant/%d/stats", restID), nil, merchantID, nil, &out); err != nil {
+		return nil, getMerchantStatsOutput{}, err
+	}
+
+	// The response carries no merchant_id, so restore it after the decode.
+	out.MerchantID = merchantID.String()
+	return nil, out, nil
+}
+
+func stringField(m map[string]any, key string) string {
+	s, _ := m[key].(string)
+	return s
+}
