@@ -64,6 +64,9 @@ type decodedAttributionToken struct {
 	SplitRouter             string `json:"splitRouter"`
 	MerchantEndpoint        string `json:"merchantEndpoint"`
 	SetupURL                string `json:"setupUrl"`
+	// KeyID selects which published attestation public key signed the token (REF-322). Absent
+	// in tokens minted before the field existed, which decodes to 0 — the launch key.
+	KeyID uint8 `json:"kid"`
 }
 
 // verifyAndDecodeToken decodes the base64url attribution token, verifies its trailing
@@ -72,30 +75,64 @@ type decodedAttributionToken struct {
 // needs to pay (merchant endpoint, settlement router, chain, cashback ratio) is read
 // straight from the signed link. Mirrors backend signing.Verify + Unmarshal.
 func verifyAndDecodeToken(rawToken, pubKeyHex string) (decodedAttributionToken, error) {
+	return verifyAndDecodeTokenWithKeys(rawToken, map[uint8]string{0: pubKeyHex})
+}
+
+// splitToken base64url-decodes a token into (payload, signature) with the size checks shared by
+// every path that touches the raw token.
+func splitToken(rawToken string) (payload, sig []byte, err error) {
 	if len(rawToken) > maxTokenLen {
-		return decodedAttributionToken{}, fmt.Errorf("attribution token too long (%d chars)", len(rawToken))
+		return nil, nil, fmt.Errorf("attribution token too long (%d chars)", len(rawToken))
 	}
 	signed, err := base64.RawURLEncoding.DecodeString(rawToken)
 	if err != nil {
-		return decodedAttributionToken{}, fmt.Errorf("decode attribution token base64url: %w", err)
+		return nil, nil, fmt.Errorf("decode attribution token base64url: %w", err)
 	}
 	if len(signed) <= ed25519SignatureSize {
-		return decodedAttributionToken{}, fmt.Errorf("attribution token blob too small (%d bytes, want > %d)", len(signed), ed25519SignatureSize)
+		return nil, nil, fmt.Errorf("attribution token blob too small (%d bytes, want > %d)", len(signed), ed25519SignatureSize)
 	}
-	pub, err := parseEd25519PubKeyHex(pubKeyHex)
+	return signed[:len(signed)-ed25519SignatureSize], signed[len(signed)-ed25519SignatureSize:], nil
+}
+
+// peekTokenKeyID reads the key id from an UNVERIFIED token so the caller can fetch the matching
+// public key (REF-322). It only chooses which key must have signed; a forged kid can at most
+// make verification fail.
+func peekTokenKeyID(rawToken string) (uint8, error) {
+	payload, _, err := splitToken(rawToken)
+	if err != nil {
+		return 0, err
+	}
+	var k struct {
+		KeyID uint8 `json:"kid"`
+	}
+	if err := json.Unmarshal(payload, &k); err != nil {
+		return 0, fmt.Errorf("decode attribution token payload: %w", err)
+	}
+	return k.KeyID, nil
+}
+
+// verifyAndDecodeTokenWithKeys is verifyAndDecodeToken over a key set by id (REF-322): the
+// payload's kid (absent = 0) selects the public key; an id not in keys is rejected by name, so
+// the message says "the backend rotated / the manifest lacks the key", not "forged token".
+func verifyAndDecodeTokenWithKeys(rawToken string, keys map[uint8]string) (decodedAttributionToken, error) {
+	payload, sig, err := splitToken(rawToken)
 	if err != nil {
 		return decodedAttributionToken{}, err
 	}
-
-	payload := signed[:len(signed)-ed25519SignatureSize]
-	sig := signed[len(signed)-ed25519SignatureSize:]
-	if !ed25519.Verify(pub, payload, sig) {
-		return decodedAttributionToken{}, fmt.Errorf("attribution token signature invalid — not signed by the protocol attestation key")
-	}
-
 	var tok decodedAttributionToken
 	if err := json.Unmarshal(payload, &tok); err != nil {
 		return decodedAttributionToken{}, fmt.Errorf("decode attribution token payload: %w", err)
+	}
+	pubHex, ok := keys[tok.KeyID]
+	if !ok {
+		return decodedAttributionToken{}, fmt.Errorf("attribution token signed under key id %d, which the well-known manifest does not publish (%d key(s) known)", tok.KeyID, len(keys))
+	}
+	pub, err := parseEd25519PubKeyHex(pubHex)
+	if err != nil {
+		return decodedAttributionToken{}, err
+	}
+	if !ed25519.Verify(pub, payload, sig) {
+		return decodedAttributionToken{}, fmt.Errorf("attribution token signature invalid — not signed by the protocol attestation key")
 	}
 	if tok.Version != attributionTokenVersion {
 		return decodedAttributionToken{}, fmt.Errorf("unsupported attribution token version %d (want %d)", tok.Version, attributionTokenVersion)
@@ -142,11 +179,43 @@ func splitRefPath(afterR string) (chainSeg, token string, err error) {
 // Attestation keys are per-chain (reflink signers differ per rail), so it prefers the
 // matching chains[] entry and falls back to the top-level (Base default) key.
 type wellKnownManifest struct {
-	AttestationPubKey string `json:"attestationPubKey"`
-	Chains            []struct {
-		ChainID           int64  `json:"chainId"`
-		AttestationPubKey string `json:"attestationPubKey"`
+	AttestationPubKey  string            `json:"attestationPubKey"`
+	AttestationPubKeys map[string]string `json:"attestationPubKeys"` // key id → hex pubkey (REF-322)
+	Chains             []struct {
+		ChainID            int64             `json:"chainId"`
+		AttestationPubKey  string            `json:"attestationPubKey"`
+		AttestationPubKeys map[string]string `json:"attestationPubKeys"`
 	} `json:"chains"`
+}
+
+// keySet returns the manifest's accepted keys by id for chainID: the per-chain set when present,
+// else the top-level set, and — for a backend that predates REF-322 — the single legacy key as
+// id 0. Empty when the manifest exposes nothing usable.
+func (m wellKnownManifest) keySet(chainID int64) map[uint8]string {
+	single, set := m.AttestationPubKey, m.AttestationPubKeys
+	for _, c := range m.Chains {
+		if c.ChainID == chainID {
+			if len(c.AttestationPubKeys) > 0 {
+				set = c.AttestationPubKeys
+			}
+			if c.AttestationPubKey != "" {
+				single = c.AttestationPubKey
+			}
+			break
+		}
+	}
+	out := map[uint8]string{}
+	for id, pub := range set {
+		n, err := strconv.ParseUint(id, 10, 8)
+		if err != nil || pub == "" {
+			continue
+		}
+		out[uint8(n)] = pub
+	}
+	if len(out) == 0 && single != "" {
+		out[0] = single
+	}
+	return out
 }
 
 // pubKeyCache memoises the RESOLVED attestation pubkey per (apiBase, chainID). Only a
@@ -155,9 +224,45 @@ type wellKnownManifest struct {
 // and retries. Keyed per chain, so a manifest valid for Base but missing another rail's
 // key can't poison that rail's lookup.
 var (
-	pubKeyCacheMu sync.Mutex
-	pubKeyCache   = map[string]string{} // apiBase + "|" + chainID -> pubkey hex
+	pubKeyCacheMu  sync.Mutex
+	pubKeyCache    = map[string]string{}           // apiBase + "|" + chainID -> pubkey hex
+	pubKeySetCache = map[string]map[uint8]string{} // apiBase + "|" + chainID -> key id -> pubkey hex (REF-322)
 )
+
+// attestationPubKeys returns the accepted attestation keys by id for chainID, from the cached
+// manifest — refetching once when wantKid is not in the cached set, so a backend key rotation
+// is picked up without a signer restart (REF-322). A kid still missing after the refetch is
+// returned as-is for the verifier to reject by name.
+func attestationPubKeys(ctx context.Context, httpClient *http.Client, apiBase string, chainID int64, wantKid uint8) (map[uint8]string, error) {
+	apiBase = strings.TrimRight(apiBase, "/")
+	cacheKey := apiBase + "|" + strconv.FormatInt(chainID, 10)
+
+	pubKeyCacheMu.Lock()
+	cached, ok := pubKeySetCache[cacheKey]
+	pubKeyCacheMu.Unlock()
+	if ok {
+		if _, have := cached[wantKid]; have {
+			return cached, nil
+		}
+	}
+
+	man, err := fetchManifest(ctx, httpClient, apiBase)
+	if err != nil {
+		if ok {
+			return cached, nil // stale set beats an error when the manifest is briefly unreachable
+		}
+		return nil, err
+	}
+	set := man.keySet(chainID)
+	if len(set) == 0 {
+		// Do NOT cache: a transient empty/malformed manifest must not be pinned.
+		return nil, fmt.Errorf("well-known manifest at %s exposes no attestation key for chain %d", apiBase, chainID)
+	}
+	pubKeyCacheMu.Lock()
+	pubKeySetCache[cacheKey] = set
+	pubKeyCacheMu.Unlock()
+	return set, nil
+}
 
 // attestationPubKey returns the Ed25519 attestation pubkey (hex) for chainID, fetching
 // the well-known manifest per apiBase and caching the resolved key. chainID MUST be the

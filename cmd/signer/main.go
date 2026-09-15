@@ -909,11 +909,16 @@ func handlePayForProduct(
 	// configured trusted origin — so a link on an attacker host can't self-attest — is a
 	// deferred onboarding-trust-model item (decision-edge-reflink-agentless-buy.md, TODO).
 	httpClient := &http.Client{Timeout: 30 * time.Second}
-	pubKeyHex, err := attestationPubKey(ctx, httpClient, apiBase, chainIDInt)
+	// REF-322: the token's kid picks the attestation key; the manifest publishes the set.
+	kid, err := peekTokenKeyID(attributionToken)
+	if err != nil {
+		return nil, payForProductOutput{}, fmt.Errorf("read attribution token key id: %w", err)
+	}
+	keys, err := attestationPubKeys(ctx, httpClient, apiBase, chainIDInt, kid)
 	if err != nil {
 		return nil, payForProductOutput{}, fmt.Errorf("fetch attestation key: %w", err)
 	}
-	tok, err := verifyAndDecodeToken(attributionToken, pubKeyHex)
+	tok, err := verifyAndDecodeTokenWithKeys(attributionToken, keys)
 	if err != nil {
 		return nil, payForProductOutput{}, err
 	}
