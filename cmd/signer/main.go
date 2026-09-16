@@ -723,6 +723,10 @@ type payForProductInput struct {
 	// Full ref link URL returned by query_registry or fetch_review, e.g.
 	// https://api.example/r/<base64url-token>. The token is decoded and verified locally.
 	RefLink string `json:"ref_link"`
+	// Optional (REF-317): 0x-prefixed bytes32 id of the product to buy when it is NOT the one the
+	// ref link was minted for. Must be a listed product of the same merchant; its endpoint is read
+	// from the catalogue and paid with this same token. Omit to buy the link's own product.
+	ProductID string `json:"product_id,omitempty"`
 	// Optional inline votes (REF-143): 1–3 reviews that influenced this purchase. After the
 	// purchase settles, the tool signs and submits these via the backend's cast_review_votes
 	// two-step, before returning. Omit to skip voting (behaviour is then unchanged).
@@ -742,6 +746,13 @@ type payForProductInput struct {
 type payForProductOutput struct {
 	EscrowID string `json:"escrow_id"` // decimal string
 	TxHash   string `json:"tx_hash"`
+	// SettledProductID is the product settlement recorded (REF-317): what the merchant's 402
+	// named, or the token's product when the merchant asserted none.
+	SettledProductID string `json:"settled_product_id"`
+	// Warning is set when the purchase settled on a different product than asked for — the
+	// merchant has not adopted extra.productId, so a sibling purchase attributed to the token's
+	// product.
+	Warning string `json:"warning,omitempty"`
 	// NextSteps is an advisory nudge (REF-131) pointing the buyer at cast_review_votes
 	// for the reviews that influenced this purchase. The escrow_id the vote flow needs
 	// is carried in EscrowID above; this is the human-readable prompt.
@@ -925,7 +936,12 @@ func handlePayForProduct(
 	if tok.ChainID != chainIDInt {
 		return nil, payForProductOutput{}, fmt.Errorf("attribution token is for chain %d, but this signer is configured for chain %d", tok.ChainID, chainIDInt)
 	}
-	merchantEndpoint := tok.MerchantEndpoint
+	// REF-317: pay the link's product at the token's endpoint, or a sibling at the endpoint the
+	// catalogue names for it — same token either way.
+	merchantEndpoint, intendedProduct, err := resolvePayTarget(ctx, httpClient, apiBase, tok, in.ProductID)
+	if err != nil {
+		return nil, payForProductOutput{}, err
+	}
 	splitRouterAddr := tok.SplitRouter
 
 	// ── phase 1: probe merchant for 402 payment requirements ──────────────────
@@ -953,6 +969,12 @@ func handlePayForProduct(
 		return nil, payForProductOutput{}, fmt.Errorf("payment requirements: no accepted payment methods")
 	}
 	requirements := payReq.Accepts[0]
+	// Refuse before signing if the merchant says it is selling something other than what was
+	// asked for (REF-317); settlement records the merchant's assertion, not the agent's intent.
+	settledProduct, productWarning, err := settledProductFrom402(requirements, intendedProduct, tok.ProductID)
+	if err != nil {
+		return nil, payForProductOutput{}, err
+	}
 	tokenAddr := requirements.Asset
 	tokenName, _ := requirements.Extra["name"].(string)
 	tokenVersion, _ := requirements.Extra["version"].(string)
@@ -1067,9 +1089,11 @@ func handlePayForProduct(
 	}
 
 	out := payForProductOutput{
-		EscrowID:  escrowID.String(),
-		TxHash:    txHashStr,
-		NextSteps: payNextSteps(buyerAgentIDStr == sentinelBuyerAgentID),
+		EscrowID:         escrowID.String(),
+		TxHash:           txHashStr,
+		SettledProductID: settledProduct,
+		Warning:          productWarning,
+		NextSteps:        payNextSteps(buyerAgentIDStr == sentinelBuyerAgentID),
 	}
 	if len(in.SubmitVotes) > 0 {
 		// Payment has settled — cast the inline votes now. A vote failure must NOT fail the
@@ -1335,7 +1359,13 @@ func main() {
 			"resolution round-trip — to read the merchant endpoint, settlement router, and chain straight " +
 			"from the token. Probes the merchant for payment requirements (402), signs an ERC-3009 " +
 			"authorization, submits the payment, and waits for the on-chain EscrowDeposited event. " +
-			"Returns escrow_id and tx_hash. Use the escrow_id with publish_escrow_review afterward. " +
+			"Returns escrow_id, tx_hash and settled_product_id. Use the escrow_id with publish_escrow_review afterward. " +
+			"One ref link pays for ANY product of the same merchant on the x402 rail: pass product_id " +
+			"(0x bytes32, from get_product / query_registry) to buy a sibling product — its endpoint_url " +
+			"is read from the catalogue and paid with this same token. The merchant's 402 must name that " +
+			"product in extra.productId or the tool refuses before signing; if the merchant asserts no " +
+			"product, settlement attributes to the link's own product and `warning` says so. " +
+			"MPP endpoints do not support this: use a link minted for that product, or pay direct. " +
 			"Omit agent_id to buy agent-less (no ERC-8004 identity yet): the buyer wallet is recorded " +
 			"on-chain for a later identity bind, and cashback is held until then. Agent-less purchases " +
 			"cannot submit_votes (bind an identity first). " +
