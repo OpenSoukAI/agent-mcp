@@ -57,7 +57,7 @@ type decodedAttributionToken struct {
 	MerchantID              string `json:"merchantId"`
 	ProductID               string `json:"productId"`
 	LockedCommissionBps     uint16 `json:"lockedCommissionBps"`     // informational; commission is live at settle
-	CashbackOfCommissionBps uint16 `json:"cashbackOfCommissionBps"` // frozen share-of-commission ratio (<=4000)
+	CashbackOfCommissionBps uint16 `json:"cashbackOfCommissionBps"` // frozen share-of-commission ratio (<= the admin cap, 2000 since REF-316; older tokens up to 4000, clamped at settlement)
 	ProductType             uint8  `json:"productType"`
 	IssuedAt                int64  `json:"issuedAt"`
 	ChainID                 int64  `json:"chainId"`
