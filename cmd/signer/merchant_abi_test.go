@@ -22,6 +22,13 @@ var merchantSelectors = []struct {
 }{
 	{"merchantRegistryABI", "setActive", "setActive(uint256,bool)", "e60a955d"},
 	{"merchantRegistryABI", "isActive", "isActive(uint256)", "82afd23b"},
+	// REF-324. The per-merchant three-argument forms. MerchantRegistry ALSO inherits
+	// AccessControl's two-argument grantRole/revokeRole, which it overrides to revert
+	// UseMerchantScopedRole — so a signature that drops merchantId compiles, encodes, and
+	// reverts on-chain.
+	{"merchantRegistryABI", "grantRole", "grantRole(uint256,bytes32,address)", "fb42204d"},
+	{"merchantRegistryABI", "revokeRole", "revokeRole(uint256,bytes32,address)", "4a120dd7"},
+	{"merchantRegistryABI", "hasRole", "hasRole(uint256,bytes32,address)", "119345aa"},
 	{"productRegistryABI", "addProduct", "addProduct(uint256,bytes32,uint16,uint8,string)", "f5aad229"},
 	{"productRegistryABI", "setCommission", "setCommission(uint256,bytes32,uint16)", "c16df641"},
 	{"productRegistryABI", "setProductActive", "setProductActive(uint256,bytes32,bool)", "c7482c28"},
@@ -208,8 +215,8 @@ func TestMerchantABIs_NoEvents(t *testing.T) {
 // mustParseABI panics on malformed JSON but accepts a valid empty array, which would make
 // every Pack fail at runtime with "method not found" instead of at startup.
 func TestMerchantABIs_ParseCleanly(t *testing.T) {
-	if len(merchantRegistryABI.Methods) != 2 {
-		t.Errorf("merchantRegistryABI has %d methods, want 2", len(merchantRegistryABI.Methods))
+	if len(merchantRegistryABI.Methods) != 5 {
+		t.Errorf("merchantRegistryABI has %d methods, want 5", len(merchantRegistryABI.Methods))
 	}
 	if len(productRegistryABI.Methods) != 4 {
 		t.Errorf("productRegistryABI has %d methods, want 4", len(productRegistryABI.Methods))

@@ -78,7 +78,10 @@ var (
 	// self-reactivation reverts, and only a read distinguishes that from success.
 	merchantRegistryABI = mustParseABI(`[
 		{"inputs":[{"name":"merchantId","type":"uint256"},{"name":"active","type":"bool"}],"name":"setActive","outputs":[],"stateMutability":"nonpayable","type":"function"},
-		{"inputs":[{"name":"merchantId","type":"uint256"}],"name":"isActive","outputs":[{"name":"","type":"bool"}],"stateMutability":"view","type":"function"}
+		{"inputs":[{"name":"merchantId","type":"uint256"}],"name":"isActive","outputs":[{"name":"","type":"bool"}],"stateMutability":"view","type":"function"},
+		{"inputs":[{"name":"merchantId","type":"uint256"},{"name":"role","type":"bytes32"},{"name":"account","type":"address"}],"name":"grantRole","outputs":[],"stateMutability":"nonpayable","type":"function"},
+		{"inputs":[{"name":"merchantId","type":"uint256"},{"name":"role","type":"bytes32"},{"name":"account","type":"address"}],"name":"revokeRole","outputs":[],"stateMutability":"nonpayable","type":"function"},
+		{"inputs":[{"name":"merchantId","type":"uint256"},{"name":"role","type":"bytes32"},{"name":"account","type":"address"}],"name":"hasRole","outputs":[{"name":"","type":"bool"}],"stateMutability":"view","type":"function"}
 	]`)
 
 	// productType is `enum ProductType` in Solidity, which the ABI flattens to uint8. The
@@ -1274,6 +1277,33 @@ func main() {
 			"themselves. Call this before set_merchant_profile or add_product, both of which need the " +
 			"backend record this creates.",
 	}, handleActivateMerchant)
+
+	sdkmcp.AddTool(srv, &sdkmcp.Tool{
+		Name: "grant_merchant_role",
+		Description: "Delegate ONE capability of a merchant to another address, without handing over the " +
+			"merchant identity (MerchantRegistry.grantRole). merchant_id is the merchant's ERC-8004 agent " +
+			"id and the signing key must OWN it — holding a role never lets a key pass that role on. " +
+			"account is the address to delegate to. role is one of: SETTLEMENT_SIGNER_ROLE (may sign the " +
+			"merchant's x402 /verify and /settle requests to the facilitator), PRODUCT_MANAGER_ROLE (may " +
+			"add and delist products), COMMISSION_MANAGER_ROLE (may change commission rates). The three " +
+			"are independent: granting one grants nothing else, and each is scoped to this merchant " +
+			"alone. Use SETTLEMENT_SIGNER_ROLE to give a merchant server its own hot key instead of " +
+			"deploying the owner key, which controls rates, delisting and the payout wallet. GRANT " +
+			"BEFORE deploying that key: the facilitator refuses a signature it cannot place, on every " +
+			"sale, whatever its rollout setting. Safe to call repeatedly: when the account already holds " +
+			"the role no transaction is sent and no_change is true.",
+	}, handleGrantMerchantRole)
+
+	sdkmcp.AddTool(srv, &sdkmcp.Tool{
+		Name: "revoke_merchant_role",
+		Description: "Take back a per-merchant role from an address (MerchantRegistry.revokeRole). Same " +
+			"arguments and the same ownership rule as grant_merchant_role: merchant_id is the merchant's " +
+			"ERC-8004 agent id and the signing key must own it. Revoking takes effect immediately, so " +
+			"for SETTLEMENT_SIGNER_ROLE stop that key signing FIRST — otherwise its next /verify or " +
+			"/settle is refused and sales fail. To rotate a settlement key: grant the new one, deploy " +
+			"it, then revoke the old one. Safe to call repeatedly: when the account does not hold the " +
+			"role no transaction is sent and no_change is true.",
+	}, handleRevokeMerchantRole)
 
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name: "add_product",
