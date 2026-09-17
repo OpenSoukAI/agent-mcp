@@ -1,4 +1,4 @@
-# Keeps the referrer-agent-protocol skill's tool inventory level with what the two MCP servers
+# Keeps the opensoukai skill's tool inventory level with what the two MCP servers
 # actually register (REF-248).
 #
 # This file is DUPLICATED, verbatim below the trigger, in backend and agent-mcp — and deliberately

@@ -175,7 +175,7 @@ func splitRefPath(afterR string) (chainSeg, token string, err error) {
 	}
 }
 
-// wellKnownManifest is the subset of GET /.well-known/referrer-agent this signer reads.
+// wellKnownManifest is the subset of GET /.well-known/opensouk this signer reads.
 // Attestation keys are per-chain (reflink signers differ per rail), so it prefers the
 // matching chains[] entry and falls back to the top-level (Base default) key.
 type wellKnownManifest struct {
@@ -308,7 +308,7 @@ func attestationPubKey(ctx context.Context, httpClient *http.Client, apiBase str
 // cache — caching is the caller's job, keyed by the resolved key, so a response with no
 // usable key is never memoised.
 func fetchManifest(ctx context.Context, httpClient *http.Client, apiBase string) (wellKnownManifest, error) {
-	url := strings.TrimRight(apiBase, "/") + "/.well-known/referrer-agent"
+	url := strings.TrimRight(apiBase, "/") + "/.well-known/opensouk"
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return wellKnownManifest{}, fmt.Errorf("build well-known request: %w", err)

@@ -57,7 +57,7 @@ func TestSkillDocumentsEveryRegisteredTool(t *testing.T) {
 		t.Fatal("no tools found in cmd/signer — the registration pattern changed")
 	}
 
-	inventory := filepath.Join(skills, "plugins", "referrer-agent-protocol", "reference", "mcp-tools.md")
+	inventory := filepath.Join(skills, "plugins", "opensoukai", "reference", "mcp-tools.md")
 	documented, err := Documented(inventory)
 	if err != nil {
 		t.Fatalf("reading the skill inventory: %v", err)

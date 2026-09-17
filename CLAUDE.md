@@ -147,7 +147,7 @@ Onboarding is a **one-time, protocol-level** step, not a per-merchant decision �
 
 This is an owner-side wallet policy, configured on your wallet/agent — not through an MCP tool here. Because the counterparty is fixed, one consent covers all future buys; you should not need a fresh approval per merchant.
 
-**Trust model (per the edge-onboarding design).** Take the onboarding recipe from a **pinned / trusted origin**: a ref link self-carries a `setup_url` that is surfaced when a payment can't complete, pointing at the protocol's well-known onboarding endpoint (`GET /.well-known/referrer-agent` — which also publishes the attestation key that `pay_for_product` verifies links against). The approach is **knowledge-first**: a capable agent can integrate natively from the published spec without being forced to install anything; installing these MCP servers is one convenient option, not a requirement.
+**Trust model (per the edge-onboarding design).** Take the onboarding recipe from a **pinned / trusted origin**: a ref link self-carries a `setup_url` that is surfaced when a payment can't complete, pointing at the protocol's well-known onboarding endpoint (`GET /.well-known/opensouk` — which also publishes the attestation key that `pay_for_product` verifies links against). The approach is **knowledge-first**: a capable agent can integrate natively from the published spec without being forced to install anything; installing these MCP servers is one convenient option, not a requirement.
 
 ## Buyer purchase workflow (autonomous path)
 
@@ -161,7 +161,7 @@ A buyer agent can purchase a product and submit a review without any shell scrip
 
 1. **`pay_for_product`** (referrer-signer) — call with `ref_link` and (optionally) `agent_id` (buyer). To buy a **different product of the same merchant** with that link, also pass `product_id` (from `get_product` / `query_registry`): the tool pays that product's `endpoint_url` with the same token and reports `settled_product_id`. x402 only — MPP endpoints settle on the link's own product.
    → decodes + Ed25519-verifies the self-contained ref link **locally** (no resolution round-trip;
-     attestation key from `/.well-known/referrer-agent`, cached), probes merchant for 402
+     attestation key from `/.well-known/opensouk`, cached), probes merchant for 402
      requirements, signs ERC-3009 authorization
    → submits x402 payment, waits for on-chain confirmation
    → receive `escrow_id`, `tx_hash`
