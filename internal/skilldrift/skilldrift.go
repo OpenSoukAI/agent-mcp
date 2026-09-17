@@ -1,5 +1,5 @@
 // Package skilldrift compares the MCP tools the two servers actually register against the tools
-// the referrer-agent-protocol skill documents (REF-248).
+// the opensoukai skill documents (REF-248).
 //
 // The skill is what an agent reads before acting, so a tool missing from it makes the agent
 // hand-roll something it could have called, and a tool named in it that no longer exists sends the
