@@ -195,7 +195,7 @@ func crossProductEnv(t *testing.T, asserted string) (string, func() []string) {
 	srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		record(r)
 		switch {
-		case r.URL.Path == "/.well-known/referrer-agent":
+		case r.URL.Path == "/.well-known/opensouk":
 			_, _ = w.Write([]byte(`{"attestationPubKey":"` + hexKey(pub) + `"}`))
 		case r.URL.Path == "/v1/merchant/product":
 			if r.URL.Query().Get("product_id") != siblingProductHex {

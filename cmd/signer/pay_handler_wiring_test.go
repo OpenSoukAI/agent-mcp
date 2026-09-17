@@ -38,7 +38,7 @@ func payTestEnv(t *testing.T, paymentStatus int, paymentBody string) string {
 	var srv *httptest.Server
 	srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
-		case r.URL.Path == "/.well-known/referrer-agent":
+		case r.URL.Path == "/.well-known/opensouk":
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write([]byte(`{"attestationPubKey":"` + hexKey(pub) + `"}`))
 
@@ -77,7 +77,7 @@ func payTestEnv(t *testing.T, paymentStatus int, paymentBody string) string {
 
 	tok := validTestToken()
 	tok.MerchantEndpoint = srv.URL + "/buy"
-	tok.SetupURL = srv.URL + "/.well-known/referrer-agent"
+	tok.SetupURL = srv.URL + "/.well-known/opensouk"
 
 	t.Setenv("BASE_RPC_URL", srv.URL+"/rpc")
 	t.Setenv("CHAIN_ID", "84532")

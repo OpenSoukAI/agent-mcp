@@ -37,7 +37,7 @@ func validTestToken() decodedAttributionToken {
 		ChainID:                 84532,
 		SplitRouter:             "0xC09996D8B5BA5509f129ea8a149b1930EfFCc04E",
 		MerchantEndpoint:        "https://merchant.example/buy",
-		SetupURL:                "https://api.example/.well-known/referrer-agent",
+		SetupURL:                "https://api.example/.well-known/opensouk",
 	}
 }
 
@@ -176,7 +176,7 @@ func TestAttestationPubKey_PerChainAndCache(t *testing.T) {
 	baseKey := "3b36314baa489deeca392467a15af483f4f63178642d3ff124239f088a2ce73b"
 	tempoKey := "deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef0"
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/.well-known/referrer-agent" {
+		if r.URL.Path != "/.well-known/opensouk" {
 			http.NotFound(w, r)
 			return
 		}

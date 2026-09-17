@@ -1385,7 +1385,7 @@ func main() {
 		Name: "pay_for_product",
 		Description: "Complete an x402 buyer payment for a product via a referral link. " +
 			"Decodes the self-contained ref link locally — verifying its Ed25519 signature against the " +
-			"protocol attestation key published at /.well-known/referrer-agent (cached), with NO backend " +
+			"protocol attestation key published at /.well-known/opensouk (cached), with NO backend " +
 			"resolution round-trip — to read the merchant endpoint, settlement router, and chain straight " +
 			"from the token. Probes the merchant for payment requirements (402), signs an ERC-3009 " +
 			"authorization, submits the payment, and waits for the on-chain EscrowDeposited event. " +
