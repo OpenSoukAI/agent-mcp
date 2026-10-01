@@ -27,9 +27,8 @@ import (
 // once the day-60 batch (or the public fallback) has run.
 const escrowStateSettled uint8 = 1
 
-// escrowRecordWords is the number of 32-byte words in the EscrowRecord tuple. A real node
-// always returns all of them, so anything shorter is a malformed response rather than a
-// record we can partially trust.
+// escrowRecordWords is the number of 32-byte words in the EscrowRecord tuple. A static tuple
+// is always exactly this long, so any other length means a different contract layout.
 const escrowRecordWords = 14
 
 // onChainEscrow is ICommissionEscrow.EscrowRecord as the signer reads it.
@@ -58,9 +57,9 @@ func word(raw []byte, i int) []byte { return raw[i*32 : (i+1)*32] }
 // in a later contract version, or in this file — fails a test instead of silently
 // misreading a live chain.
 func decodeGetEscrow(raw []byte) (onChainEscrow, error) {
-	if len(raw) < escrowRecordWords*32 {
+	if len(raw) != escrowRecordWords*32 {
 		return onChainEscrow{}, fmt.Errorf(
-			"getEscrow returned short data: %d bytes (want >= %d)", len(raw), escrowRecordWords*32)
+			"getEscrow returned %d bytes, want %d: contract EscrowRecord layout differs from this signer", len(raw), escrowRecordWords*32)
 	}
 	var e onChainEscrow
 	e.ReviewerAgentID = new(big.Int).SetBytes(word(raw, 0))

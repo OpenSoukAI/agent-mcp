@@ -122,10 +122,13 @@ func TestDecodeGetEscrow(t *testing.T) {
 		t.Errorf("cashbackReleased = %v, want %v", got.CashbackReleased, cashbackReleased)
 	}
 
-	// One byte short of the full 14-word record: a real node always returns every word, so a
-	// shorter response is malformed rather than partially trustworthy.
+	// A static tuple is exactly 14 words. Any other length is a different record layout, which
+	// would otherwise decode every later field from its neighbour's word.
 	if _, err := decodeGetEscrow(packed[:447]); err == nil {
-		t.Fatal("expected error on short data (447 bytes, one short of the 448 needed)")
+		t.Fatal("expected error on 447 bytes (want exactly 448)")
+	}
+	if _, err := decodeGetEscrow(append(packed, make([]byte, 32)...)); err == nil {
+		t.Fatal("expected error on 480 bytes (want exactly 448)")
 	}
 }
 
