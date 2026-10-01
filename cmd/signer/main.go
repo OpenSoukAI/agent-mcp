@@ -1350,10 +1350,11 @@ func main() {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name: "get_merchant_stats",
 		Description: "Read a merchant's own performance figures (GET /v1/merchant/{id}/stats): " +
-			"conversions, gross revenue, escrow amounts still holding vs settled, and product counts. " +
+			"conversions, gross revenue, how many escrows are still holding vs settled, and product counts. " +
 			"Authenticated and owner-only — a merchant sees only its own revenue, which is why this lives " +
 			"on referrer-signer rather than the keyless server. merchant_id is the merchant's ERC-8004 " +
-			"agent id and the signing key must own it. Amounts are USDC base units (6 decimals). " +
+			"agent id and the signing key must own it. revenue_gross is USDC base units (6 decimals); " +
+			"escrow_holding and escrow_settled are counts. " +
 			"product_count includes inactive products; active_product_count is the subset that is listed.",
 	}, handleGetMerchantStats)
 
