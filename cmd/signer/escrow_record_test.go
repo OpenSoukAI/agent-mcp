@@ -8,14 +8,14 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 )
 
-// TestDecodeGetEscrow packs a SYNTHETIC getEscrow return tuple (all 13
+// TestDecodeGetEscrow packs a SYNTHETIC getEscrow return tuple (all 14
 // EscrowRecord fields, declaration order) and asserts EVERY field decodes from the right
-// word. Fixture contract: every one of the 13 words gets a DISTINCT value (numeric
+// word. Fixture contract: every one of the 14 words gets a DISTINCT value (numeric
 // fields distinct from every other numeric field; address/bytes32 are separately-typed words
 // that can't collide with a numeric read), so ANY single-word slip in either direction on
 // ANY field reads a different word's value and fails an assertion — it cannot coincidentally pass by reading a same-valued neighbour. In particular:
-// windowEnd's neighbours are depositTimestamp (word 8) and productType (word 10); state's
-// neighbours are productType (word 10) and cashbackReleased (word 12, ABI-encoded 0 for
+// windowEnd's neighbours are depositTimestamp (word 9) and productType (word 11); state's
+// neighbours are productType (word 11) and cashbackReleased (word 13, ABI-encoded 0 for
 // false) — productType=2 and cashbackReleased=false were chosen specifically so neither equals
 // wantState=1. No network call.
 func TestDecodeGetEscrow(t *testing.T) {
@@ -38,21 +38,23 @@ func TestDecodeGetEscrow(t *testing.T) {
 	const (
 		reviewerAgentID     = 111
 		buyerAgentID        = 222
+		pausedTotal         = 777
 		merchantID          = 333
 		heldBackAmt         = 444
 		cashbackAmt         = 555
 		originalPurchaseAmt = 666
 		depositTimestamp    = 1_690_000_000
 		wantWindowEnd       = 1_700_000_000
-		productType         = 2     // != wantState (1): guards state's word-10 neighbour
+		productType         = 2     // != wantState (1): guards state's word-11 neighbour
 		wantState           = 1     // EscrowState.Settled — the only value the handler branches on
-		cashbackReleased    = false // ABI-encodes to word value 0 != wantState (1): guards state's word-12 neighbour
+		cashbackReleased    = false // ABI-encodes to word value 0 != wantState (1): guards state's word-13 neighbour
 	)
 
 	packed, err := abi.Arguments{
 		{Type: abiUint256}, // reviewerAgentId
 		{Type: abiUint256}, // buyerAgentId
 		{Type: abiAddress}, // buyerWallet
+		{Type: uint40T},    // pausedTotalAtDeposit
 		{Type: abiUint256}, // merchantId
 		{Type: abiBytes32}, // productId
 		{Type: uint128T},   // heldBackAmt
@@ -67,6 +69,7 @@ func TestDecodeGetEscrow(t *testing.T) {
 		big.NewInt(reviewerAgentID),
 		big.NewInt(buyerAgentID),
 		buyerWallet,
+		big.NewInt(pausedTotal),
 		big.NewInt(merchantID),
 		productID,
 		big.NewInt(heldBackAmt),
@@ -95,6 +98,7 @@ func TestDecodeGetEscrow(t *testing.T) {
 	}{
 		{"reviewerAgentId", got.ReviewerAgentID.Int64(), reviewerAgentID},
 		{"buyerAgentId", got.BuyerAgentID.Int64(), buyerAgentID},
+		{"pausedTotalAtDeposit", got.PausedTotalAtDeposit, pausedTotal},
 		{"merchantId", got.MerchantID.Int64(), merchantID},
 		{"heldBackAmt", got.HeldBackAmt.Int64(), heldBackAmt},
 		{"cashbackAmt", got.CashbackAmt.Int64(), cashbackAmt},
@@ -118,11 +122,28 @@ func TestDecodeGetEscrow(t *testing.T) {
 		t.Errorf("cashbackReleased = %v, want %v", got.CashbackReleased, cashbackReleased)
 	}
 
-	// One byte short of the full 13-word record. The floor is deliberately the WHOLE record
-	// (416 bytes), not just enough words for the fields a given caller reads: a real node
-	// always returns all thirteen, so a shorter response is malformed rather than partially
-	// trustworthy. This is stricter than the two decoders this replaced (384 and 160).
-	if _, err := decodeGetEscrow(packed[:415]); err == nil {
-		t.Fatal("expected error on short data (415 bytes, one short of the 416 needed)")
+	// A static tuple is exactly 14 words. Any other length is a different record layout, which
+	// would otherwise decode every later field from its neighbour's word.
+	if _, err := decodeGetEscrow(packed[:447]); err == nil {
+		t.Fatal("expected error on 447 bytes (want exactly 448)")
+	}
+	if _, err := decodeGetEscrow(append(packed, make([]byte, 32)...)); err == nil {
+		t.Fatal("expected error on 480 bytes (want exactly 448)")
+	}
+}
+
+// The hand-written getEscrow ABI must list EscrowRecord's components in contract order.
+func TestGetEscrowABIComponentOrder(t *testing.T) {
+	want := []string{"reviewerAgentId", "buyerAgentId", "buyerWallet", "pausedTotalAtDeposit", "merchantId",
+		"productId", "heldBackAmt", "cashbackAmt", "originalPurchaseAmt", "depositTimestamp", "windowEnd",
+		"productType", "state", "cashbackReleased"}
+	tuple := commissionEscrowABI.Methods["getEscrow"].Outputs[0].Type
+	if len(tuple.TupleRawNames) != len(want) {
+		t.Fatalf("getEscrow components = %v, want %v", tuple.TupleRawNames, want)
+	}
+	for i, name := range want {
+		if tuple.TupleRawNames[i] != name {
+			t.Errorf("component %d = %s, want %s", i, tuple.TupleRawNames[i], name)
+		}
 	}
 }
