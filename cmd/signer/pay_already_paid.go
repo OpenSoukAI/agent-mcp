@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 )
@@ -14,7 +15,8 @@ import (
 //	{"error":"... execution reverted: custom error 0x3d22f6b8: 0000…"}
 //
 // REF-193 §C tells the runner to catch it, treat it as already-paid, and mark the intent executed.
-// Matching that needed a hex constant REF-193 never states.
+// Matching that needed a hex constant REF-193 never states. Since REF-364 the facilitator keeps the
+// revert in its log and reports errorReason "authorization_used"; the revert matchers serve older ones.
 
 // alreadyPaidToken leads the error message so a runner can prefix-match one stable string instead
 // of a selector. It is the REF-193 §C contract; do not reword it.
@@ -33,6 +35,10 @@ const alreadyPaidAdvice = "this idempotency_key was already used to pay, so the 
 // is used or canceled". Matching the selector alone would work on anvil only.
 const realUSDCAuthReused = "authorization is used or canceled"
 
+// facilitatorAuthUsedReason is the facilitator's errorReason for a consumed authorization (REF-364);
+// merchants forward it in the phase-2 body.
+const facilitatorAuthUsedReason = "authorization_used"
+
 // authReusedRevertTable holds the MockUSDC custom error. The selector is derived from the
 // signature by newRevertTable, so there is no hex to drift from the contract.
 var authReusedRevertTable = newRevertTable(map[string]string{
@@ -43,6 +49,12 @@ var authReusedRevertTable = newRevertTable(map[string]string{
 // happened, on either rail. Anything else falls through to the raw error: misreporting a genuine
 // failure as a completed purchase is worse than an undecoded selector.
 func classifyAuthReused(body string) (advice string, ok bool) {
+	var r struct {
+		ErrorReason string `json:"errorReason"`
+	}
+	if json.Unmarshal([]byte(body), &r) == nil && r.ErrorReason == facilitatorAuthUsedReason {
+		return alreadyPaidAdvice, true
+	}
 	if strings.Contains(body, realUSDCAuthReused) {
 		return alreadyPaidAdvice, true
 	}

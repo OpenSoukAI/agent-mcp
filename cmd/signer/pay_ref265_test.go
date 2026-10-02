@@ -82,6 +82,11 @@ func TestClassifyAuthReused_BothRails(t *testing.T) {
 			body: `{"error":"settle: route tx: Route tx: execution reverted: ` +
 				`FiatTokenV2: authorization is used or canceled"}`,
 		},
+		{
+			// REF-364: the facilitator keeps the revert in its log and reports this reason instead.
+			name: "facilitator authorization_used reason (REF-364)",
+			body: `{"success":false,"errorReason":"authorization_used","errorMessage":"this payment authorization was already used or cancelled; this request moved no funds — deliver only if you hold a successful settlement transaction for it"}`,
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			advice, ok := classifyAuthReused(tc.body)
@@ -106,6 +111,11 @@ func TestClassifyAuthReused_IgnoresOtherFailures(t *testing.T) {
 		`{"error":"insufficient balance"}`,
 		`{"error":"execution reverted: FiatTokenV2: invalid signature"}`,
 		`{"error":"ProductNotActive()"}`,
+		`{"success":false,"errorReason":"settle_failed","errorMessage":"settlement failed; this request moved no funds"}`,
+		`{"success":false,"errorReason":"settle_pending","transaction":"0xabc"}`,
+		`{"success":false,"errorReason":"lookup_unavailable"}`,
+		`{"error":"errorReason authorization_used mentioned in prose is not the field"}`,
+		`not json authorization_used`,
 		"",
 	} {
 		if advice, ok := classifyAuthReused(body); ok {
