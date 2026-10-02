@@ -141,6 +141,21 @@ func TestPayForProduct_RealUSDCReuseSurfacesAsAlreadyPaid(t *testing.T) {
 	}
 }
 
+// REF-364 moved the revert into the facilitator log; the merchant forwards only the reason.
+func TestPayForProduct_FacilitatorAuthUsedReasonSurfacesAsAlreadyPaid(t *testing.T) {
+	body := `{"success":false,"errorReason":"authorization_used","errorMessage":"this payment authorization was already used or cancelled; this request moved no funds"}`
+	refLink := payTestEnv(t, http.StatusConflict, body)
+
+	_, _, err := handlePayForProduct(context.Background(), nil, payForProductInput{
+		RefLink:        refLink,
+		AgentID:        "12",
+		IdempotencyKey: "intent-abc",
+	})
+	if err == nil || !strings.HasPrefix(err.Error(), alreadyPaidToken+":") {
+		t.Fatalf("authorization_used reason not classified:\n%v", err)
+	}
+}
+
 // Any other facilitator failure must keep the raw status and body. Classifying a genuine failure as
 // a completed purchase would make a runner mark an unpaid intent executed.
 func TestPayForProduct_OtherFailuresStayRaw(t *testing.T) {
