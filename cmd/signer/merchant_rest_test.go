@@ -114,8 +114,8 @@ func TestSetMerchantProfile_RequestShape(t *testing.T) {
 
 	_, out, err := handleSetMerchantProfile(t.Context(), nil, setMerchantProfileInput{
 		MerchantID:     "4",
-		Description:    "sent copy",
-		LandingPageURL: "https://shop.example",
+		Description:    strPtr("sent copy"),
+		LandingPageURL: strPtr("https://shop.example"),
 	})
 	if err != nil {
 		t.Fatalf("set_merchant_profile: %v", err)
@@ -145,31 +145,82 @@ func TestSetMerchantProfile_RequestShape(t *testing.T) {
 	}
 }
 
-// TestSetMerchantProfile_SendsBothFields pins the replace-not-patch behaviour. The endpoint
-// writes whatever it is given, so a field left out of the body is cleared — the tool must
-// always send both, and the description-only caller is warned by the tool description.
-func TestSetMerchantProfile_SendsBothFields(t *testing.T) {
-	var got capturedRequest
-	srv := fakeBackend(t, http.StatusOK, `{"merchant_id":4,"description":"x","landing_page_url":""}`, &got)
-	useFakeBackend(t, srv, "4")
+func strPtr(s string) *string { return &s }
+func intPtr(v int) *int       { return &v }
 
-	if _, _, err := handleSetMerchantProfile(t.Context(), nil, setMerchantProfileInput{
-		MerchantID:  "4",
-		Description: "x",
-		// LandingPageURL omitted by the caller.
-	}); err != nil {
-		t.Fatalf("set_merchant_profile: %v", err)
-	}
-
+func sentBody(t *testing.T, got capturedRequest) map[string]any {
+	t.Helper()
 	var sent map[string]any
 	if err := json.Unmarshal(got.body, &sent); err != nil {
 		t.Fatalf("request body is not JSON: %v", err)
 	}
-	for _, field := range []string{"merchant_id", "description", "landing_page_url"} {
-		if _, present := sent[field]; !present {
-			t.Errorf("%s was not sent; the endpoint replaces the profile, so every field must be "+
-				"present or it is silently cleared", field)
+	return sent
+}
+
+// The endpoint is a partial update since REF-387: a field left out keeps its stored value, so the
+// tool sends exactly the fields it was given — an omitted one must not arrive as "".
+func TestSetMerchantProfile_SendsOnlyGivenFields(t *testing.T) {
+	var got capturedRequest
+	srv := fakeBackend(t, http.StatusOK, `{"merchant_id":4,"description":"x","landing_page_url":"https://kept.example"}`, &got)
+	useFakeBackend(t, srv, "4")
+
+	_, out, err := handleSetMerchantProfile(t.Context(), nil, setMerchantProfileInput{MerchantID: "4", Description: strPtr("x")})
+	if err != nil {
+		t.Fatalf("set_merchant_profile: %v", err)
+	}
+	sent := sentBody(t, got)
+	for _, field := range []string{"landing_page_url", "default_commission_bps"} {
+		if v, present := sent[field]; present {
+			t.Errorf("%s was sent as %v though the caller did not set it; it would overwrite the stored value", field, v)
 		}
+	}
+	if out.LandingPageURL != "https://kept.example" {
+		t.Errorf("landing_page_url = %q, want the backend's stored value", out.LandingPageURL)
+	}
+}
+
+// "" is a deliberate clear and must still be sent.
+func TestSetMerchantProfile_EmptyStringIsSent(t *testing.T) {
+	var got capturedRequest
+	srv := fakeBackend(t, http.StatusOK, `{"merchant_id":4,"description":"x","landing_page_url":""}`, &got)
+	useFakeBackend(t, srv, "4")
+
+	if _, _, err := handleSetMerchantProfile(t.Context(), nil, setMerchantProfileInput{MerchantID: "4", LandingPageURL: strPtr("")}); err != nil {
+		t.Fatalf("set_merchant_profile: %v", err)
+	}
+	if v, present := sentBody(t, got)["landing_page_url"]; !present || v != "" {
+		t.Errorf("landing_page_url = %v (present %v), want an explicit \"\"", v, present)
+	}
+}
+
+func TestSetMerchantProfile_DefaultCommission(t *testing.T) {
+	var got capturedRequest
+	srv := fakeBackend(t, http.StatusOK, `{"merchant_id":4,"description":"","landing_page_url":"","default_commission_bps":1250}`, &got)
+	useFakeBackend(t, srv, "4")
+
+	_, out, err := handleSetMerchantProfile(t.Context(), nil, setMerchantProfileInput{MerchantID: "4", DefaultCommissionBps: intPtr(1250)})
+	if err != nil {
+		t.Fatalf("set_merchant_profile: %v", err)
+	}
+	if v, ok := sentBody(t, got)["default_commission_bps"].(float64); !ok || v != 1250 {
+		t.Errorf("default_commission_bps sent as %v, want the number 1250", sentBody(t, got)["default_commission_bps"])
+	}
+	if out.DefaultCommissionBps == nil || *out.DefaultCommissionBps != 1250 {
+		t.Errorf("output default_commission_bps = %v, want 1250 from the backend", out.DefaultCommissionBps)
+	}
+}
+
+// Nothing to set: refuse before signing anything rather than send a request the backend rejects.
+func TestSetMerchantProfile_RequiresAField(t *testing.T) {
+	var got capturedRequest
+	srv := fakeBackend(t, http.StatusOK, `{}`, &got)
+	useFakeBackend(t, srv, "4")
+
+	if _, _, err := handleSetMerchantProfile(t.Context(), nil, setMerchantProfileInput{MerchantID: "4"}); err == nil {
+		t.Fatal("want an error when no field is given")
+	}
+	if got.method != "" {
+		t.Errorf("a request was sent (%s %s) with nothing to update", got.method, got.path)
 	}
 }
 
@@ -179,7 +230,7 @@ func TestSetMerchantProfile_ConflictPointsAtActivation(t *testing.T) {
 		`{"error":"merchant not registered — complete merchant registration before editing the profile"}`, &got)
 	useFakeBackend(t, srv, "4")
 
-	_, _, err := handleSetMerchantProfile(t.Context(), nil, setMerchantProfileInput{MerchantID: "4"})
+	_, _, err := handleSetMerchantProfile(t.Context(), nil, setMerchantProfileInput{MerchantID: "4", Description: strPtr("x")})
 	if err == nil {
 		t.Fatal("want an error for a 409")
 	}
