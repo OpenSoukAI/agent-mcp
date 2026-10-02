@@ -43,10 +43,11 @@ var (
 	domainTypehash     = crypto.Keccak256Hash([]byte(domainTypeString))
 	commitmentTypehash = crypto.Keccak256Hash([]byte(commitmentTypeString))
 
-	reviewPublishedTopic      = crypto.Keccak256Hash([]byte("ReviewPublished(uint256,uint256,uint256,bytes32,bytes32,uint8,uint40)"))
-	escrowDepositedTopic      = crypto.Keccak256Hash([]byte("EscrowDeposited(uint256,uint256,uint256,address,uint256,uint256,bytes32,uint128,uint128)"))
-	fallbackSettledTopic      = crypto.Keccak256Hash([]byte("FallbackSettled(uint256,address,uint128,uint128)"))
-	reviewContentUpdatedTopic = crypto.Keccak256Hash([]byte("ReviewContentUpdated(uint256,bytes32,uint40)"))
+	reviewPublishedTopic        = crypto.Keccak256Hash([]byte("ReviewPublished(uint256,uint256,uint256,bytes32,bytes32,uint8,uint40)"))
+	escrowDepositedTopic        = crypto.Keccak256Hash([]byte("EscrowDeposited(uint256,uint256,uint256,address,uint256,uint256,bytes32,uint128,uint128)"))
+	fallbackSettledTopic        = crypto.Keccak256Hash([]byte("FallbackSettled(uint256,address,uint128,uint128)"))
+	fallbackCashbackFailedTopic = crypto.Keccak256Hash([]byte("FallbackCashbackFailed(uint256,address,uint128)"))
+	reviewContentUpdatedTopic   = crypto.Keccak256Hash([]byte("ReviewContentUpdated(uint256,bytes32,uint40)"))
 
 	abiUint256 = mustABIType("uint256")
 	abiBytes32 = mustABIType("bytes32")
@@ -66,7 +67,9 @@ var (
 		{"inputs":[{"name":"escrowId","type":"uint256"},{"name":"agentId","type":"uint256"}],"name":"bind","outputs":[],"stateMutability":"nonpayable","type":"function"},
 		{"anonymous":false,"inputs":[{"indexed":true,"name":"escrowId","type":"uint256"},{"indexed":true,"name":"agentId","type":"uint256"},{"indexed":true,"name":"boundBy","type":"address"}],"name":"EscrowBound","type":"event"},
 		{"inputs":[{"name":"escrowId","type":"uint256"}],"name":"triggerSettleFallback","outputs":[],"stateMutability":"nonpayable","type":"function"},
-		{"anonymous":false,"inputs":[{"indexed":true,"name":"escrowId","type":"uint256"},{"indexed":true,"name":"treasury","type":"address"},{"indexed":false,"name":"heldBackAmt","type":"uint128"},{"indexed":false,"name":"cashbackAmt","type":"uint128"}],"name":"FallbackSettled","type":"event"}
+		{"anonymous":false,"inputs":[{"indexed":true,"name":"escrowId","type":"uint256"},{"indexed":true,"name":"treasury","type":"address"},{"indexed":false,"name":"heldBackAmt","type":"uint128"},{"indexed":false,"name":"cashbackAmt","type":"uint128"}],"name":"FallbackSettled","type":"event"},
+		{"inputs":[],"name":"totalPausedSeconds","outputs":[{"name":"","type":"uint40"}],"stateMutability":"view","type":"function"},
+		{"anonymous":false,"inputs":[{"indexed":true,"name":"escrowId","type":"uint256"},{"indexed":true,"name":"reviewer","type":"address"},{"indexed":false,"name":"amount","type":"uint128"}],"name":"FallbackCashbackFailed","type":"event"}
 	]`)
 
 	// MerchantRegistry and ProductRegistry carry the merchant-side writes (REF-251). Both
@@ -1234,15 +1237,19 @@ func main() {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name: "trigger_settle_fallback",
 		Description: "Force-settle an escrow the oracle never settled (CommissionEscrow.triggerSettleFallback). " +
-			"Permissionless — any agent may call it — and it opens 10 days after the escrow's windowEnd (~day 70). " +
+			"Permissionless — any agent may call it — and it opens 10 days after the escrow's windowEnd PLUS any " +
+			"protocol-pause time accrued since the escrow's deposit (~day 70, later if the protocol was paused). " +
 			"Check fallback_available via get_escrow_status (referrer-agent) first, but note its day-70 timing is " +
-			"derived from the DB confirmation date, not this contract's windowEnd, so on a non-default settlement " +
-			"window it can be wrong; this tool reads windowEnd itself and refuses with the real date, so calling it " +
-			"and reading a refusal costs only the RPC call. list_escrows always reports fallback_available false. " +
-			"This is NOT a claim and it does not pay you: the held-back commission goes to the protocol TREASURY (so a " +
-			"reviewer calling this forfeits what a normal day-60 settle would have paid it), any unreleased cashback goes " +
-			"to the REVIEWER's wallet (the buyer never published its review, so the cashback reverts to its funder), and " +
-			"you pay the gas. Call it to unstick funds after an oracle failure, not to get paid.",
+			"derived from the DB confirmation date, not this contract's windowEnd or the pause shift, so on a " +
+			"non-default settlement window or after a pause it can be wrong; this tool reads windowEnd and the pause " +
+			"shift itself and refuses with the real date, so calling it and reading a refusal costs only the RPC " +
+			"call. list_escrows always reports fallback_available false. This is NOT a claim and it does not pay " +
+			"you: the held-back commission goes to the protocol TREASURY (so a reviewer calling this forfeits what a " +
+			"normal day-60 settle would have paid it), any unreleased cashback goes to the REVIEWER's wallet (the " +
+			"buyer never published its review, so the cashback reverts to its funder), and you pay the gas. Call it " +
+			"to unstick funds after an oracle failure, not to get paid. A Settled escrow whose cashback leg " +
+			"previously failed (cashback_failed in a prior call's output) may be retried — only a fully-settled " +
+			"escrow (both legs paid) is refused.",
 	}, handleTriggerSettleFallback)
 
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
