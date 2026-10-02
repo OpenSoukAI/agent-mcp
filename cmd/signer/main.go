@@ -1330,14 +1330,16 @@ func main() {
 
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name: "set_merchant_profile",
-		Description: "Set a merchant's public profile copy — description and landing page URL — via " +
-			"POST /v1/merchant/profile, signed with the merchant's own key. merchant_id is the merchant's " +
-			"ERC-8004 agent id, and the signing key must own it. IMPORTANT: this REPLACES the profile " +
-			"rather than patching it, so an omitted field is cleared — to change only the description, " +
-			"pass the landing_page_url you want kept. Both fields are public. The backend owns the limits " +
-			"(description length, http(s)-only URL) and its rejection message names the offending field. " +
-			"Requires the merchant to be activated first: without a backend record this fails with a " +
-			"conflict pointing at activate_merchant.",
+		Description: "Set a merchant's profile — public description and landing page URL, and the " +
+			"default commission rate (default_commission_bps, 0..10000) the console prefills for new " +
+			"products — via POST /v1/merchant/profile, signed with the merchant's own key. merchant_id " +
+			"is the merchant's ERC-8004 agent id, and the signing key must own it. Partial update: pass " +
+			"only the fields to change; an omitted field keeps its stored value, and an empty string " +
+			"clears a text field. At least one field is required. The default commission is an " +
+			"off-chain preference: on-chain commission stays per product (set_product_commission). The " +
+			"backend owns the limits (description length, http(s)-only URL, commission range) and its " +
+			"rejection message names the offending field. Requires the merchant to be activated first: " +
+			"without a backend record this fails with a conflict pointing at activate_merchant.",
 	}, handleSetMerchantProfile)
 
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{

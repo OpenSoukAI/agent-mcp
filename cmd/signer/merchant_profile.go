@@ -11,16 +11,20 @@ import (
 
 // ── set_merchant_profile ────────────────────────────────────────────────────────
 
+// Pointers so an omitted field stays distinct from "": the endpoint is a partial update
+// (backend REF-387), and only the fields given are sent.
 type setMerchantProfileInput struct {
-	MerchantID     string `json:"merchant_id"`                // decimal; the merchant's own ERC-8004 id
-	Description    string `json:"description,omitempty"`      // public profile copy; "" clears it
-	LandingPageURL string `json:"landing_page_url,omitempty"` // public http(s) link; "" clears it
+	MerchantID           string  `json:"merchant_id"`                      // decimal; the merchant's own ERC-8004 id
+	Description          *string `json:"description,omitempty"`            // public profile copy; "" clears it
+	LandingPageURL       *string `json:"landing_page_url,omitempty"`       // public http(s) link; "" clears it
+	DefaultCommissionBps *int    `json:"default_commission_bps,omitempty"` // 0..10000; prefills new products
 }
 
 type setMerchantProfileOutput struct {
-	MerchantID     string `json:"merchant_id"`
-	Description    string `json:"description"`
-	LandingPageURL string `json:"landing_page_url"`
+	MerchantID           string `json:"merchant_id"`
+	Description          string `json:"description"`
+	LandingPageURL       string `json:"landing_page_url"`
+	DefaultCommissionBps *int   `json:"default_commission_bps"`
 }
 
 func handleSetMerchantProfile(
@@ -37,14 +41,20 @@ func handleSetMerchantProfile(
 		return nil, setMerchantProfileOutput{}, err
 	}
 
-	// Both fields are always sent, including when empty: the endpoint replaces the profile
-	// rather than patching it, so omitting a field clears it. An agent editing only the
-	// description must pass the landing page URL it wants kept.
-	body, err := json.Marshal(map[string]any{
-		"merchant_id":      restID,
-		"description":      in.Description,
-		"landing_page_url": in.LandingPageURL,
-	})
+	req := map[string]any{"merchant_id": restID}
+	if in.Description != nil {
+		req["description"] = *in.Description
+	}
+	if in.LandingPageURL != nil {
+		req["landing_page_url"] = *in.LandingPageURL
+	}
+	if in.DefaultCommissionBps != nil {
+		req["default_commission_bps"] = *in.DefaultCommissionBps
+	}
+	if len(req) == 1 {
+		return nil, setMerchantProfileOutput{}, fmt.Errorf("nothing to update: pass description, landing_page_url or default_commission_bps")
+	}
+	body, err := json.Marshal(req)
 	if err != nil {
 		return nil, setMerchantProfileOutput{}, fmt.Errorf("encode request: %w", err)
 	}
@@ -60,11 +70,16 @@ func handleSetMerchantProfile(
 
 	// Echo what the backend stored rather than what was sent, so a value it normalised is
 	// visible to the caller.
-	return nil, setMerchantProfileOutput{
+	out := setMerchantProfileOutput{
 		MerchantID:     merchantID.String(),
 		Description:    stringField(resp, "description"),
 		LandingPageURL: stringField(resp, "landing_page_url"),
-	}, nil
+	}
+	if v, ok := resp["default_commission_bps"].(float64); ok {
+		bps := int(v)
+		out.DefaultCommissionBps = &bps
+	}
+	return nil, out, nil
 }
 
 // ── check_product_readiness ─────────────────────────────────────────────────────

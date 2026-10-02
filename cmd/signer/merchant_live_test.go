@@ -530,8 +530,8 @@ func TestLive_SetMerchantProfile(t *testing.T) {
 
 	_, out, err := handleSetMerchantProfile(t.Context(), nil, setMerchantProfileInput{
 		MerchantID:     e.merchantID,
-		Description:    want,
-		LandingPageURL: "https://example.com/ref-251",
+		Description:    &want,
+		LandingPageURL: strPtr("https://example.com/ref-251"),
 	})
 	if err != nil {
 		t.Fatalf("set_merchant_profile: %v", err)
