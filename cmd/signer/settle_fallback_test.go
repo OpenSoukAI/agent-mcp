@@ -8,6 +8,9 @@ import (
 	"strings"
 	"testing"
 
+	ethereum "github.com/ethereum/go-ethereum"
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 )
 
@@ -51,26 +54,32 @@ func TestSettleFallback_ParseInputs(t *testing.T) {
 	}
 }
 
-// TestFallbackEligibility pins the contract's own gate: eligibleAt = windowEnd + 10 days,
-// and the comparison is NOT strict (the contract reverts only while now < eligibleAt), so
-// exactly-at-eligibleAt must be eligible. Testing this as a pure function is the only way
-// to cover it without a chain.
+// TestFallbackEligibility pins the contract's own gate: eligibleAt = windowEnd + 10 days +
+// shift (shift = totalPausedSeconds() - pausedTotalAtDeposit, clamped at 0 by the caller), and
+// the comparison is NOT strict (the contract reverts only while now < eligibleAt), so
+// exactly-at-eligibleAt must be eligible. Testing this as a pure function is the only way to
+// cover it without a chain. Run at shift=0 (today's behaviour) and shift=3 days (a pause that
+// happened after this escrow's deposit) to prove the shift actually moves the boundary.
 func TestFallbackEligibility(t *testing.T) {
 	const windowEnd = 1_000_000
 	const tenDays = 10 * 24 * 60 * 60
 
-	at, ok := fallbackEligibility(windowEnd, windowEnd+tenDays-1)
-	if at != windowEnd+tenDays {
-		t.Fatalf("eligibleAt = %d, want %d", at, windowEnd+tenDays)
-	}
-	if ok {
-		t.Fatal("one second early must NOT be eligible")
-	}
-	if _, ok := fallbackEligibility(windowEnd, windowEnd+tenDays); !ok {
-		t.Fatal("exactly at eligibleAt must be eligible")
-	}
-	if _, ok := fallbackEligibility(windowEnd, windowEnd+tenDays+1); !ok {
-		t.Fatal("past eligibleAt must be eligible")
+	for _, shift := range []int64{0, 3 * 24 * 60 * 60} {
+		want := int64(windowEnd) + tenDays + shift
+
+		at, ok := fallbackEligibility(windowEnd, shift, want-1)
+		if at != want {
+			t.Fatalf("shift=%d: eligibleAt = %d, want %d", shift, at, want)
+		}
+		if ok {
+			t.Fatalf("shift=%d: one second early must NOT be eligible", shift)
+		}
+		if _, ok := fallbackEligibility(windowEnd, shift, want); !ok {
+			t.Fatalf("shift=%d: exactly at eligibleAt must be eligible", shift)
+		}
+		if _, ok := fallbackEligibility(windowEnd, shift, want+1); !ok {
+			t.Fatalf("shift=%d: past eligibleAt must be eligible", shift)
+		}
 	}
 }
 
@@ -147,5 +156,151 @@ func TestSettleFallback_KeyLookupNormalizesAgentID(t *testing.T) {
 	}
 	if strings.Contains(err.Error(), "no key for agent") {
 		t.Fatalf("whitespace agent_id missed the keystore entry (key lookup not normalized): %v", err)
+	}
+}
+
+// TestFallbackRefusal_SettledAndCashbackReleased pins today's message: a fully-settled
+// escrow (both legs paid) is a terminal refusal, not a retry.
+func TestFallbackRefusal_SettledAndCashbackReleased(t *testing.T) {
+	escrow := onChainEscrow{State: escrowStateSettled, CashbackReleased: true}
+	msg := fallbackRefusal("42", escrow)
+	if msg == "" {
+		t.Fatal("expected a refusal for Settled && CashbackReleased")
+	}
+	if !strings.Contains(msg, "already settled") {
+		t.Fatalf("refusal message = %q, want it to mention the escrow is already settled", msg)
+	}
+}
+
+// TestFallbackRefusal_SettledCashbackLegRetry is the Sherlock #11/#19 fix: a Settled escrow
+// whose cashback leg previously failed (FallbackCashbackFailed) must be allowed to retry, not
+// refused as "already settled".
+func TestFallbackRefusal_SettledCashbackLegRetry(t *testing.T) {
+	escrow := onChainEscrow{State: escrowStateSettled, CashbackReleased: false}
+	if msg := fallbackRefusal("42", escrow); msg != "" {
+		t.Fatalf("expected no refusal for Settled && !CashbackReleased (cashback-leg retry), got %q", msg)
+	}
+}
+
+// TestFallbackRefusal_NotSettled proves the guard is unchanged for an escrow still holding.
+func TestFallbackRefusal_NotSettled(t *testing.T) {
+	escrow := onChainEscrow{State: 0, CashbackReleased: false}
+	if msg := fallbackRefusal("42", escrow); msg != "" {
+		t.Fatalf("expected no refusal for a Holding escrow, got %q", msg)
+	}
+}
+
+// TestDecodeFallbackReceipt_CashbackFailed proves a receipt carrying FallbackSettled (cashback
+// leg 0, since it failed) plus FallbackCashbackFailed(escrowId, reviewer, 500) surfaces
+// cashback_failed, the reviewer address, and the amount as a decimal string.
+func TestDecodeFallbackReceipt_CashbackFailed(t *testing.T) {
+	escrowAddr := common.HexToAddress("0x00000000000000000000000000000000000abc")
+	reviewer := common.HexToAddress("0x00000000000000000000000000000000000def")
+
+	logs := []*types.Log{
+		{
+			Address: escrowAddr,
+			Topics:  []common.Hash{fallbackSettledTopic, common.BigToHash(big.NewInt(42)), common.BytesToHash(common.HexToAddress("0x01").Bytes())},
+			Data:    append(make([]byte, 32), make([]byte, 32)...), // heldBackAmt=0, cashbackAmt=0 (the cashback leg failed)
+		},
+		{
+			Address: escrowAddr,
+			Topics:  []common.Hash{fallbackCashbackFailedTopic, common.BigToHash(big.NewInt(42)), common.BytesToHash(reviewer.Bytes())},
+			Data:    common.LeftPadBytes(big.NewInt(500).Bytes(), 32),
+		},
+	}
+	// held back = 1000
+	copy(logs[0].Data[0:32], common.LeftPadBytes(big.NewInt(1000).Bytes(), 32))
+
+	var out settleFallbackOutput
+	decodeFallbackReceipt(&out, logs, escrowAddr)
+
+	if !out.CashbackFailed {
+		t.Fatal("expected cashback_failed=true")
+	}
+	if got := strings.ToLower(out.CashbackFailedReviewer); got != strings.ToLower(reviewer.Hex()) {
+		t.Fatalf("CashbackFailedReviewer = %q, want %q", got, reviewer.Hex())
+	}
+	if out.CashbackFailedAmount != "500" {
+		t.Fatalf("CashbackFailedAmount = %q, want %q", out.CashbackFailedAmount, "500")
+	}
+	if out.HeldBackToTreasury != "1000" {
+		t.Fatalf("HeldBackToTreasury = %q, want %q", out.HeldBackToTreasury, "1000")
+	}
+}
+
+// TestDecodeFallbackReceipt_NoCashbackFailedEvent proves a receipt without the event leaves
+// cashback_failed false and the failure fields empty.
+func TestDecodeFallbackReceipt_NoCashbackFailedEvent(t *testing.T) {
+	escrowAddr := common.HexToAddress("0x00000000000000000000000000000000000abc")
+	logs := []*types.Log{
+		{
+			Address: escrowAddr,
+			Topics:  []common.Hash{fallbackSettledTopic, common.BigToHash(big.NewInt(42)), common.BytesToHash(common.HexToAddress("0x01").Bytes())},
+			Data:    append(common.LeftPadBytes(big.NewInt(1000).Bytes(), 32), common.LeftPadBytes(big.NewInt(200).Bytes(), 32)...),
+		},
+	}
+
+	var out settleFallbackOutput
+	decodeFallbackReceipt(&out, logs, escrowAddr)
+
+	if out.CashbackFailed {
+		t.Fatal("expected cashback_failed=false when the event is absent")
+	}
+	if out.CashbackFailedReviewer != "" || out.CashbackFailedAmount != "" {
+		t.Fatalf("expected empty failure fields, got reviewer=%q amount=%q", out.CashbackFailedReviewer, out.CashbackFailedAmount)
+	}
+	if out.HeldBackToTreasury != "1000" || out.CashbackToReviewer != "200" {
+		t.Fatalf("FallbackSettled decode regressed: held=%q cashback=%q", out.HeldBackToTreasury, out.CashbackToReviewer)
+	}
+}
+
+// TestDecodeFallbackReceipt_IgnoresLogsFromAnotherAddress proves the escrowAddr filter: a log
+// carrying the right topic but from a different contract (e.g. forwarded/replayed in the same
+// receipt) must not be decoded into the output (REF-361 review).
+func TestDecodeFallbackReceipt_IgnoresLogsFromAnotherAddress(t *testing.T) {
+	escrowAddr := common.HexToAddress("0x00000000000000000000000000000000000abc")
+	otherAddr := common.HexToAddress("0x00000000000000000000000000000000000999")
+	reviewer := common.HexToAddress("0x00000000000000000000000000000000000def")
+
+	logs := []*types.Log{
+		{
+			Address: otherAddr,
+			Topics:  []common.Hash{fallbackSettledTopic, common.BigToHash(big.NewInt(42)), common.BytesToHash(common.HexToAddress("0x01").Bytes())},
+			Data:    append(common.LeftPadBytes(big.NewInt(1000).Bytes(), 32), common.LeftPadBytes(big.NewInt(200).Bytes(), 32)...),
+		},
+		{
+			Address: otherAddr,
+			Topics:  []common.Hash{fallbackCashbackFailedTopic, common.BigToHash(big.NewInt(42)), common.BytesToHash(reviewer.Bytes())},
+			Data:    common.LeftPadBytes(big.NewInt(500).Bytes(), 32),
+		},
+	}
+
+	var out settleFallbackOutput
+	decodeFallbackReceipt(&out, logs, escrowAddr)
+
+	if out.CashbackFailed {
+		t.Error("expected cashback_failed=false for a FallbackCashbackFailed log from another address")
+	}
+	if out.HeldBackToTreasury != "" || out.CashbackToReviewer != "" {
+		t.Errorf("expected FallbackSettled from another address to be ignored, got held=%q cashback=%q",
+			out.HeldBackToTreasury, out.CashbackToReviewer)
+	}
+}
+
+// fakeContractCaller is a contractCaller whose CallContract always fails, to prove a
+// totalPausedSeconds read failure refuses rather than silently proceeding with shift=0.
+type fakeContractCaller struct{ err error }
+
+func (f fakeContractCaller) CallContract(_ context.Context, _ ethereum.CallMsg, _ *big.Int) ([]byte, error) {
+	return nil, f.err
+}
+
+// TestReadTotalPausedSeconds_ReadFailureRefuses mirrors the existing getEscrow preflight: a
+// CallContract error must be returned, not swallowed into a default shift.
+func TestReadTotalPausedSeconds_ReadFailureRefuses(t *testing.T) {
+	_, err := readTotalPausedSeconds(context.Background(), fakeContractCaller{err: errors.New("rpc boom")}, common.HexToAddress("0x01"))
+	if err == nil {
+		t.Fatal("expected an error when totalPausedSeconds CallContract fails")
 	}
 }

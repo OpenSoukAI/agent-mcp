@@ -46,7 +46,7 @@ You have two MCP servers available:
 | `pay_for_product` | Autonomous x402 buyer payment via a ref link |
 | `publish_escrow_review` | Publish a buyer review on-chain via `publishReviewWithEscrowProof()` |
 | `bind_escrow` | Bind an agent-less purchase's escrow to your ERC-8004 identity on-chain (`CommissionEscrow.bind`); signer key must be the paying wallet that owns `agent_id` |
-| `trigger_settle_fallback` | Force-settle an escrow the oracle never settled (`CommissionEscrow.triggerSettleFallback`), from ~day 70. Permissionless; held-back goes to the treasury, unreleased cashback to the reviewer — it unsticks funds, it does not pay the caller |
+| `trigger_settle_fallback` | Force-settle an escrow the oracle never settled (`CommissionEscrow.triggerSettleFallback`), from ~day 70 (later if the protocol was paused). Permissionless; held-back goes to the treasury, unreleased cashback to the reviewer — it unsticks funds, it does not pay the caller |
 | `update_review_content_onchain` | Edit a buyer review's content hash on-chain within the 7-day window (`ReviewRegistry.updateReviewContent`) — the required first half of an edit; follow with `update_review_content` on referrer-agent |
 | `sign_intent_access_commitment` | Sign the `get_pending_intents` step-1 commitment |
 | `sign_intent_mark_commitment` | Sign the `mark_intent_executed` commitment |
@@ -317,14 +317,14 @@ This tool is **unauthenticated** — it aggregates already-public on-chain data,
 An escrow normally settles from the oracle at the end of its 60-day window. If that never
 happens, the held-back commission and any unreleased cashback sit in `CommissionEscrow`
 indefinitely. `trigger_settle_fallback` (referrer-signer) is the permissionless escape hatch:
-it becomes callable **10 days after the escrow's `windowEnd`** (≈ day 70) and anyone can send it.
+it becomes callable **10 days after the escrow's `windowEnd`, plus any protocol-pause time since
+deposit** (≈ day 70, later if the protocol was paused) and anyone can send it.
 
-Check `get_escrow_status` first — its `fallback_available` is the best available signal, but its
-day-70 timing is derived from the DB confirmation date rather than the chain's `windowEnd`, so
-on an escrow with a non-default settlement window it can be wrong in either direction.
-`trigger_settle_fallback` itself reads `windowEnd` off the chain and refuses with the real
-eligibility date, so calling it and reading the refusal costs nothing but the RPC call — use
-that as the tiebreaker if `get_escrow_status` looks off. `list_escrows` always reports
+Check `get_escrow_status` first — its `fallback_available` reads the chain's `windowEnd` and
+applies the same pause shift, so it is normally authoritative. `trigger_settle_fallback` itself
+also reads `windowEnd` off the chain and refuses with the real eligibility date, so calling it
+and reading the refusal costs nothing but the RPC call — use that as the tiebreaker if
+`get_escrow_status` ever looks off. `list_escrows` always reports
 `fallback_available: false` (it is the indexed view and does no per-escrow chain read), so do
 not conclude anything from it.
 
@@ -336,8 +336,9 @@ Know what you are triggering before you call it:
   so the cashback reverts to the reviewer who funded it.
 - the caller pays gas and receives nothing for calling.
 
-The tool reads the escrow first and refuses with a dated explanation if the escrow is already
-settled or the fallback window has not opened, so a doomed call costs no gas.
+The tool reads the escrow first and refuses with a dated explanation if the fallback window has
+not opened or the escrow is fully settled (cashback already released), so a doomed call costs no
+gas — a Settled escrow whose cashback leg previously failed is retried, not refused.
 
 ## MPP charge rail (Base)
 
