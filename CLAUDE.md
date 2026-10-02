@@ -320,12 +320,11 @@ indefinitely. `trigger_settle_fallback` (referrer-signer) is the permissionless 
 it becomes callable **10 days after the escrow's `windowEnd`, plus any protocol-pause time since
 deposit** (≈ day 70, later if the protocol was paused) and anyone can send it.
 
-Check `get_escrow_status` first — its `fallback_available` is the best available signal, but its
-day-70 timing is derived from the DB confirmation date rather than the chain's `windowEnd`, so
-on an escrow with a non-default settlement window it can be wrong in either direction.
-`trigger_settle_fallback` itself reads `windowEnd` off the chain and refuses with the real
-eligibility date, so calling it and reading the refusal costs nothing but the RPC call — use
-that as the tiebreaker if `get_escrow_status` looks off. `list_escrows` always reports
+Check `get_escrow_status` first — its `fallback_available` reads the chain's `windowEnd` and
+applies the same pause shift, so it is normally authoritative. `trigger_settle_fallback` itself
+also reads `windowEnd` off the chain and refuses with the real eligibility date, so calling it
+and reading the refusal costs nothing but the RPC call — use that as the tiebreaker if
+`get_escrow_status` ever looks off. `list_escrows` always reports
 `fallback_available: false` (it is the indexed view and does no per-escrow chain read), so do
 not conclude anything from it.
 

@@ -255,6 +255,39 @@ func TestDecodeFallbackReceipt_NoCashbackFailedEvent(t *testing.T) {
 	}
 }
 
+// TestDecodeFallbackReceipt_IgnoresLogsFromAnotherAddress proves the escrowAddr filter: a log
+// carrying the right topic but from a different contract (e.g. forwarded/replayed in the same
+// receipt) must not be decoded into the output (REF-361 review).
+func TestDecodeFallbackReceipt_IgnoresLogsFromAnotherAddress(t *testing.T) {
+	escrowAddr := common.HexToAddress("0x00000000000000000000000000000000000abc")
+	otherAddr := common.HexToAddress("0x00000000000000000000000000000000000999")
+	reviewer := common.HexToAddress("0x00000000000000000000000000000000000def")
+
+	logs := []*types.Log{
+		{
+			Address: otherAddr,
+			Topics:  []common.Hash{fallbackSettledTopic, common.BigToHash(big.NewInt(42)), common.BytesToHash(common.HexToAddress("0x01").Bytes())},
+			Data:    append(common.LeftPadBytes(big.NewInt(1000).Bytes(), 32), common.LeftPadBytes(big.NewInt(200).Bytes(), 32)...),
+		},
+		{
+			Address: otherAddr,
+			Topics:  []common.Hash{fallbackCashbackFailedTopic, common.BigToHash(big.NewInt(42)), common.BytesToHash(reviewer.Bytes())},
+			Data:    common.LeftPadBytes(big.NewInt(500).Bytes(), 32),
+		},
+	}
+
+	var out settleFallbackOutput
+	decodeFallbackReceipt(&out, logs, escrowAddr)
+
+	if out.CashbackFailed {
+		t.Error("expected cashback_failed=false for a FallbackCashbackFailed log from another address")
+	}
+	if out.HeldBackToTreasury != "" || out.CashbackToReviewer != "" {
+		t.Errorf("expected FallbackSettled from another address to be ignored, got held=%q cashback=%q",
+			out.HeldBackToTreasury, out.CashbackToReviewer)
+	}
+}
+
 // fakeContractCaller is a contractCaller whose CallContract always fails, to prove a
 // totalPausedSeconds read failure refuses rather than silently proceeding with shift=0.
 type fakeContractCaller struct{ err error }

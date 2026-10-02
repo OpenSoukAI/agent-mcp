@@ -1239,11 +1239,10 @@ func main() {
 		Description: "Force-settle an escrow the oracle never settled (CommissionEscrow.triggerSettleFallback). " +
 			"Permissionless — any agent may call it — and it opens 10 days after the escrow's windowEnd PLUS any " +
 			"protocol-pause time accrued since the escrow's deposit (~day 70, later if the protocol was paused). " +
-			"Check fallback_available via get_escrow_status (referrer-agent) first, but note its day-70 timing is " +
-			"derived from the DB confirmation date, not this contract's windowEnd or the pause shift, so on a " +
-			"non-default settlement window or after a pause it can be wrong; this tool reads windowEnd and the pause " +
-			"shift itself and refuses with the real date, so calling it and reading a refusal costs only the RPC " +
-			"call. list_escrows always reports fallback_available false. This is NOT a claim and it does not pay " +
+			"Check fallback_available via get_escrow_status (referrer-agent) first — it reads this contract's " +
+			"windowEnd and applies the same pause shift, so it should normally agree; this tool still re-reads " +
+			"windowEnd and the pause shift itself and refuses with the real date, so calling it and reading a " +
+			"refusal costs only the RPC call. list_escrows always reports fallback_available false. This is NOT a claim and it does not pay " +
 			"you: the held-back commission goes to the protocol TREASURY (so a reviewer calling this forfeits what a " +
 			"normal day-60 settle would have paid it), any unreleased cashback goes to the REVIEWER's wallet (the " +
 			"buyer never published its review, so the cashback reverts to its funder), and you pay the gas. Call it " +

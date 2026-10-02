@@ -26,8 +26,9 @@ import (
 // cashback reverts to its funder). The caller pays gas and receives nothing for calling.
 
 // fallbackGraceSecs is the contract's own delay after windowEnd before the public fallback
-// opens: `uint256 eligibleAt = uint256(rec.windowEnd) + 10 days` (CommissionEscrow.sol).
-// Mirrored here only to explain a refusal BEFORE spending gas; the chain remains authoritative.
+// opens: `eligibleAt = windowEnd + 10 days + shift` (CommissionEscrow.sol; shift is the pause
+// time, added in fallbackEligibility below). Mirrored here only to explain a refusal BEFORE
+// spending gas; the chain remains authoritative.
 const fallbackGraceSecs int64 = 10 * 24 * 60 * 60
 
 type settleFallbackInput struct {
