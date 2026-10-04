@@ -1393,6 +1393,7 @@ func main() {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name: "pay_for_product",
 		Description: "Complete an x402 buyer payment for a product via a referral link. " +
+			"ref_link may also be a query_registry purchase_link (no referral: no commission or cashback). " +
 			"Decodes the self-contained ref link locally — verifying its Ed25519 signature against the " +
 			"protocol attestation key published at /.well-known/opensouk (cached), with NO backend " +
 			"resolution round-trip — to read the merchant endpoint, settlement router, and chain straight " +
