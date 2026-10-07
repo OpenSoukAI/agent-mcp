@@ -1316,17 +1316,36 @@ func main() {
 		Description: "Add a product to a merchant's catalogue: write it on-chain " +
 			"(ProductRegistry.addProduct, which holds the commission rate and active flag) and sync its " +
 			"metadata to the backend (name, description, category, endpoint_url) so it becomes " +
-			"discoverable. A product with only the on-chain half is payable but invisible. product_id is " +
-			"a 0x-prefixed 32-byte hex id, unique per merchant — typically keccak256 of a slug you " +
-			"choose. commission_bps is 0-10000 (1000 = 10%) and is read LIVE at settlement, so it can be " +
-			"changed later with set_product_commission. Requires the merchant to be active on-chain and " +
-			"registered with the backend: call activate_merchant first. Safe to call repeatedly and that " +
-			"IS the retry path: when the product already exists on-chain the chain write is skipped and " +
-			"only the metadata sync is repeated, because addProduct itself cannot be re-sent. If the " +
-			"product already exists at a different commission rate, the rate is NOT changed and a " +
-			"warning says so. All products are repeat-purchase; one-off products were retired from the " +
-			"protocol. Afterwards call check_product_readiness on the endpoint_url.",
+			"discoverable. A product with only the on-chain half is payable but invisible. endpoint_url is " +
+			"the REFERRAL endpoint (payTo = SplitRouter, echoes the attribution token). If the product " +
+			"also has a public x402 endpoint, pass it as public_endpoint_url: it is merchant-only (never " +
+			"shown to buyers) and pairs the two, so discovery stops reporting the public one as unlisted. " +
+			"category should be a slug from GET /v1/product-categories (e.g. chain.token.price), which " +
+			"also says what reviewers will report. product_id is a 0x-prefixed 32-byte hex id, unique per " +
+			"merchant — typically keccak256 of a slug you choose. commission_bps is 0-10000 (1000 = 10%) " +
+			"and is read LIVE at settlement, so it can be changed later with set_product_commission. " +
+			"Requires the merchant to be active on-chain and registered with the backend: call " +
+			"activate_merchant first. Safe to call repeatedly and that IS the retry path: when the product " +
+			"already exists on-chain the chain write is skipped and only the metadata sync is repeated, " +
+			"because addProduct itself cannot be re-sent. Optional fields left out are not sent, so a retry " +
+			"never clears what an earlier call stored; change or clear them with update_product. If the " +
+			"product already exists at a different commission rate, the rate is NOT changed and a warning " +
+			"says so. All products are repeat-purchase; one-off products were retired from the protocol. " +
+			"Afterwards call check_product_readiness with the referral and public URLs.",
 	}, handleAddProduct)
+
+	sdkmcp.AddTool(srv, &sdkmcp.Tool{
+		Name: "update_product",
+		Description: "Change a product's details on the backend: name, description, category, the " +
+			"referral endpoint_url, or the merchant-only public_endpoint_url (POST /v1/merchant/product, " +
+			"partial). No transaction: commission and the active flag are on-chain, so use " +
+			"set_product_commission and set_product_active for those. Pass only the fields to change; an " +
+			"omitted field keeps its stored value and \"\" clears description, category or " +
+			"public_endpoint_url. The name and the referral endpoint can be replaced but not cleared. " +
+			"Renaming does not change product_id. category should be a slug from GET " +
+			"/v1/product-categories. The product must already exist on-chain (add_product), and the " +
+			"signing key must own the merchant identity: a PRODUCT_MANAGER key is refused here.",
+	}, handleUpdateProduct)
 
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name: "set_merchant_profile",
@@ -1344,15 +1363,20 @@ func main() {
 
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name: "check_product_readiness",
-		Description: "Probe a product's x402 endpoint and report whether it is wired correctly for " +
-			"referral payments (POST /v1/merchant/product/readiness). The backend GETs the resource with " +
-			"the referral-mode header set and checks that it answers 402, that payTo is this chain's " +
-			"SplitRouter, and that the attribution token is echoed back. Call it after add_product and " +
-			"before advertising a product: a product whose endpoint fails these checks takes payments that " +
-			"never attribute a referral. A misconfigured endpoint returns pass=false with a per-check " +
-			"breakdown — that is a successful probe, not an error. merchant_id only selects the signing " +
-			"key; the endpoint is authenticated but not owner-scoped, so it does not assert that you own " +
-			"the resource.",
+		Description: "Probe a product's referral x402 endpoint and report whether it is wired correctly " +
+			"for referral payments (POST /v1/merchant/product/readiness). The backend GETs referral_url " +
+			"with the referral-mode header set and checks that it answers 402, that payTo is this chain's " +
+			"SplitRouter, and that the attribution token is echoed back; pass reflects those three only. " +
+			"It also reports the referral route's price, asset and network. Pass the merchant's public " +
+			"endpoint as public_url to probe it alongside: the result then carries its own 402 and price, " +
+			"price_comparison (referral_costs_more is true when the referral route is priced higher in the " +
+			"same asset, which buyer agents rank lower, though it does not block publishing), and " +
+			"controls_endpoint, an advisory check that both URLs share a host. Call it after add_product " +
+			"and before advertising a product: a product whose endpoint fails these checks takes payments " +
+			"that never attribute a referral. A misconfigured endpoint returns pass=false with a per-check " +
+			"breakdown — that is a successful probe, not an error. resource is the old name of " +
+			"referral_url and still works. merchant_id only selects the signing key; the endpoint is " +
+			"authenticated but not owner-scoped, so it does not assert that you own the resource.",
 	}, handleCheckProductReadiness)
 
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{

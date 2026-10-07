@@ -31,7 +31,10 @@ type addProductInput struct {
 	EndpointURL   string `json:"endpoint_url"`   // the product's x402 payment endpoint
 	Name          string `json:"name"`
 	Description   string `json:"description,omitempty"`
-	Category      string `json:"category,omitempty"`
+	Category      string `json:"category,omitempty"` // a doc-22 slug from GET /v1/product-categories
+	// PublicEndpointURL is the merchant's own public x402 endpoint for the same product, if it has
+	// one (REF-398). Merchant-only: the backend never shows it to buyers.
+	PublicEndpointURL string `json:"public_endpoint_url,omitempty"`
 	// ProductCardURI points at off-chain product metadata JSON. On-chain and optional.
 	ProductCardURI string `json:"product_card_uri,omitempty"`
 	ChainID        string `json:"chain_id,omitempty"`
@@ -85,6 +88,10 @@ func handleAddProduct(
 	if strings.TrimSpace(in.Name) == "" {
 		return nil, addProductOutput{}, fmt.Errorf("name is required (buyers and discovery see it)")
 	}
+	// Checked here because the backend's own check comes after addProduct, when the gas is spent.
+	if err := checkEndpointPair(in.EndpointURL, in.PublicEndpointURL); err != nil {
+		return nil, addProductOutput{}, err
+	}
 
 	out := addProductOutput{
 		MerchantID:    merchantID.String(),
@@ -127,14 +134,7 @@ func handleAddProduct(
 		out.TxHash = txHash
 	}
 
-	body, err := json.Marshal(map[string]any{
-		"merchant_id":  restID,
-		"product_id":   in.ProductID,
-		"endpoint_url": in.EndpointURL,
-		"name":         in.Name,
-		"description":  in.Description,
-		"category":     in.Category,
-	})
+	body, err := json.Marshal(productMetadataBody(restID, in))
 	if err != nil {
 		return nil, addProductOutput{}, fmt.Errorf("encode product metadata: %w", err)
 	}
@@ -151,6 +151,28 @@ func handleAddProduct(
 
 	out.NextSteps = "check_product_readiness on the endpoint_url to confirm it is wired for referral payments"
 	return nil, out, nil
+}
+
+// productMetadataBody is the backend half. Optional fields go only when given: since REF-398
+// the write is partial and "" clears a stored value, so sending empties would make a retry
+// with fewer fields wipe what an earlier call stored.
+func productMetadataBody(restID int64, in addProductInput) map[string]any {
+	body := map[string]any{
+		"merchant_id":  restID,
+		"product_id":   in.ProductID,
+		"endpoint_url": in.EndpointURL,
+		"name":         in.Name,
+	}
+	if in.Description != "" {
+		body["description"] = in.Description
+	}
+	if in.Category != "" {
+		body["category"] = in.Category
+	}
+	if in.PublicEndpointURL != "" {
+		body["public_endpoint_url"] = in.PublicEndpointURL
+	}
+	return body
 }
 
 // productSyncFailed reports the split state: the product exists on-chain and the backend

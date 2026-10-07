@@ -148,6 +148,10 @@ func TestAddProduct_RequiredFields(t *testing.T) {
 		{"no name", addProductInput{MerchantID: "4", ProductID: validProduct, CommissionBps: 500, EndpointURL: "https://x/y"}, "name"},
 		{"bad product id", addProductInput{MerchantID: "4", ProductID: "0xab", CommissionBps: 500, EndpointURL: "https://x/y", Name: "n"}, "product_id"},
 		{"bad rate", addProductInput{MerchantID: "4", ProductID: validProduct, CommissionBps: 10001, EndpointURL: "https://x/y", Name: "n"}, "commission_bps"},
+		// The backend checks these too, but only after addProduct has spent the gas.
+		{"relative endpoint", addProductInput{MerchantID: "4", ProductID: validProduct, CommissionBps: 500, EndpointURL: "/buy", Name: "n"}, "endpoint_url"},
+		{"bad public", addProductInput{MerchantID: "4", ProductID: validProduct, CommissionBps: 500, EndpointURL: "https://x/y", PublicEndpointURL: "x/y", Name: "n"}, "public_endpoint_url"},
+		{"same routes", addProductInput{MerchantID: "4", ProductID: validProduct, CommissionBps: 500, EndpointURL: "https://x/y", PublicEndpointURL: "https://X/y/", Name: "n"}, "must differ"},
 	}
 
 	for _, tc := range cases {
@@ -230,4 +234,22 @@ func mustBigInt(t *testing.T, s string) *big.Int {
 		t.Fatalf("bad big int %q", s)
 	}
 	return v
+}
+
+// TestProductMetadataBody_OmitsWhatWasNotGiven: since REF-398 "" clears a stored field, so a
+// retry of add_product with fewer fields must not send empties over what an earlier call stored.
+func TestProductMetadataBody_OmitsWhatWasNotGiven(t *testing.T) {
+	bare := productMetadataBody(4, addProductInput{ProductID: validTestProductID, EndpointURL: "https://x/ref", Name: "n"})
+	for _, k := range []string{"description", "category", "public_endpoint_url"} {
+		if _, ok := bare[k]; ok {
+			t.Errorf("%s sent though not given: %v", k, bare)
+		}
+	}
+	full := productMetadataBody(4, addProductInput{
+		ProductID: validTestProductID, EndpointURL: "https://x/ref", Name: "n",
+		Description: "d", Category: "weather", PublicEndpointURL: "https://x/pub",
+	})
+	if full["description"] != "d" || full["category"] != "weather" || full["public_endpoint_url"] != "https://x/pub" || full["endpoint_url"] != "https://x/ref" {
+		t.Errorf("full body = %v", full)
+	}
 }
