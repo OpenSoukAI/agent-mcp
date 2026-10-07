@@ -373,6 +373,82 @@ func TestCheckProductReadiness_FailingProbeIsNotAnError(t *testing.T) {
 	}
 }
 
+// TestCheckProductReadiness_V2 pins readiness v2 (REF-401): both URL names go out so an older
+// backend still reads the referral URL, and the new fields come back decoded.
+func TestCheckProductReadiness_V2(t *testing.T) {
+	var got capturedRequest
+	srv := fakeBackend(t, http.StatusOK, `{"pass":true,"checks":[{"name":"returns_402","ok":true}],`+
+		`"referral":{"checks":[],"price":"6000","asset":"0xusdc","network":"eip155:84532"},`+
+		`"public":{"returns_402":true,"price":"5000","asset":"0xusdc","network":"eip155:84532","pay_to":"0xmerchant"},`+
+		`"price_comparison":{"referral":"6000","public":"5000","referral_costs_more":true},`+
+		`"controls_endpoint":{"ok":false,"detail":"referral host a differs from public host b"}}`, &got)
+	useFakeBackend(t, srv, "4")
+
+	_, out, err := handleCheckProductReadiness(t.Context(), nil, checkProductReadinessInput{
+		MerchantID:  "4",
+		ReferralURL: "https://a.example/ref",
+		PublicURL:   "https://b.example/pub",
+	})
+	if err != nil {
+		t.Fatalf("check_product_readiness: %v", err)
+	}
+	var sent map[string]any
+	if err := json.Unmarshal(got.body, &sent); err != nil {
+		t.Fatalf("body is not JSON: %v", err)
+	}
+	if sent["referral_url"] != "https://a.example/ref" || sent["resource"] != "https://a.example/ref" || sent["public_url"] != "https://b.example/pub" {
+		t.Errorf("sent %v", sent)
+	}
+	if out.Referral.Price != "6000" || out.Referral.Network != "eip155:84532" {
+		t.Errorf("referral = %+v", out.Referral)
+	}
+	if out.Public == nil || out.Public.Price != "5000" || out.Public.PayTo != "0xmerchant" {
+		t.Errorf("public = %+v", out.Public)
+	}
+	if out.PriceComparison == nil || !out.PriceComparison.ReferralCostsMore {
+		t.Errorf("price_comparison = %+v", out.PriceComparison)
+	}
+	if out.ControlsEndpoint == nil || out.ControlsEndpoint.OK == nil || *out.ControlsEndpoint.OK {
+		t.Errorf("controls_endpoint = %+v", out.ControlsEndpoint)
+	}
+	if out.ReferralURL != "https://a.example/ref" || out.Resource != "https://a.example/ref" || out.PublicURL != "https://b.example/pub" {
+		t.Errorf("echo = %q %q %q", out.ReferralURL, out.Resource, out.PublicURL)
+	}
+}
+
+// Without a public URL none is sent, and a pre-v2 answer (pass and checks only) still decodes.
+func TestCheckProductReadiness_ResourceAliasAndOldAnswer(t *testing.T) {
+	var got capturedRequest
+	srv := fakeBackend(t, http.StatusOK, `{"pass":true,"checks":[{"name":"returns_402","ok":true}]}`, &got)
+	useFakeBackend(t, srv, "4")
+
+	_, out, err := handleCheckProductReadiness(t.Context(), nil, checkProductReadinessInput{MerchantID: "4", Resource: "https://a.example/ref"})
+	if err != nil {
+		t.Fatalf("check_product_readiness: %v", err)
+	}
+	var sent map[string]any
+	_ = json.Unmarshal(got.body, &sent)
+	if _, ok := sent["public_url"]; ok {
+		t.Errorf("public_url sent without one given: %v", sent)
+	}
+	if sent["referral_url"] != "https://a.example/ref" {
+		t.Errorf("the resource alias did not become referral_url: %v", sent)
+	}
+	if !out.Pass || out.Public != nil || out.PriceComparison != nil || out.ControlsEndpoint != nil {
+		t.Errorf("old answer decoded as %+v", out)
+	}
+}
+
+func TestCheckProductReadiness_ConflictingNamesRefused(t *testing.T) {
+	var got capturedRequest
+	srv := fakeBackend(t, http.StatusOK, `{"pass":true}`, &got)
+	useFakeBackend(t, srv, "4")
+	_, _, err := handleCheckProductReadiness(t.Context(), nil, checkProductReadinessInput{MerchantID: "4", ReferralURL: "https://a.example/1", Resource: "https://a.example/2"})
+	if err == nil || got.path != "" {
+		t.Fatalf("err = %v, sent %q; want a refusal before sending", err, got.path)
+	}
+}
+
 func TestCheckProductReadiness_ResourceRequired(t *testing.T) {
 	var got capturedRequest
 	srv := fakeBackend(t, http.StatusOK, `{"pass":true}`, &got)
@@ -424,14 +500,28 @@ func TestCallAuthedJSON_NonObjectBodyIsReported(t *testing.T) {
 	srv := fakeBackend(t, http.StatusOK, `<html>gateway</html>`, &got)
 	useFakeBackend(t, srv, "4")
 
-	_, _, err := handleCheckProductReadiness(t.Context(), nil, checkProductReadinessInput{
-		MerchantID: "4",
-		Resource:   "https://shop.example/buy",
+	// set_merchant_profile reads its reply through callAuthedJSON.
+	_, _, err := handleSetMerchantProfile(t.Context(), nil, setMerchantProfileInput{
+		MerchantID:  "4",
+		Description: strPtr("d"),
 	})
 	if err == nil {
 		t.Fatal("a non-JSON 200 was accepted")
 	}
 	if !strings.Contains(err.Error(), "not a JSON object") {
 		t.Errorf("error does not explain the body: %v", err)
+	}
+}
+
+// check_product_readiness decodes into a typed reply (callAuthedInto); a gateway page must
+// still be reported with the body, not as a failed probe.
+func TestCheckProductReadiness_NonJSONBodyIsReported(t *testing.T) {
+	var got capturedRequest
+	srv := fakeBackend(t, http.StatusOK, `<html>gateway</html>`, &got)
+	useFakeBackend(t, srv, "4")
+
+	_, _, err := handleCheckProductReadiness(t.Context(), nil, checkProductReadinessInput{MerchantID: "4", ReferralURL: "https://shop.example/buy"})
+	if err == nil || !strings.Contains(err.Error(), "<html>gateway</html>") {
+		t.Fatalf("err = %v, want the body named", err)
 	}
 }

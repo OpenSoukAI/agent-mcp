@@ -88,8 +88,10 @@ type checkProductReadinessInput struct {
 	// MerchantID selects the signing key ONLY. The endpoint is authenticated but not
 	// owner-scoped — it probes whatever URL it is given — so this is not a claim about who
 	// owns the resource.
-	MerchantID string `json:"merchant_id"`
-	Resource   string `json:"resource"` // the product's x402 endpoint URL
+	MerchantID  string `json:"merchant_id"`
+	ReferralURL string `json:"referral_url,omitempty"` // the product's referral x402 endpoint
+	Resource    string `json:"resource,omitempty"`     // the original name of referral_url
+	PublicURL   string `json:"public_url,omitempty"`   // the merchant's public endpoint, optional
 }
 
 type readinessCheckResult struct {
@@ -98,10 +100,48 @@ type readinessCheckResult struct {
 	Detail string `json:"detail,omitempty"`
 }
 
+// readinessRoute is what the referral probe found. Price is in the asset's base units.
+type readinessRoute struct {
+	Price   string `json:"price,omitempty"`
+	Asset   string `json:"asset,omitempty"`
+	Network string `json:"network,omitempty"`
+}
+
+// readinessPublic is the public endpoint's own probe. It never affects pass.
+type readinessPublic struct {
+	Returns402 bool   `json:"returns_402"`
+	Price      string `json:"price,omitempty"`
+	Asset      string `json:"asset,omitempty"`
+	Network    string `json:"network,omitempty"`
+	PayTo      string `json:"pay_to,omitempty"`
+	Detail     string `json:"detail,omitempty"`
+}
+
+// readinessComparison is present only when both routes are priced in the same asset on the
+// same network.
+type readinessComparison struct {
+	Referral          string `json:"referral"`
+	Public            string `json:"public"`
+	ReferralCostsMore bool   `json:"referral_costs_more"`
+}
+
+// readinessControl is the advisory host check: ok is null when no public URL was given.
+type readinessControl struct {
+	OK     *bool  `json:"ok"`
+	Detail string `json:"detail,omitempty"`
+}
+
 type checkProductReadinessOutput struct {
-	Pass     bool                   `json:"pass"`
-	Checks   []readinessCheckResult `json:"checks"`
-	Resource string                 `json:"resource"`
+	Pass            bool                   `json:"pass"`
+	Checks          []readinessCheckResult `json:"checks"`
+	ReferralURL     string                 `json:"referral_url"`
+	Resource        string                 `json:"resource"` // referral_url under its original name
+	PublicURL       string                 `json:"public_url,omitempty"`
+	Referral        readinessRoute         `json:"referral"`
+	Public          *readinessPublic       `json:"public,omitempty"`
+	PriceComparison *readinessComparison   `json:"price_comparison,omitempty"`
+	// ControlsEndpoint is absent from a backend older than readiness v2 (REF-401).
+	ControlsEndpoint *readinessControl `json:"controls_endpoint,omitempty"`
 }
 
 func handleCheckProductReadiness(
@@ -113,42 +153,38 @@ func handleCheckProductReadiness(
 	if err != nil {
 		return nil, checkProductReadinessOutput{}, err
 	}
-	if in.Resource == "" {
-		return nil, checkProductReadinessOutput{}, fmt.Errorf("resource is required (the product's x402 endpoint URL)")
+	referral := in.ReferralURL
+	if referral == "" {
+		referral = in.Resource
+	} else if in.Resource != "" && in.Resource != referral {
+		return nil, checkProductReadinessOutput{}, fmt.Errorf("referral_url and resource name the same field and differ; pass referral_url only")
+	}
+	if referral == "" {
+		return nil, checkProductReadinessOutput{}, fmt.Errorf("referral_url is required (the product's referral x402 endpoint URL)")
 	}
 
-	body, err := json.Marshal(map[string]any{"resource": in.Resource})
+	// Both names are sent: a backend from before readiness v2 reads resource and ignores the
+	// rest, and a current one prefers referral_url.
+	req := map[string]any{"referral_url": referral, "resource": referral}
+	if in.PublicURL != "" {
+		req["public_url"] = in.PublicURL
+	}
+	body, err := json.Marshal(req)
 	if err != nil {
 		return nil, checkProductReadinessOutput{}, fmt.Errorf("encode request: %w", err)
 	}
 
-	resp, err := callAuthedJSON(ctx, "check_product_readiness", http.MethodPost,
-		"/v1/merchant/product/readiness", body, merchantID, map[int]string{
-			http.StatusBadRequest: "resource must be an absolute http(s) URL",
-		})
-	if err != nil {
-		return nil, checkProductReadinessOutput{}, err
-	}
-
 	// A probe that ran and found the endpoint misconfigured is a 200 with pass=false, so a
 	// failing check is data here, not an error. Only the probe failing to run is an error.
-	out := checkProductReadinessOutput{Resource: in.Resource}
-	if v, ok := resp["pass"].(bool); ok {
-		out.Pass = v
+	var out checkProductReadinessOutput
+	if err := callAuthedInto(ctx, "check_product_readiness", http.MethodPost,
+		"/v1/merchant/product/readiness", body, merchantID, map[int]string{
+			http.StatusBadRequest: "referral_url and public_url must be absolute http(s) URLs",
+		}, &out); err != nil {
+		return nil, checkProductReadinessOutput{}, err
 	}
-	if rawChecks, ok := resp["checks"].([]any); ok {
-		for _, rc := range rawChecks {
-			m, ok := rc.(map[string]any)
-			if !ok {
-				continue
-			}
-			out.Checks = append(out.Checks, readinessCheckResult{
-				Name:   stringField(m, "name"),
-				OK:     m["ok"] == true,
-				Detail: stringField(m, "detail"),
-			})
-		}
-	}
+	out.ReferralURL, out.Resource = referral, referral
+	out.PublicURL = in.PublicURL
 	return nil, out, nil
 }
 
