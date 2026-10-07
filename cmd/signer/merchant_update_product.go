@@ -15,7 +15,7 @@ import (
 //
 // A partial update of a product's backend metadata (REF-398): POST /v1/merchant/product with
 // only the fields given. No transaction — commission and the active flag live on-chain and
-// have their own tools. The backend owns the write and is owner-only.
+// have their own tools. The backend owns the write: the owner or a PRODUCT_MANAGER (REF-446).
 
 // Pointers so an omitted field stays distinct from "": an omitted field keeps its stored
 // value, and "" clears it.
@@ -95,7 +95,7 @@ func handleUpdateProduct(
 	if _, err := callAuthedRaw(ctx, "update_product", http.MethodPost, "/v1/merchant/product",
 		body, merchantID, map[int]string{
 			http.StatusNotFound:   "the product is not on-chain for this merchant — check product_id, or add it first with add_product",
-			http.StatusForbidden:  "the backend only accepts this from the key that owns the merchant identity; a PRODUCT_MANAGER key cannot edit product details yet",
+			http.StatusForbidden:  "the signing key neither owns the merchant identity nor holds PRODUCT_MANAGER for it",
 			http.StatusConflict:   "this merchant has no backend record — call activate_merchant first",
 			http.StatusBadRequest: "the backend rejected a field; the message above names which one",
 		}); err != nil {

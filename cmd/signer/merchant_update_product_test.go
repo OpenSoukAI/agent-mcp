@@ -94,13 +94,14 @@ func TestUpdateProduct_EmptyPublicEndpointUnpairs(t *testing.T) {
 	}
 }
 
-func TestUpdateProduct_ForbiddenNamesTheOwnerRule(t *testing.T) {
+// REF-446: the backend accepts the owner or a PRODUCT_MANAGER, so a 403 means the key is neither.
+func TestUpdateProduct_ForbiddenNamesWhoMay(t *testing.T) {
 	var got capturedRequest
 	srv := fakeBackend(t, http.StatusForbidden, `{"error":"caller does not own this merchant"}`, &got)
 	useFakeBackend(t, srv, "4")
 	_, _, err := handleUpdateProduct(t.Context(), nil, updateProductInput{MerchantID: "4", ProductID: validTestProductID, Category: strPtr("weather")})
-	if err == nil || !strings.Contains(err.Error(), "PRODUCT_MANAGER") {
-		t.Fatalf("err = %v, want the owner-only explanation", err)
+	if err == nil || !strings.Contains(err.Error(), "nor holds PRODUCT_MANAGER") || strings.Contains(err.Error(), "cannot edit product details") {
+		t.Fatalf("err = %v, want: neither the owner nor a PRODUCT_MANAGER", err)
 	}
 }
 

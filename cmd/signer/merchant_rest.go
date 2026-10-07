@@ -204,7 +204,7 @@ func restError(tool string, status int, raw []byte, advice map[int]string) error
 // more than a minute out, and a resent request all land here and need different fixes.
 var genericRESTAdvice = map[int]string{
 	http.StatusUnauthorized:    "the request signature was rejected: check that AGENT_KEYS holds the key for this merchant_id, that this machine's clock is within 60s of the server's, and that this is not a resend of an already-accepted request (each attempt must be signed afresh)",
-	http.StatusForbidden:       "the signing key does not own this merchant identity",
+	http.StatusForbidden:       "the signing key does not own this merchant identity, or holds no role that allows this call",
 	http.StatusNotFound:        "no such merchant on-chain for this chain's IdentityRegistry",
 	http.StatusTooManyRequests: "rate limited — wait and call again",
 }

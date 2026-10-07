@@ -1344,7 +1344,7 @@ func main() {
 			"public_endpoint_url. The name and the referral endpoint can be replaced but not cleared. " +
 			"Renaming does not change product_id. category should be a slug from GET " +
 			"/v1/product-categories. The product must already exist on-chain (add_product), and the " +
-			"signing key must own the merchant identity: a PRODUCT_MANAGER key is refused here.",
+			"signing key must own the merchant identity or hold PRODUCT_MANAGER for it.",
 	}, handleUpdateProduct)
 
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
@@ -1383,9 +1383,10 @@ func main() {
 		Name: "get_merchant_stats",
 		Description: "Read a merchant's own performance figures (GET /v1/merchant/{id}/stats): " +
 			"conversions, gross revenue, how many escrows are still holding vs settled, and product counts. " +
-			"Authenticated and owner-only — a merchant sees only its own revenue, which is why this lives " +
-			"on referrer-signer rather than the keyless server. merchant_id is the merchant's ERC-8004 " +
-			"agent id and the signing key must own it. revenue_gross is USDC base units (6 decimals); " +
+			"Authenticated — a merchant's revenue is shown only to the merchant's side, which is why this " +
+			"lives on referrer-signer rather than the keyless server. merchant_id is the merchant's ERC-8004 " +
+			"agent id, and the signing key must own it or hold PRODUCT_MANAGER or COMMISSION_MANAGER for it " +
+			"(a SETTLEMENT_SIGNER key cannot read it). revenue_gross is USDC base units (6 decimals); " +
 			"escrow_holding and escrow_settled are counts. " +
 			"product_count includes inactive products; active_product_count is the subset that is listed.",
 	}, handleGetMerchantStats)
