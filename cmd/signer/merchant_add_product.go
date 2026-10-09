@@ -92,6 +92,9 @@ func handleAddProduct(
 	if err := checkEndpointPair(in.EndpointURL, in.PublicEndpointURL); err != nil {
 		return nil, addProductOutput{}, err
 	}
+	if err := checkCategory(ctx, in.Category); err != nil {
+		return nil, addProductOutput{}, err
+	}
 
 	out := addProductOutput{
 		MerchantID:    merchantID.String(),

@@ -24,7 +24,7 @@ type updateProductInput struct {
 	ProductID         string  `json:"product_id"`  // 0x-prefixed 32-byte hex
 	Name              *string `json:"name,omitempty"`
 	Description       *string `json:"description,omitempty"`         // "" clears it
-	Category          *string `json:"category,omitempty"`            // a doc-22 slug; "" clears it
+	Category          *string `json:"category,omitempty"`            // a doc-22 slug from GET /v1/product-categories
 	EndpointURL       *string `json:"endpoint_url,omitempty"`        // the referral endpoint; replaceable, never cleared
 	PublicEndpointURL *string `json:"public_endpoint_url,omitempty"` // merchant-only; "" unpairs it
 }

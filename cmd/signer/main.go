@@ -1320,8 +1320,8 @@ func main() {
 			"the REFERRAL endpoint (payTo = SplitRouter, echoes the attribution token). If the product " +
 			"also has a public x402 endpoint, pass it as public_endpoint_url: it is merchant-only (never " +
 			"shown to buyers) and pairs the two, so discovery stops reporting the public one as unlisted. " +
-			"category should be a slug from GET /v1/product-categories (e.g. chain.token.price), which " +
-			"also says what reviewers will report. product_id is a 0x-prefixed 32-byte hex id, unique per " +
+			"category must be a slug from GET /v1/product-categories (e.g. chain.token.price), which " +
+			"also says what reviewers will report; any other value is refused before anything is sent. product_id is a 0x-prefixed 32-byte hex id, unique per " +
 			"merchant — typically keccak256 of a slug you choose. commission_bps is 0-10000 (1000 = 10%) " +
 			"and is read LIVE at settlement, so it can be changed later with set_product_commission. " +
 			"Requires the merchant to be active on-chain and registered with the backend: call " +
@@ -1340,10 +1340,11 @@ func main() {
 			"referral endpoint_url, or the merchant-only public_endpoint_url (POST /v1/merchant/product, " +
 			"partial). No transaction: commission and the active flag are on-chain, so use " +
 			"set_product_commission and set_product_active for those. Pass only the fields to change; an " +
-			"omitted field keeps its stored value and \"\" clears description, category or " +
-			"public_endpoint_url. The name and the referral endpoint can be replaced but not cleared. " +
-			"Renaming does not change product_id. category should be a slug from GET " +
-			"/v1/product-categories. The product must already exist on-chain (add_product), and the " +
+			"omitted field keeps its stored value and \"\" clears description or public_endpoint_url. " +
+			"The name, the category and the referral endpoint can be replaced but not cleared. " +
+			"Renaming does not change product_id. category must be a slug from GET " +
+			"/v1/product-categories; a product's existing value outside that list is accepted only " +
+			"re-sent unchanged. The product must already exist on-chain (add_product), and the " +
 			"signing key must own the merchant identity or hold PRODUCT_MANAGER for it.",
 	}, handleUpdateProduct)
 
