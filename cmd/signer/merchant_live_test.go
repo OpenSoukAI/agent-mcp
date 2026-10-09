@@ -782,7 +782,7 @@ func TestLive_AddProduct_CreateThenRepeat(t *testing.T) {
 		CommissionBps: 750,
 		EndpointURL:   "https://shop.example/buy",
 		Name:          "Live Widget",
-		Category:      "test",
+		Category:      "lookup.other",
 		ChainID:       e.chainID,
 	}
 
@@ -1005,7 +1005,7 @@ func TestLive_AddProduct_AgainstRealBackend(t *testing.T) {
 		EndpointURL:   "https://shop.example/buy",
 		Name:          "REF-251 Real Widget",
 		Description:   "added through add_product against a real backend",
-		Category:      "test",
+		Category:      "lookup.other",
 		ChainID:       e.chainID,
 	}
 
