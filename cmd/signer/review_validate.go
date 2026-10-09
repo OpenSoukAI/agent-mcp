@@ -15,7 +15,9 @@ import (
 // accept content_json from this agent for this product, and refuses if not. The backend owns
 // the schema (x402-review/1, picked by the product's category) and the offchain_proof binding,
 // so neither is mirrored here. Fails closed: content the backend could not check is not hashed.
-func checkReviewContent(ctx context.Context, agentID, merchantID *big.Int, productID [32]byte, content string) error {
+// reviewID is the on-chain id of a review being edited, nil for a new one: the backend then
+// counts the review's own onchain_receipts as its own, not as reused (REF-425).
+func checkReviewContent(ctx context.Context, agentID, merchantID *big.Int, productID [32]byte, content string, reviewID *big.Int) error {
 	if !agentID.IsInt64() {
 		return fmt.Errorf("agent_id %s is too large for the backend API (int64)", agentID)
 	}
@@ -27,12 +29,19 @@ func checkReviewContent(ctx context.Context, agentID, merchantID *big.Int, produ
 	if err != nil {
 		return fmt.Errorf("cannot check content_json before signing, so nothing was sent: %w", err)
 	}
-	body, err := json.Marshal(map[string]any{
+	fields := map[string]any{
 		"merchant_id":  mid,
 		"agent_id":     agentID.Int64(),
 		"product_id":   "0x" + hex.EncodeToString(productID[:]),
 		"content_json": content,
-	})
+	}
+	if reviewID != nil {
+		if !reviewID.IsInt64() {
+			return fmt.Errorf("review_id %s is too large for the backend API (int64)", reviewID)
+		}
+		fields["review_id"] = reviewID.Int64()
+	}
+	body, err := json.Marshal(fields)
 	if err != nil {
 		return err
 	}

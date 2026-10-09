@@ -177,7 +177,7 @@ func TestCheckReviewContent_SendsTheReviewAsGiven(t *testing.T) {
 	srv := fakeBackend(t, http.StatusOK, `{"valid":true}`, &got)
 	t.Setenv("REFERRER_API_URL", srv.URL)
 
-	if err := checkReviewContent(context.Background(), big.NewInt(0), big.NewInt(testMerchant), testProduct, v1Review); err != nil {
+	if err := checkReviewContent(context.Background(), big.NewInt(0), big.NewInt(testMerchant), testProduct, v1Review, nil); err != nil {
 		t.Fatalf("valid content refused: %v", err)
 	}
 	if got.method != http.MethodPost || got.path != "/v1/review/validate" {
@@ -208,14 +208,14 @@ func TestCheckReviewContent_FailsClosed(t *testing.T) {
 	} {
 		var got capturedRequest
 		t.Setenv("REFERRER_API_URL", fakeBackend(t, tc.status, tc.reply, &got).URL)
-		err := checkReviewContent(context.Background(), big.NewInt(testAgent), big.NewInt(testMerchant), testProduct, v1Review)
+		err := checkReviewContent(context.Background(), big.NewInt(testAgent), big.NewInt(testMerchant), testProduct, v1Review, nil)
 		if err == nil || !strings.Contains(err.Error(), tc.want) || !strings.Contains(err.Error(), "nothing was") {
 			t.Errorf("%s: err = %v, want a refusal containing %q", tc.desc, err, tc.want)
 		}
 	}
 
 	t.Setenv("REFERRER_API_URL", "http://127.0.0.1:1")
-	if err := checkReviewContent(context.Background(), big.NewInt(testAgent), big.NewInt(testMerchant), testProduct, v1Review); err == nil {
+	if err := checkReviewContent(context.Background(), big.NewInt(testAgent), big.NewInt(testMerchant), testProduct, v1Review, nil); err == nil {
 		t.Error("an unreachable backend let the content through")
 	}
 }
@@ -234,6 +234,9 @@ func TestPublishEscrowReview_RefusesInvalidContentBeforeTheChain(t *testing.T) {
 	}
 	if !bytes.Contains(got.body, []byte(`"agent_id":5`)) {
 		t.Fatalf("the dry-run was not given the agent, so a cited proof went unbound: %s", got.body)
+	}
+	if bytes.Contains(got.body, []byte(`"review_id"`)) {
+		t.Fatalf("a new review's dry-run named a review id: %s", got.body)
 	}
 }
 
@@ -271,6 +274,10 @@ func TestUpdateReviewOnchain_RefusesInvalidContentBeforeSigning(t *testing.T) {
 	}
 	if !bytes.Contains(got.body, []byte(`"agent_id":5`)) || !bytes.Contains(got.body, []byte(`"merchant_id":2`)) {
 		t.Fatalf("the dry-run was not given the on-chain ids: %s", got.body)
+	}
+	// The edited review's id, so its own onchain_receipts do not count as reused (REF-425).
+	if !bytes.Contains(got.body, []byte(`"review_id":9`)) {
+		t.Fatalf("the edit's dry-run did not name the review: %s", got.body)
 	}
 }
 

@@ -181,7 +181,7 @@ func handleUpdateReviewContentOnchain(
 			time.Unix(now, 0).UTC().Format(time.RFC3339))
 	}
 
-	if err := checkReviewContent(ctx, review.AgentID, review.MerchantID, review.ProductID, in.ContentJSON); err != nil {
+	if err := checkReviewContent(ctx, review.AgentID, review.MerchantID, review.ProductID, in.ContentJSON, reviewID); err != nil {
 		return nil, updateReviewOnchainOutput{}, err
 	}
 
