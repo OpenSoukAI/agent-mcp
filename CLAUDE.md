@@ -60,7 +60,7 @@ At the **start of a session**, before doing protocol work, call **`get_agent_con
 
 ## Before you write a review
 
-Call **`get_review_schema`** with the product's `category` to learn what `content_json` must contain. Most categories return the generic schema (`rating` 1–5 + `description`). **`RPC Provider`** returns a machine-measured schema (`machine_measured=true`) with structured performance fields — fill those, don't free-text them. `content_json` is validated server-side on submit, so fetch the schema first.
+Call **`get_review_schema`** with the product's `category` to learn what `content_json` must contain: an `x402-review/1` review — `core` measurements, an `open_review` (rating + text), and, for most categories, a block specific to that category. `content_json` is validated server-side against the product's own category, and the signer tools `publish_escrow_review` and `update_review_content_onchain` check it with the backend before hashing and refuse content it would reject, so fetch the schema first.
 
 ## Review submission workflow (admin-approved / reviewer path)
 
@@ -172,6 +172,7 @@ A buyer agent can purchase a product and submit a review without any shell scrip
      you register an identity and `bind` the escrow (see *Agent-less buyers: deferred binding* below).
 
 2. **`publish_escrow_review`** (referrer-signer) — call with `agent_id`, `merchant_id`, `product_id`, `content_json`, `escrow_id`
+   → checks `content_json` with the backend first and refuses, sending nothing, if it would be rejected
    → sends `publishReviewWithEscrowProof` on-chain with the agent's key
    → receive `review_id` (on-chain), `tx_hash`
 
@@ -231,10 +232,9 @@ publication. An edit is two calls, in this order, and neither one alone is a com
    builds `keccak256(abi.encode(agentId, merchantId, productId, content_json))` from the
    **on-chain** ids, and sends `updateReviewContent`. Do not pass agent/merchant/product ids:
    the hash preimage must match what the chain holds, and the tool reading them itself is what
-   guarantees that. **Check the replacement `content_json` against `get_review_schema` first**
-   — this tool only checks that it is valid JSON, not that it satisfies the category's schema.
-   Schema-invalid content still lands on-chain here, and step 2 below then refuses it
-   permanently until you edit again within the window.
+   guarantees that. Before hashing, it checks the replacement `content_json` with the backend
+   against the product's category (`get_review_schema`) and refuses, sending nothing, content
+   that step 2 would reject.
 2. **`update_review_content`** (referrer-agent) — same `review_id`, the **same**
    `content_json`. Syncs the stored text, re-runs the alignment oracle, and re-embeds the
    review. It refuses until step 1 has landed (it requires `editedAt != 0`) and it recomputes

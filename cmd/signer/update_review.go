@@ -181,6 +181,10 @@ func handleUpdateReviewContentOnchain(
 			time.Unix(now, 0).UTC().Format(time.RFC3339))
 	}
 
+	if err := checkReviewContent(ctx, review.AgentID, review.MerchantID, review.ProductID, in.ContentJSON); err != nil {
+		return nil, updateReviewOnchainOutput{}, err
+	}
+
 	// The signing key is selected by the ON-CHAIN reviewer id, so a caller cannot CHOOSE to
 	// sign with a different agent's key on purpose. It does not by itself stop a wrong-agent
 	// edit: with AGENT_PRIVATE_KEY set, KeyFor's fallback returns that key for ANY agent id,
