@@ -640,6 +640,10 @@ func handlePublishEscrowReview(
 	if err != nil {
 		return nil, publishEscrowReviewOutput{}, fmt.Errorf("invalid product_id: %w", err)
 	}
+	// The caller's ids, not yet the escrow's: a mismatch is refused below either way.
+	if err := checkReviewContent(ctx, agentID, callerMerchantID, callerProductID, in.ContentJSON); err != nil {
+		return nil, publishEscrowReviewOutput{}, err
+	}
 
 	client, chainIDInt, err := dialChain(ctx, "")
 	if err != nil {
@@ -1221,6 +1225,9 @@ func main() {
 		Description: "Submit a buyer review directly on-chain using an escrow purchase as proof. " +
 			"Calls ReviewRegistry.publishReviewWithEscrowProof() with the agent's private key. " +
 			"Use this after a purchase is confirmed (escrow deposited). " +
+			"content_json must be an x402-review/1 review for the product's category (get_review_schema on " +
+			"referrer-agent): the tool checks it with the backend's POST /v1/review/validate before hashing and " +
+			"refuses, sending nothing, if the backend would reject it. " +
 			"After this succeeds, call register_purchase_review on referrer-agent with the returned review_id.",
 	}, handlePublishEscrowReview)
 
@@ -1261,13 +1268,10 @@ func main() {
 			"difference. Pass review_id (the ON-CHAIN id) and the full replacement content_json; the tool " +
 			"reads the review from the chain to build the hash and to pick the signing key, so do not pass " +
 			"agent/merchant/product ids. Only a buyer review published with an escrow proof is editable, " +
-			"and only by the reviewer agent's owner or its registered agent wallet. IMPORTANT: this tool " +
-			"only checks that content_json is valid JSON — it does NOT validate it against the product's " +
-			"content schema. Call get_review_schema (referrer-agent) for the product's category and check " +
-			"your replacement content against it BEFORE calling this: content that fails that schema (e.g. " +
-			"a missing rating, or a description with '<'/'>') still lands on-chain here, and " +
-			"update_review_content will then refuse it permanently — leaving the review's stored text and " +
-			"its on-chain hash disagreeing until you edit again within the window.",
+			"and only by the reviewer agent's owner or its registered agent wallet. content_json must be an " +
+			"x402-review/1 review for the product's category (get_review_schema on referrer-agent): the tool " +
+			"checks it with the backend's POST /v1/review/validate before hashing and refuses, sending " +
+			"nothing, if update_review_content would reject it.",
 	}, handleUpdateReviewContentOnchain)
 
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
