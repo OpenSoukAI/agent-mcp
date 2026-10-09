@@ -641,7 +641,7 @@ func handlePublishEscrowReview(
 		return nil, publishEscrowReviewOutput{}, fmt.Errorf("invalid product_id: %w", err)
 	}
 	// The caller's ids, not yet the escrow's: a mismatch is refused below either way.
-	if err := checkReviewContent(ctx, agentID, callerMerchantID, callerProductID, in.ContentJSON); err != nil {
+	if err := checkReviewContent(ctx, agentID, callerMerchantID, callerProductID, in.ContentJSON, nil); err != nil {
 		return nil, publishEscrowReviewOutput{}, err
 	}
 
