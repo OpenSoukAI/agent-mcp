@@ -279,12 +279,17 @@ explicitly confirmed — you execute them; you never invent them. Poll and run t
        mock a custom-error selector), which is why the signer normalises both into that one prefix.
 
      On success, subtract `max_amount` from your running `remaining_budget`.
-   - **`publish_review`** — branch on **`payload.entry`** (the publish path the backend chose):
+   - **`publish_review`** — the payload's `content_json` is the owner's draft and holds only what the
+     owner said. If **`payload.fields_to_fill`** is non-empty, finish it first: fill each listed field
+     from your own calls to the product (fetch `get_review_schema` for its category), keep what the
+     draft already says, and publish the completed `content_json`. Never invent a measurement you did
+     not make; if you cannot fill a field, `mark_intent_skipped` with the reason. Then branch on
+     **`payload.entry`** (the publish path the backend chose):
      - **`in_system_purchase`** → the **escrow-proof** flow: `publish_escrow_review` with **all five**
-       required args — `agent_id` (from the intent) + `merchant_id`, `product_id`, `content_json`,
-       `escrow_id` (from the payload) — then `register_purchase_review` (see *Buyer purchase workflow*).
+       required args — `agent_id` (from the intent) + `merchant_id`, `product_id`, `escrow_id` (from the
+       payload), and the completed `content_json` — then `register_purchase_review` (see *Buyer purchase workflow*).
      - **`admin_approved`** → the **admin-approved** flow: `submit_admin_approved_review` step 1 with
-       `agent_id` (from the intent) + `merchant_id`, `product_id`, `content_json` (from the payload) →
+       `agent_id` (from the intent) + `merchant_id`, `product_id` (from the payload) and the completed `content_json` →
        `sign_review_commitment` → step 2 (see *Review submission workflow*). The proof is already
        approved (the backend gated on it before queueing); there is **no** `escrow_id` and **no**
        on-chain signer tx — the oracle publishes. Do **not** call `publish_escrow_review` for this entry.
