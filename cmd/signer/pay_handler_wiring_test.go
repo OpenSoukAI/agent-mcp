@@ -9,7 +9,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
@@ -29,6 +31,42 @@ import (
 // fails the payment POST with body. Returns a ref link pointing at it.
 func payTestEnv(t *testing.T, paymentStatus int, paymentBody string) string {
 	t.Helper()
+	refLink, _ := payTestEnvWith(t, merchantOpts{paymentStatus: paymentStatus, paymentBody: paymentBody})
+	return refLink
+}
+
+// merchantOpts shapes the fake merchant's paid response.
+type merchantOpts struct {
+	paymentStatus      int
+	paymentBody        string
+	paymentContentType string
+	paymentDelay       time.Duration
+	// endpointQuery is appended to the merchant endpoint the token names, e.g. "?tier=a".
+	endpointQuery string
+}
+
+// seenRequest is one call the merchant received at its endpoint.
+type seenRequest struct {
+	paid                                bool
+	method, rawQuery, contentType, body string
+}
+
+// requestLog records the merchant's endpoint calls; the handler's requests arrive concurrently
+// with the test goroutine.
+type requestLog struct {
+	mu   sync.Mutex
+	reqs []seenRequest
+}
+
+func (l *requestLog) all() []seenRequest {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return append([]seenRequest(nil), l.reqs...)
+}
+
+func payTestEnvWith(t *testing.T, opts merchantOpts) (string, *requestLog) {
+	t.Helper()
+	log := &requestLog{}
 
 	pub, priv, err := ed25519.GenerateKey(nil)
 	if err != nil {
@@ -43,6 +81,7 @@ func payTestEnv(t *testing.T, paymentStatus int, paymentBody string) string {
 			_, _ = w.Write([]byte(`{"attestationPubKey":"` + hexKey(pub) + `"}`))
 
 		case r.URL.Path == "/buy" && r.Header.Get("PAYMENT-SIGNATURE") == "":
+			log.record(r, false)
 			// Phase 1: the 402 probe, answering with x402 payment requirements.
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusPaymentRequired)
@@ -60,9 +99,14 @@ func payTestEnv(t *testing.T, paymentStatus int, paymentBody string) string {
 			})
 
 		case r.URL.Path == "/buy":
+			log.record(r, true)
 			// Phase 2: the payment submission.
-			w.WriteHeader(paymentStatus)
-			_, _ = w.Write([]byte(paymentBody))
+			time.Sleep(opts.paymentDelay)
+			if opts.paymentContentType != "" {
+				w.Header().Set("Content-Type", opts.paymentContentType)
+			}
+			w.WriteHeader(opts.paymentStatus)
+			_, _ = w.Write([]byte(opts.paymentBody))
 
 		case r.URL.Path == "/rpc":
 			// Everything after phase 2 is three JSON-RPC calls: fetch the tx, wait for its
@@ -76,7 +120,7 @@ func payTestEnv(t *testing.T, paymentStatus int, paymentBody string) string {
 	t.Cleanup(srv.Close)
 
 	tok := validTestToken()
-	tok.MerchantEndpoint = srv.URL + "/buy"
+	tok.MerchantEndpoint = srv.URL + "/buy" + opts.endpointQuery
 	tok.SetupURL = srv.URL + "/.well-known/opensouk"
 
 	t.Setenv("BASE_RPC_URL", srv.URL+"/rpc")
@@ -90,7 +134,17 @@ func payTestEnv(t *testing.T, paymentStatus int, paymentBody string) string {
 	signerKeys = &keystore{fallback: key}
 	t.Cleanup(func() { signerKeys = prev })
 
-	return srv.URL + "/r/" + signTestToken(t, priv, tok)
+	return srv.URL + "/r/" + signTestToken(t, priv, tok), log
+}
+
+func (l *requestLog) record(r *http.Request, paid bool) {
+	body, _ := io.ReadAll(r.Body)
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.reqs = append(l.reqs, seenRequest{
+		paid: paid, method: r.Method, rawQuery: r.URL.RawQuery,
+		contentType: r.Header.Get("Content-Type"), body: string(body),
+	})
 }
 
 func hexKey(pub ed25519.PublicKey) string {

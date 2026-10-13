@@ -1,13 +1,13 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"crypto/ecdsa"
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"math/big"
@@ -19,6 +19,7 @@ import (
 	"strings"
 	"syscall"
 	"time"
+	"unicode/utf8"
 
 	ethereum "github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/accounts/abi"
@@ -751,7 +752,27 @@ type payForProductInput struct {
 	// the SAME purchase reuses the nonce and the second receiveWithAuthorization reverts — the
 	// wallet is charged at most once. The runner passes the intent_id. Omit for a random nonce.
 	IdempotencyKey string `json:"idempotency_key,omitempty"`
+	// Optional: the call to make at the merchant endpoint — what the agent is paying for. Omit
+	// for a POST of "{}" (unchanged behaviour).
+	Request *payRequest `json:"request,omitempty"`
 }
+
+// payRequest is the call the agent wants made. The same request goes to the unpaid probe and to
+// the paid call, so a price that depends on the request is the one quoted for it.
+type payRequest struct {
+	// GET or POST. Default POST.
+	Method string `json:"method,omitempty"`
+	// POST only. Default "{}".
+	Body string `json:"body,omitempty"`
+	// POST only. Default application/json.
+	ContentType string `json:"content_type,omitempty"`
+	// Added to the endpoint's query string. Cannot replace a parameter the endpoint already sets.
+	Query map[string]string `json:"query,omitempty"`
+}
+
+// maxResponseBytes caps the delivered body returned to the agent, so one large payload cannot
+// fill its context. response_bytes still reports the full size.
+const maxResponseBytes = 64 << 10
 
 type payForProductOutput struct {
 	EscrowID string `json:"escrow_id"` // decimal string
@@ -759,6 +780,15 @@ type payForProductOutput struct {
 	// SettledProductID is the product settlement recorded (REF-317): what the merchant's 402
 	// named, or the token's product when the merchant asserted none.
 	SettledProductID string `json:"settled_product_id"`
+	// Response is what the merchant served for the payment: the product bought. Cut to
+	// maxResponseBytes when larger (ResponseTruncated); ResponseBytes is always the full size.
+	Response          string `json:"response"`
+	ResponseTruncated bool   `json:"response_truncated,omitempty"`
+	ResponseBytes     int    `json:"response_bytes"`
+	ContentType       string `json:"content_type,omitempty"`
+	// LatencyMS is the paid request's round trip. It includes the merchant's settlement, which
+	// happens before it serves, so it is the latency a buyer pays per call, not the API's alone.
+	LatencyMS int64 `json:"latency_ms"`
 	// Warning is set when the purchase settled on a different product than asked for — the
 	// merchant has not adopted extra.productId, so a sibling purchase attributed to the token's
 	// product.
@@ -955,11 +985,11 @@ func handlePayForProduct(
 	splitRouterAddr := tok.SplitRouter
 
 	// ── phase 1: probe merchant for 402 payment requirements ──────────────────
-	phase1Req, err := http.NewRequestWithContext(ctx, http.MethodPost, merchantEndpoint, bytes.NewReader([]byte(`{}`)))
+	// Built before anything reaches the merchant: a malformed request fails here, unpaid.
+	phase1Req, err := newPayHTTPRequest(ctx, merchantEndpoint, in.Request)
 	if err != nil {
 		return nil, payForProductOutput{}, fmt.Errorf("build phase1 request: %w", err)
 	}
-	phase1Req.Header.Set("Content-Type", "application/json")
 	phase1Req.Header.Set("X-Referrer-Token", attributionToken)
 	phase1Req.Header.Set("X-Referrer-Buyer-Agent-Id", buyerAgentIDStr)
 	phase1Resp, err := httpClient.Do(phase1Req)
@@ -1047,19 +1077,20 @@ func handlePayForProduct(
 	paymentHeader := base64.RawURLEncoding.EncodeToString(payloadJSON)
 
 	// ── phase 2: submit payment ────────────────────────────────────────────────
-	phase2Req, err := http.NewRequestWithContext(ctx, http.MethodPost, merchantEndpoint, bytes.NewReader([]byte(`{}`)))
+	phase2Req, err := newPayHTTPRequest(ctx, merchantEndpoint, in.Request)
 	if err != nil {
 		return nil, payForProductOutput{}, fmt.Errorf("build phase2 request: %w", err)
 	}
-	phase2Req.Header.Set("Content-Type", "application/json")
 	phase2Req.Header.Set("PAYMENT-SIGNATURE", paymentHeader)
 	phase2Client := &http.Client{Timeout: 90 * time.Second}
+	paidAt := time.Now()
 	phase2Resp, err := phase2Client.Do(phase2Req)
 	if err != nil {
 		return nil, payForProductOutput{}, fmt.Errorf("phase 2: %w", err)
 	}
 	defer phase2Resp.Body.Close()
 	phase2Body, _ := io.ReadAll(phase2Resp.Body)
+	latencyMS := time.Since(paidAt).Milliseconds()
 	if phase2Resp.StatusCode != http.StatusOK {
 		return nil, payForProductOutput{}, phase2Failure(phase2Resp.StatusCode, string(phase2Body))
 	}
@@ -1098,12 +1129,18 @@ func handlePayForProduct(
 		return nil, payForProductOutput{}, err
 	}
 
+	delivered, truncated := truncateUTF8(string(phase2Body), maxResponseBytes)
 	out := payForProductOutput{
-		EscrowID:         escrowID.String(),
-		TxHash:           txHashStr,
-		SettledProductID: settledProduct,
-		Warning:          productWarning,
-		NextSteps:        payNextSteps(buyerAgentIDStr == sentinelBuyerAgentID),
+		EscrowID:          escrowID.String(),
+		TxHash:            txHashStr,
+		SettledProductID:  settledProduct,
+		Response:          delivered,
+		ResponseTruncated: truncated,
+		ResponseBytes:     len(phase2Body),
+		ContentType:       phase2Resp.Header.Get("Content-Type"),
+		LatencyMS:         latencyMS,
+		Warning:           productWarning,
+		NextSteps:         payNextSteps(buyerAgentIDStr == sentinelBuyerAgentID),
 	}
 	if len(in.SubmitVotes) > 0 {
 		// Payment has settled — cast the inline votes now. A vote failure must NOT fail the
@@ -1120,6 +1157,82 @@ func handlePayForProduct(
 		}
 	}
 	return nil, out, nil
+}
+
+// newPayHTTPRequest builds one phase's request to the merchant from the agent's request; callers
+// add their phase's headers. Every rejection happens here, before anything is sent.
+func newPayHTTPRequest(ctx context.Context, endpoint string, r *payRequest) (*http.Request, error) {
+	var p payRequest
+	if r != nil {
+		p = *r
+	}
+	method := strings.ToUpper(strings.TrimSpace(p.Method))
+	if method == "" {
+		method = http.MethodPost
+	}
+	if method != http.MethodPost && method != http.MethodGet {
+		return nil, fmt.Errorf("request.method %q: only GET and POST are supported", p.Method)
+	}
+
+	target := endpoint
+	if len(p.Query) > 0 {
+		u, err := url.Parse(endpoint)
+		if err != nil {
+			return nil, fmt.Errorf("merchant endpoint %q: %w", endpoint, err)
+		}
+		q := u.Query()
+		for k, v := range p.Query {
+			if q.Has(k) {
+				return nil, fmt.Errorf("request.query %q: the merchant endpoint already sets it", k)
+			}
+			q.Set(k, v)
+		}
+		u.RawQuery = q.Encode()
+		target = u.String()
+	}
+
+	var body io.Reader
+	contentType := ""
+	if method == http.MethodGet {
+		if p.Body != "" {
+			return nil, errors.New("request.body: a GET request carries no body; use request.query")
+		}
+		if p.ContentType != "" {
+			return nil, errors.New("request.content_type: applies to a POST body only")
+		}
+	} else {
+		b := p.Body
+		if b == "" {
+			b = "{}"
+		}
+		body = strings.NewReader(b)
+		contentType = p.ContentType
+		if contentType == "" {
+			contentType = "application/json"
+		}
+	}
+
+	req, err := http.NewRequestWithContext(ctx, method, target, body)
+	if err != nil {
+		return nil, err
+	}
+	if contentType != "" {
+		req.Header.Set("Content-Type", contentType)
+	}
+	return req, nil
+}
+
+// truncateUTF8 cuts s to at most max bytes without splitting a multi-byte character, reporting
+// whether it cut anything.
+func truncateUTF8(s string, max int) (string, bool) {
+	if len(s) <= max {
+		return s, false
+	}
+	cut := max
+	for cut > 0 && !utf8.RuneStart(s[cut]) {
+		cut--
+	}
+	return s[:cut], true
 }
 
 // agentIDInt parses the tool's decimal agent_id; 0 on malformed input (keys resolve upstream).
@@ -1429,7 +1542,14 @@ func main() {
 			"resolution round-trip — to read the merchant endpoint, settlement router, and chain straight " +
 			"from the token. Probes the merchant for payment requirements (402), signs an ERC-3009 " +
 			"authorization, submits the payment, and waits for the on-chain EscrowDeposited event. " +
-			"Returns escrow_id, tx_hash and settled_product_id. Use the escrow_id with publish_escrow_review afterward. " +
+			"Pass request ({method: GET|POST, body, content_type, query}) for the call you actually want made at " +
+			"the endpoint — what you are paying for. It goes to both the unpaid probe and the paid call, so the " +
+			"quoted price is for that request; omit it to POST \"{}\". " +
+			"Returns escrow_id, tx_hash, settled_product_id and what the merchant served for the payment: " +
+			"response (the product you bought; cut to 64 KB, with response_truncated), response_bytes, " +
+			"content_type, and latency_ms (the paid round trip, including the merchant's settlement). Use the " +
+			"response first: it is the purchase. It also supplies a review's delivered, latency and size fields. " +
+			"Use the escrow_id with publish_escrow_review afterward. " +
 			"One ref link pays for ANY product of the same merchant on the x402 rail: pass product_id " +
 			"(0x bytes32, from get_product / query_registry) to buy a sibling product — its endpoint_url " +
 			"is read from the catalogue and paid with this same token. The merchant's 402 must name that " +
