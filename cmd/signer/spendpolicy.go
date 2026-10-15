@@ -30,11 +30,11 @@ func spendPolicyFromEnv() (spendPolicy, error) {
 	if v := strings.TrimSpace(os.Getenv("MERCHANT_ALLOWLIST")); v != "" {
 		p.merchants = map[string]bool{}
 		for _, raw := range strings.Split(v, ",") {
-			id := strings.TrimSpace(raw)
-			if _, ok := new(big.Int).SetString(id, 10); !ok {
+			n, ok := new(big.Int).SetString(strings.TrimSpace(raw), 10)
+			if !ok {
 				return p, fmt.Errorf("MERCHANT_ALLOWLIST entry %q: want a decimal merchant id", raw)
 			}
-			p.merchants[id] = true
+			p.merchants[n.String()] = true
 		}
 	}
 	return p, nil
@@ -43,7 +43,7 @@ func spendPolicyFromEnv() (spendPolicy, error) {
 // check refuses a purchase the policy does not allow. liveAmount is the merchant's current
 // price, maxAmount the caller's max_amount (may be empty), merchantID from the token.
 func (p spendPolicy) check(liveAmount, maxAmount, merchantID string) error {
-	if len(p.merchants) > 0 && !p.merchants[merchantID] {
+	if len(p.merchants) > 0 && !p.merchants[canonicalDecimal(merchantID)] {
 		return fmt.Errorf("merchant %s is not in MERCHANT_ALLOWLIST", merchantID)
 	}
 	if p.maxPerTx == nil {
@@ -60,4 +60,13 @@ func (p spendPolicy) check(liveAmount, maxAmount, merchantID string) error {
 		return fmt.Errorf("live price %s exceeds MAX_PAYMENT_PER_TX %s", live, p.maxPerTx)
 	}
 	return nil
+}
+
+// canonicalDecimal strips leading zeros so "007" and "7" name the same merchant; a non-numeric
+// input is returned as-is and will simply not match.
+func canonicalDecimal(id string) string {
+	if n, ok := new(big.Int).SetString(strings.TrimSpace(id), 10); ok {
+		return n.String()
+	}
+	return id
 }

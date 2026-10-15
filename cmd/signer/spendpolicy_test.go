@@ -94,3 +94,16 @@ func TestSpendPolicy_MerchantAllowlist(t *testing.T) {
 		t.Fatalf("want allowlist refusal naming the merchant, got %v", err)
 	}
 }
+
+func TestSpendPolicy_MerchantIdsNormalised(t *testing.T) {
+	t.Setenv("MAX_PAYMENT_PER_TX", "")
+	t.Setenv("MERCHANT_ALLOWLIST", "007, 12")
+	p, err := spendPolicyFromEnv()
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The token carries the canonical decimal form; a zero-padded allowlist entry must still match.
+	if err := p.check("1", "", "7"); err != nil {
+		t.Fatalf("allowlist entry 007 must match merchant 7: %v", err)
+	}
+}
