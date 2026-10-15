@@ -28,7 +28,7 @@ const bpsDenom = 10_000
 
 type merchantWrite struct {
 	tool    string // the MCP tool name, for error prefixes
-	addrEnv string
+	addrKey protocolKey
 	abi     abi.ABI
 	method  string
 	reverts revertTable
@@ -50,16 +50,15 @@ func (w merchantWrite) send(
 		return "", "", err
 	}
 
-	contractAddr, err := requireAddr(w.addrEnv)
-	if err != nil {
-		return "", "", err
-	}
-
 	client, chainIDInt, err := dialChain(ctx, chainIDOverride)
 	if err != nil {
 		return "", "", err
 	}
 	defer client.Close()
+	contractAddr, err := resolveAddress(ctx, chainIDInt, w.addrKey)
+	if err != nil {
+		return "", "", err
+	}
 
 	auth, err := bind.NewKeyedTransactorWithChainID(privKey, big.NewInt(chainIDInt))
 	if err != nil {

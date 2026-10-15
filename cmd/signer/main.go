@@ -310,10 +310,13 @@ func (ks *keystore) KeyFor(agentID string) (*ecdsa.PrivateKey, error) {
 var signerKeys *keystore
 
 func handleSign(
-	_ context.Context,
+	ctx context.Context,
 	_ *sdkmcp.CallToolRequest,
 	in signInput,
 ) (*sdkmcp.CallToolResult, signOutput, error) {
+	if err := pinDomain(ctx, in.Commitment.Domain, specReview); err != nil {
+		return nil, signOutput{}, err
+	}
 	privKey, err := signerKeys.KeyFor(in.Commitment.Message.AgentID)
 	if err != nil {
 		return nil, signOutput{}, err
@@ -424,10 +427,13 @@ func computeVoteDigest(p voteCommitmentPayload) ([]byte, error) {
 }
 
 func handleSignVote(
-	_ context.Context,
+	ctx context.Context,
 	_ *sdkmcp.CallToolRequest,
 	in signVoteInput,
 ) (*sdkmcp.CallToolResult, signOutput, error) {
+	if err := pinDomain(ctx, in.Commitment.Domain, specVote); err != nil {
+		return nil, signOutput{}, err
+	}
 	privKey, err := signerKeys.KeyFor(in.Commitment.Message.AgentID)
 	if err != nil {
 		return nil, signOutput{}, err
@@ -545,10 +551,13 @@ func computeCashbackRateDigest(p cashbackRateCommitmentPayload) ([]byte, error) 
 }
 
 func handleSignCashbackRate(
-	_ context.Context,
+	ctx context.Context,
 	_ *sdkmcp.CallToolRequest,
 	in signCashbackRateInput,
 ) (*sdkmcp.CallToolResult, signOutput, error) {
+	if err := pinDomain(ctx, in.Commitment.Domain, specCashbackRate); err != nil {
+		return nil, signOutput{}, err
+	}
 	privKey, err := signerKeys.KeyFor(in.Commitment.Message.AgentID)
 	if err != nil {
 		return nil, signOutput{}, err
@@ -614,16 +623,6 @@ func handlePublishEscrowReview(
 	if err != nil {
 		return nil, publishEscrowReviewOutput{}, err
 	}
-	// Two addresses, and no chain_id input on this tool — hence requireAddr twice and an
-	// empty override, rather than dialChain taking the addresses itself.
-	registryAddr, err := requireAddr("REVIEW_REGISTRY_ADDRESS")
-	if err != nil {
-		return nil, publishEscrowReviewOutput{}, err
-	}
-	escrowAddr, err := requireAddr("COMMISSION_ESCROW_ADDRESS")
-	if err != nil {
-		return nil, publishEscrowReviewOutput{}, err
-	}
 
 	agentID, ok := new(big.Int).SetString(in.AgentID, 10)
 	if !ok {
@@ -651,6 +650,14 @@ func handlePublishEscrowReview(
 		return nil, publishEscrowReviewOutput{}, err
 	}
 	defer client.Close()
+	registryAddr, err := resolveAddress(ctx, chainIDInt, keyReviewRegistry)
+	if err != nil {
+		return nil, publishEscrowReviewOutput{}, err
+	}
+	escrowAddr, err := resolveAddress(ctx, chainIDInt, keyEscrow)
+	if err != nil {
+		return nil, publishEscrowReviewOutput{}, err
+	}
 
 	// Fetch authoritative merchantId/productId from CommissionEscrow.
 	// The contract reads these from the escrow record and stores them in the on-chain Review;
@@ -932,7 +939,10 @@ func handlePayForProduct(
 	if err != nil {
 		return nil, payForProductOutput{}, fmt.Errorf("invalid ref_link: %w", err)
 	}
-	apiBase := parsed.Scheme + "://" + parsed.Host
+	apiBase, err := attestationOrigin(chainIDInt)
+	if err != nil {
+		return nil, payForProductOutput{}, err
+	}
 	parts := strings.SplitN(parsed.Path, "/r/", 2)
 	if len(parts) != 2 || parts[1] == "" {
 		return nil, payForProductOutput{}, fmt.Errorf("ref_link has no /r/<token> path: %s", in.RefLink)
@@ -955,11 +965,7 @@ func handlePayForProduct(
 	// pay targets come straight from the decoded payload — REF-139 drops the backend
 	// GET /r/<token> resolution entirely.
 	//
-	// Trust note: the attestation key is fetched from the ref link's own host. This is
-	// no weaker than the resolution it replaces (which trusted that host's UNSIGNED
-	// response); the signature check is strictly stronger. Pinning the well-known to a
-	// configured trusted origin — so a link on an attacker host can't self-attest — is a
-	// deferred onboarding-trust-model item (decision-edge-reflink-agentless-buy.md, TODO).
+	// Manifest and product lookups go to the pinned origin, never to the link's host (REF-493 C).
 	httpClient := &http.Client{Timeout: 30 * time.Second}
 	// REF-322: the token's kid picks the attestation key; the manifest publishes the set.
 	kid, err := peekTokenKeyID(attributionToken)
@@ -1020,7 +1026,10 @@ func handlePayForProduct(
 	tokenName, _ := requirements.Extra["name"].(string)
 	tokenVersion, _ := requirements.Extra["version"].(string)
 
-	// Refuse before signing if the live price exceeds the owner-confirmed cap (REF-193 A).
+	// Owner policy first (config, REF-493 B), then the caller's own max_amount (REF-193 A).
+	if err := signerSpendPolicy.check(requirements.Amount, in.MaxAmount, tok.MerchantID); err != nil {
+		return nil, payForProductOutput{}, err
+	}
 	if err := enforceMaxAmount(requirements.Amount, in.MaxAmount); err != nil {
 		return nil, payForProductOutput{}, err
 	}
@@ -1265,6 +1274,17 @@ func main() {
 		os.Exit(1)
 	}
 	signerKeys = ks
+
+	policy, err := spendPolicyFromEnv()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "referrer-signer: spend policy:", err)
+		os.Exit(1)
+	}
+	signerSpendPolicy = policy
+
+	if id, err := configuredChainID(); err == nil {
+		warnAddressOverrides(id, os.Stderr)
+	}
 
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name: "sign_review_commitment",

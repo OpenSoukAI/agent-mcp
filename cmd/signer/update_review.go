@@ -133,16 +133,15 @@ func handleUpdateReviewContentOnchain(
 		return nil, updateReviewOnchainOutput{}, err
 	}
 
-	registryAddr, err := requireAddr("REVIEW_REGISTRY_ADDRESS")
-	if err != nil {
-		return nil, updateReviewOnchainOutput{}, err
-	}
-
 	client, chainIDInt, err := dialChain(ctx, in.ChainID)
 	if err != nil {
 		return nil, updateReviewOnchainOutput{}, err
 	}
 	defer client.Close()
+	registryAddr, err := resolveAddress(ctx, chainIDInt, keyReviewRegistry)
+	if err != nil {
+		return nil, updateReviewOnchainOutput{}, err
+	}
 
 	// ── read the review: it supplies BOTH the hash preimage ids and the key to sign with ──
 	callData, err := reviewRegistryABI.Pack("getReview", reviewID)

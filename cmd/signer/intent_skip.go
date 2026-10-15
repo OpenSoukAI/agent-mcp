@@ -93,10 +93,13 @@ func computeIntentSkipDigest(p intentSkipCommitmentPayload) ([]byte, error) {
 }
 
 func handleSignIntentSkip(
-	_ context.Context,
+	ctx context.Context,
 	_ *sdkmcp.CallToolRequest,
 	in signIntentSkipInput,
 ) (*sdkmcp.CallToolResult, signOutput, error) {
+	if err := pinDomain(ctx, in.Commitment.Domain, specIntentSkip); err != nil {
+		return nil, signOutput{}, err
+	}
 	privKey, err := signerKeys.KeyFor(in.Commitment.Message.AgentID)
 	if err != nil {
 		return nil, signOutput{}, err

@@ -6,7 +6,9 @@ set -euo pipefail
 SIGNER_BIN="${SIGNER_INSTALL_PATH:-$HOME/.local/bin/referrer-signer}"
 MCP_URL="${REFERRER_MCP_URL:-http://localhost:8081/mcp}"
 BASE_RPC_URL="${BASE_RPC_URL:-https://sepolia.base.org}"
-PAR_ADDR="${PROTOCOL_ADDRESS_REGISTRY:-0xd1A08383dcC7E74c2F94c94931BdFCff2508137D}"
+# PROTOCOL_ADDRESS_REGISTRY (optional): overrides the signer's built-in registry for CHAIN_ID.
+# The signer resolves every contract address from the registry itself; nothing is looked up here.
+PAR_ADDR="${PROTOCOL_ADDRESS_REGISTRY:-}"
 CHAIN_ID="${CHAIN_ID:-84532}"
 # AGENT_KEYS (optional): comma-separated agentId:0xprivkey pairs to sign as multiple agents
 #   in one signer process, e.g. AGENT_KEYS="12:0xabc...,34:0xdef..." (reviewer 12 + buyer 34).
@@ -37,37 +39,7 @@ if [ -z "$AGENT_KEYS" ]; then
   fi
 fi
 
-# ── 3. Resolve ReviewRegistry address from ProtocolAddressRegistry ────────────
-echo "Resolving ReviewRegistry address from PAR ($PAR_ADDR)..."
-if ! command -v cast &>/dev/null; then
-  echo "ERROR: 'cast' (Foundry) is required to resolve contract addresses. Install from https://getfoundry.sh"
-  exit 1
-fi
-
-REVIEW_REGISTRY_KEY=$(cast keccak "REVIEW_REGISTRY")
-REVIEW_REGISTRY_ADDRESS=$(cast call --rpc-url "$BASE_RPC_URL" "$PAR_ADDR" \
-  "getAddress(bytes32)(address)" "$REVIEW_REGISTRY_KEY")
-
-if [ "$REVIEW_REGISTRY_ADDRESS" = "0x0000000000000000000000000000000000000000" ]; then
-  echo "ERROR: ReviewRegistry address is zero in PAR. Has it been deployed and registered?"
-  exit 1
-fi
-echo "  → REVIEW_REGISTRY_ADDRESS=$REVIEW_REGISTRY_ADDRESS"
-
-# ── 3b. Resolve CommissionEscrow address from ProtocolAddressRegistry ─────────
-# PAR key is "ESCROW" (see ProtocolAddressRegistry.sol), not "COMMISSION_ESCROW".
-echo "Resolving CommissionEscrow address from PAR ($PAR_ADDR)..."
-ESCROW_KEY=$(cast keccak "ESCROW")
-COMMISSION_ESCROW_ADDRESS=$(cast call --rpc-url "$BASE_RPC_URL" "$PAR_ADDR" \
-  "getAddress(bytes32)(address)" "$ESCROW_KEY")
-
-if [ "$COMMISSION_ESCROW_ADDRESS" = "0x0000000000000000000000000000000000000000" ]; then
-  echo "ERROR: CommissionEscrow address is zero in PAR. Has it been deployed and registered?"
-  exit 1
-fi
-echo "  → COMMISSION_ESCROW_ADDRESS=$COMMISSION_ESCROW_ADDRESS"
-
-# ── 4. Register MCP servers via claude CLI ─────────────────────────────────────
+# ── 3. Register MCP servers via claude CLI ─────────────────────────────────────
 echo "Registering MCP servers..."
 
 # Remove first so re-runs are idempotent.
@@ -77,7 +49,10 @@ claude mcp remove --scope user referrer-signer 2>/dev/null || true
 claude mcp add --scope user --transport http referrer-agent "$MCP_URL"
 echo "  → referrer-agent ($MCP_URL)"
 
-SIGNER_ENV=(-e "BASE_RPC_URL=$BASE_RPC_URL" -e "REVIEW_REGISTRY_ADDRESS=$REVIEW_REGISTRY_ADDRESS" -e "COMMISSION_ESCROW_ADDRESS=$COMMISSION_ESCROW_ADDRESS" -e "CHAIN_ID=$CHAIN_ID")
+SIGNER_ENV=(-e "BASE_RPC_URL=$BASE_RPC_URL" -e "CHAIN_ID=$CHAIN_ID")
+if [ -n "$PAR_ADDR" ]; then
+  SIGNER_ENV+=(-e "PROTOCOL_ADDRESS_REGISTRY=$PAR_ADDR")
+fi
 if [ -n "$AGENT_KEYS" ]; then
   SIGNER_ENV+=(-e "AGENT_KEYS=$AGENT_KEYS")
   echo "  → referrer-signer ($SIGNER_BIN) [multi-key: AGENT_KEYS]"
@@ -93,8 +68,6 @@ echo ""
 echo "Done. Two MCP servers registered (user scope — available in all projects):"
 echo "  referrer-agent  (remote: $MCP_URL)"
 echo "  referrer-signer (local:  $SIGNER_BIN)"
-echo "    REVIEW_REGISTRY_ADDRESS=$REVIEW_REGISTRY_ADDRESS"
-echo "    COMMISSION_ESCROW_ADDRESS=$COMMISSION_ESCROW_ADDRESS"
 echo "    CHAIN_ID=$CHAIN_ID"
 echo ""
 echo "Verify with: claude mcp list"

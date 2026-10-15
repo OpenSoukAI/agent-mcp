@@ -78,7 +78,7 @@ func handleActivateMerchant(
 	} else {
 		w := merchantWrite{
 			tool:    "activate_merchant",
-			addrEnv: "MERCHANT_REGISTRY_ADDRESS",
+			addrKey: keyMerchantRegistry,
 			abi:     merchantRegistryABI,
 			method:  "setActive",
 			reverts: setMerchantActiveRevertTable,
@@ -164,16 +164,16 @@ func syncFailedAfterChain(txHash string, err error) error {
 
 // readMerchantActive calls MerchantRegistry.isActive.
 func readMerchantActive(ctx context.Context, merchantID *big.Int, chainIDOverride string) (bool, error) {
-	addr, err := requireAddr("MERCHANT_REGISTRY_ADDRESS")
-	if err != nil {
-		return false, err
-	}
 
-	client, _, err := dialChain(ctx, chainIDOverride)
+	client, chainIDInt, err := dialChain(ctx, chainIDOverride)
 	if err != nil {
 		return false, err
 	}
 	defer client.Close()
+	addr, err := resolveAddress(ctx, chainIDInt, keyMerchantRegistry)
+	if err != nil {
+		return false, err
+	}
 
 	var out []any
 	contract := bind.NewBoundContract(addr, merchantRegistryABI, client, client, client)

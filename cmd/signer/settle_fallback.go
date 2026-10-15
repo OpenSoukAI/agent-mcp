@@ -167,16 +167,15 @@ func handleTriggerSettleFallback(
 		return nil, settleFallbackOutput{}, err
 	}
 
-	escrowAddr, err := requireAddr("COMMISSION_ESCROW_ADDRESS")
-	if err != nil {
-		return nil, settleFallbackOutput{}, err
-	}
-
 	client, chainIDInt, err := dialChain(ctx, in.ChainID)
 	if err != nil {
 		return nil, settleFallbackOutput{}, err
 	}
 	defer client.Close()
+	escrowAddr, err := resolveAddress(ctx, chainIDInt, keyEscrow)
+	if err != nil {
+		return nil, settleFallbackOutput{}, err
+	}
 
 	// ── preflight: explain the two common refusals before paying for a tx ──────
 	callData, err := commissionEscrowABI.Pack("getEscrow", escrowID)

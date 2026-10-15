@@ -96,10 +96,13 @@ func computeTelegramLinkDigest(p telegramLinkCommitmentPayload) ([]byte, error) 
 }
 
 func handleSignTelegramLink(
-	_ context.Context,
+	ctx context.Context,
 	_ *sdkmcp.CallToolRequest,
 	in signTelegramLinkInput,
 ) (*sdkmcp.CallToolResult, signOutput, error) {
+	if err := pinDomain(ctx, in.Commitment.Domain, specTelegramLink); err != nil {
+		return nil, signOutput{}, err
+	}
 	privKey, err := signerKeys.KeyFor(in.Commitment.Message.AgentID)
 	if err != nil {
 		return nil, signOutput{}, err
