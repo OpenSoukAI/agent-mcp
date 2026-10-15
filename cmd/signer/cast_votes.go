@@ -2,14 +2,13 @@ package main
 
 import (
 	"context"
-	"crypto/ecdsa"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
 
-	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/ethereum/go-ethereum/common"
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -28,7 +27,7 @@ var voteRetryDelay = 3 * time.Second
 // castVotesViaBackend drives the backend's cast_review_votes two-step as an MCP client:
 // step 1 (get commitment) → sign locally with the buyer key → step 2 (record), retrying
 // step 2 while the escrow is not yet indexed. Returns the number of votes recorded.
-func castVotesViaBackend(ctx context.Context, mcpURL string, agentID, escrowID int64, votes []voteArg, priv *ecdsa.PrivateKey) (int, error) {
+func castVotesViaBackend(ctx context.Context, mcpURL string, agentID, escrowID int64, votes []voteArg, priv Signer) (int, error) {
 	var transport sdkmcp.Transport = testVoteTransport
 	if transport == nil {
 		if mcpURL == "" {
@@ -63,7 +62,7 @@ func castVotesViaBackend(ctx context.Context, mcpURL string, agentID, escrowID i
 	if err != nil {
 		return 0, fmt.Errorf("compute vote digest: %w", err)
 	}
-	sig, err := crypto.Sign(digest, priv)
+	sig, err := priv.SignDigest(ctx, common.BytesToHash(digest))
 	if err != nil {
 		return 0, fmt.Errorf("sign vote commitment: %w", err)
 	}

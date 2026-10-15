@@ -103,7 +103,7 @@ func merchantKeyAddr(t *testing.T, merchantID string) string {
 	if err != nil {
 		t.Fatalf("KeyFor: %v", err)
 	}
-	return crypto.PubkeyToAddress(key.PublicKey).Hex()
+	return key.Address().Hex()
 }
 
 func TestSetMerchantProfile_RequestShape(t *testing.T) {

@@ -100,7 +100,7 @@ func handleSignIntentMark(
 	if err := pinDomain(ctx, in.Commitment.Domain, specIntentMark); err != nil {
 		return nil, signOutput{}, err
 	}
-	privKey, err := signerKeys.KeyFor(in.Commitment.Message.AgentID)
+	keySigner, err := signerKeys.KeyFor(in.Commitment.Message.AgentID)
 	if err != nil {
 		return nil, signOutput{}, err
 	}
@@ -108,7 +108,7 @@ func handleSignIntentMark(
 	if err != nil {
 		return nil, signOutput{}, fmt.Errorf("compute digest: %w", err)
 	}
-	sig, err := crypto.Sign(digest, privKey)
+	sig, err := keySigner.SignDigest(ctx, common.BytesToHash(digest))
 	if err != nil {
 		return nil, signOutput{}, fmt.Errorf("sign: %w", err)
 	}

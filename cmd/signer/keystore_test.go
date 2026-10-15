@@ -1,8 +1,10 @@
 package main
 
 import (
+	"context"
 	"testing"
 
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
 )
 
@@ -21,11 +23,11 @@ func TestParseKeystore_MultiKeyExactMatch(t *testing.T) {
 		t.Fatal(err)
 	}
 	k9, _ := ks.KeyFor("9")
-	if crypto.PubkeyToAddress(k5.PublicKey) == crypto.PubkeyToAddress(k9.PublicKey) {
+	if k5.Address() == k9.Address() {
 		t.Fatal("agent 5 and 9 must resolve to distinct keys")
 	}
 	wantA, _ := crypto.HexToECDSA(keyA)
-	if crypto.PubkeyToAddress(k5.PublicKey) != crypto.PubkeyToAddress(wantA.PublicKey) {
+	if k5.Address() != crypto.PubkeyToAddress(wantA.PublicKey) {
 		t.Fatal("agent 5 resolved to wrong key")
 	}
 }
@@ -40,7 +42,7 @@ func TestParseKeystore_SingleKeyFallback(t *testing.T) {
 		t.Fatal(err)
 	}
 	k999, _ := ks.KeyFor("999")
-	if crypto.PubkeyToAddress(k1.PublicKey) != crypto.PubkeyToAddress(k999.PublicKey) {
+	if k1.Address() != k999.Address() {
 		t.Fatal("fallback must serve every agent id")
 	}
 }
@@ -52,7 +54,7 @@ func TestParseKeystore_AgentKeysMissThenFallback(t *testing.T) {
 		t.Fatal(err)
 	}
 	wantB, _ := crypto.HexToECDSA(keyB)
-	if crypto.PubkeyToAddress(got.PublicKey) != crypto.PubkeyToAddress(wantB.PublicKey) {
+	if got.Address() != crypto.PubkeyToAddress(wantB.PublicKey) {
 		t.Fatal("miss must fall back to AGENT_PRIVATE_KEY")
 	}
 }
@@ -92,7 +94,7 @@ func TestKeystore_MultiAgentSignaturesRecoverDistinct(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		sig, err := crypto.Sign(digest, k)
+		sig, err := k.SignDigest(context.Background(), common.BytesToHash(digest))
 		if err != nil {
 			t.Fatal(err)
 		}

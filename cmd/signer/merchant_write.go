@@ -10,7 +10,6 @@ import (
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/core/types"
-	"github.com/ethereum/go-ethereum/crypto"
 )
 
 // ── Merchant-side contract writes ───────────────────────────────────────────────
@@ -45,7 +44,7 @@ func (w merchantWrite) send(
 	chainIDOverride string,
 	args ...any,
 ) (txHash string, from string, err error) {
-	privKey, err := signerKeys.KeyFor(merchantID.String())
+	keySigner, err := signerKeys.KeyFor(merchantID.String())
 	if err != nil {
 		return "", "", err
 	}
@@ -60,10 +59,7 @@ func (w merchantWrite) send(
 		return "", "", err
 	}
 
-	auth, err := bind.NewKeyedTransactorWithChainID(privKey, big.NewInt(chainIDInt))
-	if err != nil {
-		return "", "", fmt.Errorf("build transactor: %w", err)
-	}
+	auth := transactOpts(ctx, keySigner, big.NewInt(chainIDInt))
 
 	contract := bind.NewBoundContract(contractAddr, w.abi, client, client, client)
 
@@ -83,7 +79,7 @@ func (w merchantWrite) send(
 		return "", "", fmt.Errorf("%s tx reverted: %s (%s)", w.tool, tx.Hash().Hex(), w.advice)
 	}
 
-	return tx.Hash().Hex(), crypto.PubkeyToAddress(privKey.PublicKey).Hex(), nil
+	return tx.Hash().Hex(), keySigner.Address().Hex(), nil
 }
 
 // parseMerchantID accepts the decimal ERC-8004 agentId that identifies the merchant.

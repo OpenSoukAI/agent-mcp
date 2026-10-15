@@ -69,7 +69,7 @@ func TestAgentAuthSignature_GoldenVectors(t *testing.T) {
 				t.Errorf("payloadHash = %s, want %s", got, tc.wantHash)
 			}
 
-			sig, err := agentAuthSignature(tc.body, goldenAuthTS, key)
+			sig, err := agentAuthSignature(context.Background(), tc.body, goldenAuthTS, newLocalSigner(key))
 			if err != nil {
 				t.Fatalf("agentAuthSignature: %v", err)
 			}
@@ -104,11 +104,11 @@ func TestAgentAuthPayloadHash_TimestampIsBigEndian(t *testing.T) {
 func TestAgentAuthSignature_TimestampIsSigned(t *testing.T) {
 	key := goldenKey(t)
 
-	first, err := agentAuthSignature([]byte(goldenAuthBody), goldenAuthTS, key)
+	first, err := agentAuthSignature(context.Background(), []byte(goldenAuthBody), goldenAuthTS, newLocalSigner(key))
 	if err != nil {
 		t.Fatalf("agentAuthSignature: %v", err)
 	}
-	second, err := agentAuthSignature([]byte(goldenAuthBody), goldenAuthTS+1, key)
+	second, err := agentAuthSignature(context.Background(), []byte(goldenAuthBody), goldenAuthTS+1, newLocalSigner(key))
 	if err != nil {
 		t.Fatalf("agentAuthSignature: %v", err)
 	}
@@ -119,7 +119,7 @@ func TestAgentAuthSignature_TimestampIsSigned(t *testing.T) {
 }
 
 func TestAgentAuthSignature_NoKey(t *testing.T) {
-	if _, err := agentAuthSignature([]byte(goldenAuthBody), goldenAuthTS, nil); err == nil {
+	if _, err := agentAuthSignature(context.Background(), []byte(goldenAuthBody), goldenAuthTS, nil); err == nil {
 		t.Fatal("want an error when no signing key is configured, got nil")
 	}
 }
@@ -135,7 +135,7 @@ func TestNewAuthedRequest_HeadersAreRecoverable(t *testing.T) {
 	before := time.Now().Unix()
 
 	req, err := newAuthedRequest(context.Background(), http.MethodPost,
-		"http://localhost:8080/v1/merchant/profile", []byte(goldenAuthBody), key)
+		"http://localhost:8080/v1/merchant/profile", []byte(goldenAuthBody), newLocalSigner(key))
 	if err != nil {
 		t.Fatalf("newAuthedRequest: %v", err)
 	}
@@ -178,7 +178,7 @@ func TestNewAuthedRequest_HeadersAreRecoverable(t *testing.T) {
 // sides while the backend, which hardcodes these two strings, silently 401s.
 func TestNewAuthedRequest_WireHeaderNames(t *testing.T) {
 	req, err := newAuthedRequest(context.Background(), http.MethodPost,
-		"http://localhost:8080/v1/merchant/profile", []byte(goldenAuthBody), goldenKey(t))
+		"http://localhost:8080/v1/merchant/profile", []byte(goldenAuthBody), newLocalSigner(goldenKey(t)))
 	if err != nil {
 		t.Fatalf("newAuthedRequest: %v", err)
 	}
@@ -196,7 +196,7 @@ func TestNewAuthedRequest_EmptyBodyIsSigned(t *testing.T) {
 	key := goldenKey(t)
 
 	req, err := newAuthedRequest(context.Background(), http.MethodGet,
-		"http://localhost:8080/v1/merchant/4/stats", nil, key)
+		"http://localhost:8080/v1/merchant/4/stats", nil, newLocalSigner(key))
 	if err != nil {
 		t.Fatalf("newAuthedRequest: %v", err)
 	}
@@ -353,7 +353,7 @@ func TestNewAuthedRequest_RepeatedCallsDoNotReplay(t *testing.T) {
 
 	for i := 0; i < 5; i++ {
 		req, err := newAuthedRequest(context.Background(), http.MethodGet,
-			"http://localhost:8080/v1/merchant/4/stats", nil, key)
+			"http://localhost:8080/v1/merchant/4/stats", nil, newLocalSigner(key))
 		if err != nil {
 			t.Fatalf("request %d: %v", i, err)
 		}

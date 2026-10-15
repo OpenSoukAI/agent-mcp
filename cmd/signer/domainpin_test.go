@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"crypto/ecdsa"
 	"strings"
 	"testing"
 )
@@ -23,7 +22,7 @@ func pinEnv(t *testing.T) {
 	// An empty keystore, so a handler that reaches the key lookup fails by assertion
 	// ("no key for agent") rather than by a nil-receiver panic.
 	prev := signerKeys
-	signerKeys = &keystore{keys: map[string]*ecdsa.PrivateKey{}}
+	signerKeys = &keystore{keys: map[string]Signer{}}
 	t.Cleanup(func() { signerKeys = prev })
 }
 

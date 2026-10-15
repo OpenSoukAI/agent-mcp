@@ -12,7 +12,6 @@ import (
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
-	"github.com/ethereum/go-ethereum/crypto"
 
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -162,7 +161,7 @@ func handleTriggerSettleFallback(
 		return nil, settleFallbackOutput{}, err
 	}
 
-	privKey, err := signerKeys.KeyFor(agentID.String())
+	keySigner, err := signerKeys.KeyFor(agentID.String())
 	if err != nil {
 		return nil, settleFallbackOutput{}, err
 	}
@@ -225,10 +224,7 @@ func handleTriggerSettleFallback(
 	}
 
 	// ── send ───────────────────────────────────────────────────────────────────
-	auth, err := bind.NewKeyedTransactorWithChainID(privKey, big.NewInt(chainIDInt))
-	if err != nil {
-		return nil, settleFallbackOutput{}, fmt.Errorf("build transactor: %w", err)
-	}
+	auth := transactOpts(ctx, keySigner, big.NewInt(chainIDInt))
 	contract := bind.NewBoundContract(escrowAddr, commissionEscrowABI, client, client, client)
 
 	tx, err := contract.Transact(auth, "triggerSettleFallback", escrowID)
@@ -250,7 +246,7 @@ func handleTriggerSettleFallback(
 	out := settleFallbackOutput{
 		TxHash:    tx.Hash().Hex(),
 		EscrowID:  escrowID.String(),
-		SettledBy: crypto.PubkeyToAddress(privKey.PublicKey).Hex(),
+		SettledBy: keySigner.Address().Hex(),
 	}
 	decodeFallbackReceipt(&out, receipt.Logs, escrowAddr)
 	return nil, out, nil
