@@ -1029,7 +1029,10 @@ func handlePayForProduct(
 	tokenName, _ := requirements.Extra["name"].(string)
 	tokenVersion, _ := requirements.Extra["version"].(string)
 
-	// Refuse before signing if the live price exceeds the owner-confirmed cap (REF-193 A).
+	// Owner policy first (config, REF-493 B), then the caller's own max_amount (REF-193 A).
+	if err := signerSpendPolicy.check(requirements.Amount, in.MaxAmount, tok.MerchantID); err != nil {
+		return nil, payForProductOutput{}, err
+	}
 	if err := enforceMaxAmount(requirements.Amount, in.MaxAmount); err != nil {
 		return nil, payForProductOutput{}, err
 	}
@@ -1274,6 +1277,13 @@ func main() {
 		os.Exit(1)
 	}
 	signerKeys = ks
+
+	policy, err := spendPolicyFromEnv()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "referrer-signer: spend policy:", err)
+		os.Exit(1)
+	}
+	signerSpendPolicy = policy
 
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name: "sign_review_commitment",

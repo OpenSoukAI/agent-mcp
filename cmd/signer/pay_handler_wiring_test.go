@@ -355,3 +355,28 @@ func TestPayForProduct_AgentBoundNextStepsUnchanged(t *testing.T) {
 		t.Fatalf("agent-bound next_steps changed:\n%s", out.NextSteps)
 	}
 }
+
+// TestPayForProduct_ConfigCapRefusesBeforeSigning drives the real handler: with the owner's cap
+// below the merchant's live price (1_000_000 in the fixture), the purchase is refused and the
+// merchant's paid endpoint is never called. Deleting the policy call leaves the unit tests green
+// with the cap dead, which is what this test is for.
+func TestPayForProduct_ConfigCapRefusesBeforeSigning(t *testing.T) {
+	refLink, log := payTestEnvWith(t, merchantOpts{paymentStatus: http.StatusOK, paymentBody: `{}`})
+	orig := signerSpendPolicy
+	signerSpendPolicy = spendPolicy{maxPerTx: big.NewInt(999_999)}
+	t.Cleanup(func() { signerSpendPolicy = orig })
+
+	_, out, err := handlePayForProduct(context.Background(), nil, payForProductInput{
+		RefLink:   refLink,
+		AgentID:   "12",
+		MaxAmount: "1000000",
+	})
+	if err == nil || !strings.Contains(err.Error(), "MAX_PAYMENT_PER_TX") {
+		t.Fatalf("want a cap refusal naming MAX_PAYMENT_PER_TX, got err=%v out=%+v", err, out)
+	}
+	for _, r := range log.all() {
+		if r.paid {
+			t.Fatalf("the paid request reached the merchant after a cap refusal: %+v", r)
+		}
+	}
+}
