@@ -96,10 +96,13 @@ func computeIntentAccessDigest(p intentAccessCommitmentPayload) ([]byte, error) 
 }
 
 func handleSignIntentAccess(
-	_ context.Context,
+	ctx context.Context,
 	_ *sdkmcp.CallToolRequest,
 	in signIntentAccessInput,
 ) (*sdkmcp.CallToolResult, signOutput, error) {
+	if err := pinDomain(ctx, in.Commitment.Domain, specIntentAccess); err != nil {
+		return nil, signOutput{}, err
+	}
 	privKey, err := signerKeys.KeyFor(in.Commitment.Message.AgentID)
 	if err != nil {
 		return nil, signOutput{}, err

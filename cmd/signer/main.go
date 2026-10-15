@@ -310,10 +310,13 @@ func (ks *keystore) KeyFor(agentID string) (*ecdsa.PrivateKey, error) {
 var signerKeys *keystore
 
 func handleSign(
-	_ context.Context,
+	ctx context.Context,
 	_ *sdkmcp.CallToolRequest,
 	in signInput,
 ) (*sdkmcp.CallToolResult, signOutput, error) {
+	if err := pinDomain(ctx, in.Commitment.Domain, specReview); err != nil {
+		return nil, signOutput{}, err
+	}
 	privKey, err := signerKeys.KeyFor(in.Commitment.Message.AgentID)
 	if err != nil {
 		return nil, signOutput{}, err
@@ -424,10 +427,13 @@ func computeVoteDigest(p voteCommitmentPayload) ([]byte, error) {
 }
 
 func handleSignVote(
-	_ context.Context,
+	ctx context.Context,
 	_ *sdkmcp.CallToolRequest,
 	in signVoteInput,
 ) (*sdkmcp.CallToolResult, signOutput, error) {
+	if err := pinDomain(ctx, in.Commitment.Domain, specVote); err != nil {
+		return nil, signOutput{}, err
+	}
 	privKey, err := signerKeys.KeyFor(in.Commitment.Message.AgentID)
 	if err != nil {
 		return nil, signOutput{}, err
@@ -545,10 +551,13 @@ func computeCashbackRateDigest(p cashbackRateCommitmentPayload) ([]byte, error) 
 }
 
 func handleSignCashbackRate(
-	_ context.Context,
+	ctx context.Context,
 	_ *sdkmcp.CallToolRequest,
 	in signCashbackRateInput,
 ) (*sdkmcp.CallToolResult, signOutput, error) {
+	if err := pinDomain(ctx, in.Commitment.Domain, specCashbackRate); err != nil {
+		return nil, signOutput{}, err
+	}
 	privKey, err := signerKeys.KeyFor(in.Commitment.Message.AgentID)
 	if err != nil {
 		return nil, signOutput{}, err

@@ -65,7 +65,7 @@ func computeChargeDigest(payer common.Address, paymentRef [32]byte, buyerAgentID
 // is both the transfer sender and the agent owner; POST /mpp/charge recovers this signature and
 // requires it == the on-chain transfer sender (REF-91).
 func handleSignCharge(
-	_ context.Context,
+	ctx context.Context,
 	_ *sdkmcp.CallToolRequest,
 	in signChargeInput,
 ) (*sdkmcp.CallToolResult, signOutput, error) {
@@ -86,6 +86,11 @@ func handleSignCharge(
 				"If you're passing the old field name 'splitRouterMppAddr', rename it to 'splitRouterAddr'.")
 	}
 
+	if err := pinDomain(ctx, commitmentDomain{
+		Name: chargeDomainName, Version: "1", ChainID: in.ChainID, VerifyingContract: in.SplitRouterAddr,
+	}, specCharge); err != nil {
+		return nil, signOutput{}, err
+	}
 	privKey, err := signerKeys.KeyFor(in.BuyerAgentID)
 	if err != nil {
 		return nil, signOutput{}, err

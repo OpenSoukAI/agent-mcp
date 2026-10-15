@@ -39,6 +39,9 @@ func TestTelegramLinkTypeString_MatchesBackend(t *testing.T) {
 // digest, proving the produced 65-byte sig is valid over computeTelegramLinkDigest and
 // that the v-byte is normalized to 27/28.
 func TestSignTelegramLink_RoundTrip(t *testing.T) {
+	t.Setenv("CHAIN_ID", "84532")
+	t.Setenv("REVIEW_REGISTRY_ADDRESS", "0x000000000000000000000000000000000000aBcD")
+	resetAddressCache()
 	key, err := crypto.GenerateKey()
 	if err != nil {
 		t.Fatalf("genkey: %v", err)

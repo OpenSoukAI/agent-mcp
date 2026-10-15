@@ -68,6 +68,9 @@ func TestComputeVoteDigestRoundTrip(t *testing.T) {
 // 65-byte hex signature and that stripping the +27 offset recovers the correct
 // signer address — mirroring what RecoverVoteEIP712Signer does in the backend.
 func TestHandleSignVoteOutput(t *testing.T) {
+	t.Setenv("CHAIN_ID", "84532")
+	t.Setenv("REVIEW_REGISTRY_ADDRESS", "0xDeaDbeefdEAdbeefdEadbEEFdeadbeEFdEaDbeeF")
+	resetAddressCache()
 	const testKeyHex = "ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
 	privKey, err := crypto.HexToECDSA(testKeyHex)
 	if err != nil {

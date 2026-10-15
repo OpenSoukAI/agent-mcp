@@ -34,6 +34,9 @@ func TestIntentSkipTypeString_MatchesBackend(t *testing.T) {
 }
 
 func TestSignIntentSkip_RoundTrip(t *testing.T) {
+	t.Setenv("CHAIN_ID", "84532")
+	t.Setenv("REVIEW_REGISTRY_ADDRESS", "0x000000000000000000000000000000000000aBcD")
+	resetAddressCache()
 	key, err := crypto.GenerateKey()
 	if err != nil {
 		t.Fatalf("genkey: %v", err)
