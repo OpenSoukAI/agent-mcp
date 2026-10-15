@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"crypto/ed25519"
+	"crypto/rand"
 	"encoding/json"
 	"io"
 	"math/big"
@@ -10,6 +11,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -125,6 +127,7 @@ func payTestEnvWith(t *testing.T, opts merchantOpts) (string, *requestLog) {
 
 	t.Setenv("BASE_RPC_URL", srv.URL+"/rpc")
 	t.Setenv("CHAIN_ID", "84532")
+	t.Setenv("ATTESTATION_ORIGIN", srv.URL)
 
 	key, err := crypto.GenerateKey()
 	if err != nil {
@@ -378,5 +381,69 @@ func TestPayForProduct_ConfigCapRefusesBeforeSigning(t *testing.T) {
 		if r.paid {
 			t.Fatalf("the paid request reached the merchant after a cap refusal: %+v", r)
 		}
+	}
+}
+
+// TestPayForProduct_ManifestFromOriginOnly: the attestation key comes from ATTESTATION_ORIGIN,
+// never from the ref link's host. An attacker host that publishes its own key and signs its own
+// token must be refused on signature, with its manifest never fetched (REF-493 C).
+func TestPayForProduct_ManifestFromOriginOnly(t *testing.T) {
+	realPub, _, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	attackerPub, attackerPriv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var originHits, attackerHits atomic.Int32
+	origin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/.well-known/opensouk" {
+			originHits.Add(1)
+			_, _ = w.Write([]byte(`{"attestationPubKey":"` + hexKey(realPub) + `"}`))
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	t.Cleanup(origin.Close)
+	attacker := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/.well-known/opensouk" {
+			attackerHits.Add(1)
+			_, _ = w.Write([]byte(`{"attestationPubKey":"` + hexKey(attackerPub) + `"}`))
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	t.Cleanup(attacker.Close)
+
+	t.Setenv("ATTESTATION_ORIGIN", origin.URL)
+	t.Setenv("BASE_RPC_URL", origin.URL+"/rpc") // read before the link is parsed; never dialed here
+	t.Setenv("CHAIN_ID", "84532")
+	pubKeyCacheMu.Lock()
+	pubKeyCache = map[string]string{}
+	pubKeySetCache = map[string]map[uint8]string{}
+	pubKeyCacheMu.Unlock()
+
+	signerKey, err := crypto.GenerateKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	prev := signerKeys
+	signerKeys = &keystore{fallback: signerKey}
+	t.Cleanup(func() { signerKeys = prev })
+
+	tok := validTestToken()
+	tok.MerchantEndpoint = attacker.URL + "/buy"
+	refLink := attacker.URL + "/r/" + signTestToken(t, attackerPriv, tok)
+
+	_, _, err = handlePayForProduct(context.Background(), nil, payForProductInput{RefLink: refLink, AgentID: "12"})
+	if err == nil || !strings.Contains(err.Error(), "attribution token signature invalid") {
+		t.Fatalf("want signature refusal against the pinned origin's key, got %v", err)
+	}
+	if n := attackerHits.Load(); n != 0 {
+		t.Fatalf("the link host's manifest was fetched %d time(s); it must never be", n)
+	}
+	if n := originHits.Load(); n != 1 {
+		t.Fatalf("pinned origin manifest fetched %d time(s), want 1", n)
 	}
 }

@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -136,4 +137,28 @@ func parGetAddress(ctx context.Context, chainID int64, par common.Address, key p
 		return common.Address{}, fmt.Errorf("decode getAddress(%s): %w", key, err)
 	}
 	return addr, nil
+}
+
+// defaultAttestationOrigin is where this build fetches /.well-known/opensouk per chain.
+// Base mainnet only; testnet and local stacks set ATTESTATION_ORIGIN.
+var defaultAttestationOrigin = map[int64]string{
+	8453: "https://api.opensouk.ai",
+}
+
+// attestationOrigin is the only origin pay_for_product fetches the manifest and product
+// lookups from. A token on any other host is still verified against this origin's key.
+func attestationOrigin(chainID int64) (string, error) {
+	v := strings.TrimRight(strings.TrimSpace(os.Getenv("ATTESTATION_ORIGIN")), "/")
+	if v == "" {
+		d, ok := defaultAttestationOrigin[chainID]
+		if !ok {
+			return "", fmt.Errorf("chain %d has no built-in attestation origin: set ATTESTATION_ORIGIN to the OpenSouk API origin (scheme://host)", chainID)
+		}
+		return d, nil
+	}
+	u, err := url.Parse(v)
+	if err != nil || u.Scheme == "" || u.Host == "" || u.Path != "" {
+		return "", fmt.Errorf("ATTESTATION_ORIGIN %q: want scheme://host with no path", v)
+	}
+	return v, nil
 }

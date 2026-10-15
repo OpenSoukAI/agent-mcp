@@ -223,6 +223,7 @@ func crossProductEnv(t *testing.T, asserted string) (string, func() []string) {
 	tok.MerchantEndpoint = srv.URL + "/buy"
 	t.Setenv("BASE_RPC_URL", srv.URL+"/rpc")
 	t.Setenv("CHAIN_ID", "84532")
+	t.Setenv("ATTESTATION_ORIGIN", srv.URL)
 	key, err := crypto.GenerateKey()
 	if err != nil {
 		t.Fatal(err)

@@ -941,7 +941,10 @@ func handlePayForProduct(
 	if err != nil {
 		return nil, payForProductOutput{}, fmt.Errorf("invalid ref_link: %w", err)
 	}
-	apiBase := parsed.Scheme + "://" + parsed.Host
+	apiBase, err := attestationOrigin(chainIDInt)
+	if err != nil {
+		return nil, payForProductOutput{}, err
+	}
 	parts := strings.SplitN(parsed.Path, "/r/", 2)
 	if len(parts) != 2 || parts[1] == "" {
 		return nil, payForProductOutput{}, fmt.Errorf("ref_link has no /r/<token> path: %s", in.RefLink)
@@ -964,11 +967,7 @@ func handlePayForProduct(
 	// pay targets come straight from the decoded payload — REF-139 drops the backend
 	// GET /r/<token> resolution entirely.
 	//
-	// Trust note: the attestation key is fetched from the ref link's own host. This is
-	// no weaker than the resolution it replaces (which trusted that host's UNSIGNED
-	// response); the signature check is strictly stronger. Pinning the well-known to a
-	// configured trusted origin — so a link on an attacker host can't self-attest — is a
-	// deferred onboarding-trust-model item (decision-edge-reflink-agentless-buy.md, TODO).
+	// Manifest and product lookups go to the pinned origin, never to the link's host (REF-493 C).
 	httpClient := &http.Client{Timeout: 30 * time.Second}
 	// REF-322: the token's kid picks the attestation key; the manifest publishes the set.
 	kid, err := peekTokenKeyID(attributionToken)

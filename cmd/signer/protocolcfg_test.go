@@ -152,3 +152,34 @@ func TestResolveAddress_PARZeroIsError(t *testing.T) {
 		t.Fatalf("want error naming the key, got %v", err)
 	}
 }
+
+func TestAttestationOrigin_EnvWins(t *testing.T) {
+	t.Setenv("ATTESTATION_ORIGIN", "https://api.example.test/")
+	got, err := attestationOrigin(84532)
+	if err != nil || got != "https://api.example.test" {
+		t.Fatalf("got %q, %v", got, err)
+	}
+}
+
+func TestAttestationOrigin_MainnetDefault(t *testing.T) {
+	t.Setenv("ATTESTATION_ORIGIN", "")
+	got, err := attestationOrigin(8453)
+	if err != nil || got != "https://api.opensouk.ai" {
+		t.Fatalf("got %q, %v", got, err)
+	}
+}
+
+func TestAttestationOrigin_UnknownChainNeedsEnv(t *testing.T) {
+	t.Setenv("ATTESTATION_ORIGIN", "")
+	_, err := attestationOrigin(31337)
+	if err == nil || !strings.Contains(err.Error(), "ATTESTATION_ORIGIN") {
+		t.Fatalf("want error naming the env var, got %v", err)
+	}
+}
+
+func TestAttestationOrigin_RejectsBareHost(t *testing.T) {
+	t.Setenv("ATTESTATION_ORIGIN", "api.example.test")
+	if _, err := attestationOrigin(84532); err == nil {
+		t.Fatal("want error: origin needs a scheme")
+	}
+}
