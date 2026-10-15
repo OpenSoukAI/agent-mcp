@@ -1,0 +1,87 @@
+# Cuts a signer release (REF-494): tags main, builds referrer-signer for each platform, and
+# publishes the binaries with a SHA256SUMS file and a GitHub build-provenance attestation.
+#
+# Manual only. Nothing else triggers it: a release is a decision, and the tag it creates is what
+# the docs pin `go install …/cmd/signer@<version>` to.
+name: Release signer
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to tag, e.g. v0.1.0"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-signer
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # create the tag and the release
+      id-token: write # sign the provenance attestation
+      attestations: write
+    env:
+      VERSION: ${{ inputs.version }}
+    steps:
+      - name: Check inputs
+        run: |
+          if [ "$GITHUB_REF" != "refs/heads/main" ]; then
+            echo "::error::release from main only (got $GITHUB_REF)"; exit 1
+          fi
+          if ! printf '%s' "$VERSION" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::error::version must look like v1.2.3 (got $VERSION)"; exit 1
+          fi
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Refuse an existing tag
+        run: |
+          if git rev-parse -q --verify "refs/tags/$VERSION" >/dev/null; then
+            echo "::error::tag $VERSION already exists"; exit 1
+          fi
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: false # a release builds from a clean module cache
+
+      - name: Test
+        run: go test ./...
+
+      - name: Build
+        run: |
+          mkdir dist
+          for target in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64; do
+            os=${target%/*}; arch=${target#*/}
+            out="dist/referrer-signer_${VERSION}_${os}_${arch}"
+            [ "$os" = windows ] && out="$out.exe"
+            CGO_ENABLED=0 GOOS=$os GOARCH=$arch go build -trimpath -ldflags="-s -w" -o "$out" ./cmd/signer
+          done
+          (cd dist && sha256sum referrer-signer_* > SHA256SUMS)
+          cat dist/SHA256SUMS
+
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: dist/referrer-signer_*
+
+      - name: Tag and publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$VERSION" dist/* \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --title "referrer-signer $VERSION" \
+            --notes "Install: \`go install github.com/OpenSoukAI/agent-mcp/cmd/signer@$VERSION\`, or download a binary below.
+
+          Verify a download: \`sha256sum -c SHA256SUMS --ignore-missing\` and \`gh attestation verify <file> --repo $GITHUB_REPOSITORY\`."
