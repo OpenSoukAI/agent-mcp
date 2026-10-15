@@ -144,3 +144,12 @@ func TestPayForProductSignsERC3009AsTypedData(t *testing.T) {
 		t.Fatalf("SignTypedData calls %v, want %s first", rec.primaries, erc3009ReceiveAuthorizationType)
 	}
 }
+
+func TestCastVotesSignsTypedData(t *testing.T) {
+	startFakeVoteBackend(t, 0)
+	rec := &recordingSigner{inner: newLocalSigner(testKey(t))}
+	if _, err := castVotesViaBackend(context.Background(), "inmemory://test", 5, 55, []voteArg{{43, "influenced my choice"}}, rec); err != nil {
+		t.Fatalf("castVotesViaBackend: %v", err)
+	}
+	assertTypedOnly(t, rec, "VoteCommitment")
+}

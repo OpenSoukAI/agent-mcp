@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"math/big"
 	"strings"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
@@ -27,6 +28,10 @@ var (
 	oidECPublicKeyDER = asn1.ObjectIdentifier{1, 2, 840, 10045, 2, 1}
 	oidSecp256k1DER   = asn1.ObjectIdentifier{1, 3, 132, 0, 10}
 )
+
+// kmsCallTimeout bounds each KMS request: the SDK's default client has no overall deadline, so a
+// stalled connection would hang the stdio server at boot or a tool call indefinitely.
+var kmsCallTimeout = 15 * time.Second
 
 type ecdsaDERSignature struct{ R, S *big.Int }
 
@@ -109,6 +114,8 @@ type kmsSigner struct {
 }
 
 func newKMSSigner(ctx context.Context, api kmsAPI, keyID string) (*kmsSigner, error) {
+	ctx, cancel := context.WithTimeout(ctx, kmsCallTimeout)
+	defer cancel()
 	out, err := api.GetPublicKey(ctx, &kms.GetPublicKeyInput{KeyId: aws.String(keyID)})
 	if err != nil {
 		return nil, fmt.Errorf("KMS key %s: get public key: %w", keyID, err)
@@ -125,6 +132,8 @@ func (s *kmsSigner) Address() common.Address { return s.addr }
 // SignDigest uses MessageType DIGEST, so KMS signs the 32 bytes as given (the keccak256 digest)
 // despite the algorithm being named ECDSA_SHA_256.
 func (s *kmsSigner) SignDigest(ctx context.Context, digest [32]byte) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(ctx, kmsCallTimeout)
+	defer cancel()
 	out, err := s.api.Sign(ctx, &kms.SignInput{
 		KeyId:            aws.String(s.keyID),
 		Message:          digest[:],
@@ -193,8 +202,10 @@ func kmsKeystore(ctx context.Context, api kmsAPI, wallets string) (*keystore, []
 			return nil, nil, fmt.Errorf("AGENT_WALLETS entry %q has no key id (want agentId:kmsKeyId)", entry)
 		}
 		if id != "*" {
-			if _, ok := new(big.Int).SetString(id, 10); !ok {
-				return nil, nil, fmt.Errorf("AGENT_WALLETS entry %q: agent id must be a decimal number or *", entry)
+			// Canonical form only: tools look keys up by exact string, so "007" would never match
+			// agent 7 and every call would silently sign with the * key.
+			if n, ok := new(big.Int).SetString(id, 10); !ok || n.Sign() < 0 || n.String() != id {
+				return nil, nil, fmt.Errorf("AGENT_WALLETS entry %q: agent id must be a decimal number without sign or leading zeros, or *", entry)
 			}
 		}
 		if _, dup := ks.keys[id]; dup || (id == "*" && ks.fallback != nil) {

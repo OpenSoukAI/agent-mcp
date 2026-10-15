@@ -98,7 +98,7 @@ func TestNoRawKeyOutsideLocalAdapter(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		for _, banned := range []string{"crypto.Sign(", "NewKeyedTransactor", "*ecdsa.PrivateKey", "crypto.HexToECDSA("} {
+		for _, banned := range []string{"crypto.Sign(", "NewKeyedTransactor", "ecdsa.PrivateKey", "crypto.HexToECDSA(", "crypto.ToECDSA", "crypto.GenerateKey(", "types.SignTx(", "types.SignNewTx("} {
 			if strings.Contains(string(b), banned) {
 				t.Errorf("%s uses %s; sign through a Signer", f, banned)
 			}

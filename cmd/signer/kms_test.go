@@ -11,6 +11,7 @@ import (
 	"math/big"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/service/kms"
 	"github.com/ethereum/go-ethereum/crypto"
@@ -100,24 +101,57 @@ func TestAddressFromSPKI_RejectsWrongCurve(t *testing.T) {
 	}
 }
 
-func TestEthSigFromDER_RoundTripsAndNormalisesHighS(t *testing.T) {
-	key, _ := crypto.GenerateKey()
-	addr := crypto.PubkeyToAddress(key.PublicKey)
-	digest := crypto.Keccak256Hash([]byte("ref-490 kms"))
-	for _, high := range []bool{false, true} {
-		sig, err := ethSigFromDER(derSign(t, key, digest, high), digest, addr)
+// digestsForBothV returns one digest whose signature under key has v=0 and one with v=1. Signing
+// is deterministic (RFC 6979), so the same digests come back every run and a recovery-id trial
+// that skipped one value fails every time rather than half the time.
+func digestsForBothV(t *testing.T, key *ecdsa.PrivateKey) [][32]byte {
+	t.Helper()
+	var byV [2]*[32]byte
+	for i := 0; i < 64 && (byV[0] == nil || byV[1] == nil); i++ {
+		d := crypto.Keccak256Hash([]byte{byte(i)}, []byte("ref-490 v"))
+		sig, err := crypto.Sign(d[:], key)
 		if err != nil {
-			t.Fatalf("highS=%v: %v", high, err)
+			t.Fatal(err)
 		}
-		if sig[64] > 1 {
-			t.Fatalf("v = %d, want 0 or 1 (the crypto.Sign convention)", sig[64])
+		if byV[sig[64]] == nil {
+			dd := [32]byte(d)
+			byV[sig[64]] = &dd
 		}
-		if new(big.Int).SetBytes(sig[32:64]).Cmp(secp256k1HalfN) > 0 {
-			t.Fatalf("highS=%v: s not normalised", high)
-		}
-		pub, err := crypto.SigToPub(digest[:], sig)
-		if err != nil || crypto.PubkeyToAddress(*pub) != addr {
-			t.Fatalf("highS=%v: recovers to the wrong address", high)
+	}
+	if byV[0] == nil || byV[1] == nil {
+		t.Fatal("no digest pair covering v=0 and v=1")
+	}
+	return [][32]byte{*byV[0], *byV[1]}
+}
+
+func fixedKey(t *testing.T) *ecdsa.PrivateKey {
+	t.Helper()
+	key, err := crypto.HexToECDSA(testLocalKeyHex)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return key
+}
+
+func TestEthSigFromDER_RoundTripsAndNormalisesHighS(t *testing.T) {
+	key := fixedKey(t)
+	addr := crypto.PubkeyToAddress(key.PublicKey)
+	for _, digest := range digestsForBothV(t, key) {
+		for _, high := range []bool{false, true} {
+			sig, err := ethSigFromDER(derSign(t, key, digest, high), digest, addr)
+			if err != nil {
+				t.Fatalf("highS=%v: %v", high, err)
+			}
+			if sig[64] > 1 {
+				t.Fatalf("v = %d, want 0 or 1 (the crypto.Sign convention)", sig[64])
+			}
+			if new(big.Int).SetBytes(sig[32:64]).Cmp(secp256k1HalfN) > 0 {
+				t.Fatalf("highS=%v: s not normalised", high)
+			}
+			pub, err := crypto.SigToPub(digest[:], sig)
+			if err != nil || crypto.PubkeyToAddress(*pub) != addr {
+				t.Fatalf("highS=%v: recovers to the wrong address", high)
+			}
 		}
 	}
 }
@@ -137,8 +171,8 @@ func TestEthSigFromDER_RejectsOtherKeyAndMalformedDER(t *testing.T) {
 // ── kmsSigner ──
 
 func TestKMSSigner_SignsAsTheKMSKey(t *testing.T) {
+	key := fixedKey(t)
 	for _, high := range []bool{false, true} {
-		key, _ := crypto.GenerateKey()
 		f := &fakeKMS{keys: map[string]*ecdsa.PrivateKey{"k1": key}, highS: high}
 		s, err := newKMSSigner(context.Background(), f, "k1")
 		if err != nil {
@@ -147,16 +181,58 @@ func TestKMSSigner_SignsAsTheKMSKey(t *testing.T) {
 		if s.Address() != crypto.PubkeyToAddress(key.PublicKey) {
 			t.Fatalf("address %s", s.Address().Hex())
 		}
-		digest := crypto.Keccak256Hash([]byte("kms signer"))
-		sig, err := s.SignDigest(context.Background(), digest)
-		if err != nil {
-			t.Fatalf("highS=%v: %v", high, err)
-		}
-		pub, err := crypto.SigToPub(digest[:], sig)
-		if err != nil || crypto.PubkeyToAddress(*pub) != s.Address() {
-			t.Fatalf("highS=%v: signature does not recover to the KMS key", high)
+		for _, digest := range digestsForBothV(t, key) {
+			sig, err := s.SignDigest(context.Background(), digest)
+			if err != nil {
+				t.Fatalf("highS=%v: %v", high, err)
+			}
+			pub, err := crypto.SigToPub(digest[:], sig)
+			if err != nil || crypto.PubkeyToAddress(*pub) != s.Address() {
+				t.Fatalf("highS=%v: signature does not recover to the KMS key", high)
+			}
 		}
 	}
+}
+
+// hangingKMS never answers; only the caller's deadline ends a request.
+type hangingKMS struct{}
+
+func (hangingKMS) GetPublicKey(ctx context.Context, _ *kms.GetPublicKeyInput, _ ...func(*kms.Options)) (*kms.GetPublicKeyOutput, error) {
+	<-ctx.Done()
+	return nil, ctx.Err()
+}
+
+func (hangingKMS) Sign(ctx context.Context, _ *kms.SignInput, _ ...func(*kms.Options)) (*kms.SignOutput, error) {
+	<-ctx.Done()
+	return nil, ctx.Err()
+}
+
+func TestKMSSigner_BoundsEachCall(t *testing.T) {
+	prev := kmsCallTimeout
+	kmsCallTimeout = 50 * time.Millisecond
+	t.Cleanup(func() { kmsCallTimeout = prev })
+
+	within := func(name string, call func() error) {
+		t.Helper()
+		done := make(chan error, 1)
+		go func() { done <- call() }()
+		select {
+		case err := <-done:
+			if !errors.Is(err, context.DeadlineExceeded) {
+				t.Fatalf("%s on a stalled KMS: want a deadline error, got %v", name, err)
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatalf("%s on a stalled KMS did not return: no per-call deadline", name)
+		}
+	}
+	within("GetPublicKey", func() error {
+		_, err := newKMSSigner(context.Background(), hangingKMS{}, "k1")
+		return err
+	})
+	within("Sign", func() error {
+		_, err := (&kmsSigner{api: hangingKMS{}, keyID: "k1"}).SignDigest(context.Background(), [32]byte{1})
+		return err
+	})
 }
 
 // ── loadKeystore ──
@@ -218,6 +294,9 @@ func TestLoadKeystore_Refusals(t *testing.T) {
 		{"kms without wallets", map[string]string{"SIGNER_BACKEND": "kms"}, "AGENT_WALLETS"},
 		{"duplicate id", map[string]string{"SIGNER_BACKEND": "kms", "AGENT_WALLETS": "7:" + arnA + ",7:" + arnA}, "duplicate"},
 		{"bad id", map[string]string{"SIGNER_BACKEND": "kms", "AGENT_WALLETS": "seven:" + arnA}, "agent id"},
+		{"leading zero id", map[string]string{"SIGNER_BACKEND": "kms", "AGENT_WALLETS": "007:" + arnA}, "agent id"},
+		{"signed id", map[string]string{"SIGNER_BACKEND": "kms", "AGENT_WALLETS": "+7:" + arnA}, "agent id"},
+		{"negative id", map[string]string{"SIGNER_BACKEND": "kms", "AGENT_WALLETS": "-7:" + arnA}, "agent id"},
 		{"missing key id", map[string]string{"SIGNER_BACKEND": "kms", "AGENT_WALLETS": "7:"}, "key id"},
 		{"wrong curve at boot", map[string]string{"SIGNER_BACKEND": "kms", "AGENT_WALLETS": "7:" + arnB}, "secp256k1"},
 	}

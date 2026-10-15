@@ -127,7 +127,7 @@ func (ks *keystore) KeyFor(agentID string) (Signer, error) {
 	if ks.fallback != nil {
 		return ks.fallback, nil
 	}
-	return nil, fmt.Errorf("no key for agent %s — not in AGENT_KEYS and no AGENT_PRIVATE_KEY fallback", agentID)
+	return nil, fmt.Errorf("no key for agent %s and no fallback key: add it to AGENT_KEYS or set AGENT_PRIVATE_KEY (local), or add it or * to AGENT_WALLETS (kms)", agentID)
 }
 
 // signerKeys is initialized once in main() before the server starts.
