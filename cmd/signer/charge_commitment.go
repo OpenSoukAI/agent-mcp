@@ -116,7 +116,11 @@ func handleSignCharge(
 		return nil, signOutput{}, fmt.Errorf("compute digest: %w", err)
 	}
 
-	sig, err := keySigner.SignDigest(ctx, common.BytesToHash(digest))
+	td, err := chargeTypedData(payer, ref, buyerAgentID, tokenHash, in.ChainID, common.HexToAddress(in.SplitRouterAddr))
+	if err != nil {
+		return nil, signOutput{}, fmt.Errorf("build typed data: %w", err)
+	}
+	sig, err := signTyped(ctx, keySigner, td, digest)
 	if err != nil {
 		return nil, signOutput{}, fmt.Errorf("sign: %w", err)
 	}

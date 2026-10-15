@@ -265,7 +265,11 @@ func handleSign(
 		return nil, signOutput{}, fmt.Errorf("compute digest: %w", err)
 	}
 
-	sig, err := keySigner.SignDigest(ctx, common.BytesToHash(digest))
+	td, err := reviewTypedData(in.Commitment)
+	if err != nil {
+		return nil, signOutput{}, fmt.Errorf("build typed data: %w", err)
+	}
+	sig, err := signTyped(ctx, keySigner, td, digest)
 	if err != nil {
 		return nil, signOutput{}, fmt.Errorf("sign: %w", err)
 	}
@@ -382,7 +386,11 @@ func handleSignVote(
 		return nil, signOutput{}, fmt.Errorf("compute digest: %w", err)
 	}
 
-	sig, err := keySigner.SignDigest(ctx, common.BytesToHash(digest))
+	td, err := voteTypedData(in.Commitment)
+	if err != nil {
+		return nil, signOutput{}, fmt.Errorf("build typed data: %w", err)
+	}
+	sig, err := signTyped(ctx, keySigner, td, digest)
 	if err != nil {
 		return nil, signOutput{}, fmt.Errorf("sign: %w", err)
 	}
@@ -506,7 +514,11 @@ func handleSignCashbackRate(
 		return nil, signOutput{}, fmt.Errorf("compute digest: %w", err)
 	}
 
-	sig, err := keySigner.SignDigest(ctx, common.BytesToHash(digest))
+	td, err := cashbackRateTypedData(in.Commitment)
+	if err != nil {
+		return nil, signOutput{}, fmt.Errorf("build typed data: %w", err)
+	}
+	sig, err := signTyped(ctx, keySigner, td, digest)
 	if err != nil {
 		return nil, signOutput{}, fmt.Errorf("sign: %w", err)
 	}
@@ -995,7 +1007,11 @@ func handlePayForProduct(
 	if err != nil {
 		return nil, payForProductOutput{}, fmt.Errorf("hash erc3009: %w", err)
 	}
-	erc3009Sig, err := keySigner.SignDigest(ctx, common.BytesToHash(erc3009Hash))
+	td, err := erc3009ReceiveTypedData(authz, chainID, tokenAddr, tokenName, tokenVersion)
+	if err != nil {
+		return nil, payForProductOutput{}, fmt.Errorf("build typed data: %w", err)
+	}
+	erc3009Sig, err := signTyped(ctx, keySigner, td, erc3009Hash)
 	if err != nil {
 		return nil, payForProductOutput{}, fmt.Errorf("sign erc3009: %w", err)
 	}

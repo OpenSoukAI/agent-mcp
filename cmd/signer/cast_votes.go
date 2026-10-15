@@ -8,7 +8,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ethereum/go-ethereum/common"
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -62,7 +61,11 @@ func castVotesViaBackend(ctx context.Context, mcpURL string, agentID, escrowID i
 	if err != nil {
 		return 0, fmt.Errorf("compute vote digest: %w", err)
 	}
-	sig, err := priv.SignDigest(ctx, common.BytesToHash(digest))
+	td, err := voteTypedData(*s1.Commitment)
+	if err != nil {
+		return 0, fmt.Errorf("build typed data: %w", err)
+	}
+	sig, err := signTyped(ctx, priv, td, digest)
 	if err != nil {
 		return 0, fmt.Errorf("sign vote commitment: %w", err)
 	}
