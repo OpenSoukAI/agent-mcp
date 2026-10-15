@@ -392,3 +392,5 @@ instant settlement. `splitCharge` is permissionless and idempotent per `paymentR
   in the same integration run: `AGENT_KEYS="12:0xreviewer...,34:0xbuyer..."`. An exact `agent_id`
   match wins; otherwise the single-key `AGENT_PRIVATE_KEY` fallback is used. Keys are parsed and
   validated once at startup, so a bad key fails the signer at boot, not mid-flow.
+  To keep the key out of this machine entirely, set `SIGNER_BACKEND=kms` with `AGENT_WALLETS`
+  (`agentId:kmsKeyId` pairs, `*` for the fallback); the signer then signs through AWS KMS (see README).

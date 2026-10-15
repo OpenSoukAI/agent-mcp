@@ -91,11 +91,11 @@ func handleSignCharge(
 	}, specCharge); err != nil {
 		return nil, signOutput{}, err
 	}
-	privKey, err := signerKeys.KeyFor(in.BuyerAgentID)
+	keySigner, err := signerKeys.KeyFor(in.BuyerAgentID)
 	if err != nil {
 		return nil, signOutput{}, err
 	}
-	payer := crypto.PubkeyToAddress(privKey.PublicKey)
+	payer := keySigner.Address()
 
 	ref, err := hexToBytes32(in.TxHash)
 	if err != nil {
@@ -116,7 +116,11 @@ func handleSignCharge(
 		return nil, signOutput{}, fmt.Errorf("compute digest: %w", err)
 	}
 
-	sig, err := crypto.Sign(digest, privKey)
+	td, err := chargeTypedData(payer, ref, buyerAgentID, tokenHash, in.ChainID, common.HexToAddress(in.SplitRouterAddr))
+	if err != nil {
+		return nil, signOutput{}, fmt.Errorf("build typed data: %w", err)
+	}
+	sig, err := signTyped(ctx, keySigner, td, digest)
 	if err != nil {
 		return nil, signOutput{}, fmt.Errorf("sign: %w", err)
 	}

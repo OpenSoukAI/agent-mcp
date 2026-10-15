@@ -8,7 +8,6 @@ import (
 
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/core/types"
-	"github.com/ethereum/go-ethereum/crypto"
 
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -62,7 +61,7 @@ func handleBindEscrow(
 		return nil, bindEscrowOutput{}, err
 	}
 
-	privKey, err := signerKeys.KeyFor(agentID.String())
+	keySigner, err := signerKeys.KeyFor(agentID.String())
 	if err != nil {
 		return nil, bindEscrowOutput{}, err
 	}
@@ -77,10 +76,7 @@ func handleBindEscrow(
 		return nil, bindEscrowOutput{}, err
 	}
 
-	auth, err := bind.NewKeyedTransactorWithChainID(privKey, big.NewInt(chainIDInt))
-	if err != nil {
-		return nil, bindEscrowOutput{}, fmt.Errorf("build transactor: %w", err)
-	}
+	auth := transactOpts(ctx, keySigner, big.NewInt(chainIDInt))
 
 	contract := bind.NewBoundContract(escrowAddr, commissionEscrowABI, client, client, client)
 
@@ -100,7 +96,7 @@ func handleBindEscrow(
 		return nil, bindEscrowOutput{}, fmt.Errorf("bind tx reverted: %s (check: signer wallet paid this escrow? owns agent_id? escrow not already bound?)", tx.Hash().Hex())
 	}
 
-	boundBy := crypto.PubkeyToAddress(privKey.PublicKey)
+	boundBy := keySigner.Address()
 	return nil, bindEscrowOutput{
 		TxHash:   tx.Hash().Hex(),
 		EscrowID: escrowID.String(),

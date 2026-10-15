@@ -100,7 +100,7 @@ func handleSignIntentMark(
 	if err := pinDomain(ctx, in.Commitment.Domain, specIntentMark); err != nil {
 		return nil, signOutput{}, err
 	}
-	privKey, err := signerKeys.KeyFor(in.Commitment.Message.AgentID)
+	keySigner, err := signerKeys.KeyFor(in.Commitment.Message.AgentID)
 	if err != nil {
 		return nil, signOutput{}, err
 	}
@@ -108,7 +108,11 @@ func handleSignIntentMark(
 	if err != nil {
 		return nil, signOutput{}, fmt.Errorf("compute digest: %w", err)
 	}
-	sig, err := crypto.Sign(digest, privKey)
+	td, err := intentMarkTypedData(in.Commitment)
+	if err != nil {
+		return nil, signOutput{}, fmt.Errorf("build typed data: %w", err)
+	}
+	sig, err := signTyped(ctx, keySigner, td, digest)
 	if err != nil {
 		return nil, signOutput{}, fmt.Errorf("sign: %w", err)
 	}

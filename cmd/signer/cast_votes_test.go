@@ -100,7 +100,7 @@ func testKey(t *testing.T) *ecdsa.PrivateKey {
 
 func TestCastVotesViaBackend_HappyPath(t *testing.T) {
 	startFakeVoteBackend(t, 0)
-	n, err := castVotesViaBackend(context.Background(), "inmemory://test", 5, 55, []voteArg{{43, "influenced my choice"}}, testKey(t))
+	n, err := castVotesViaBackend(context.Background(), "inmemory://test", 5, 55, []voteArg{{43, "influenced my choice"}}, newLocalSigner(testKey(t)))
 	if err != nil {
 		t.Fatalf("castVotesViaBackend: %v", err)
 	}
@@ -115,7 +115,7 @@ func TestCastVotesViaBackend_RetriesPastIndexerLag(t *testing.T) {
 	t.Cleanup(func() { voteRetryDelay = orig })
 
 	startFakeVoteBackend(t, 2) // first 2 step-2 calls report not-indexed
-	n, err := castVotesViaBackend(context.Background(), "inmemory://test", 5, 55, []voteArg{{43, "influenced my choice"}}, testKey(t))
+	n, err := castVotesViaBackend(context.Background(), "inmemory://test", 5, 55, []voteArg{{43, "influenced my choice"}}, newLocalSigner(testKey(t)))
 	if err != nil {
 		t.Fatalf("expected retry to succeed, got: %v", err)
 	}

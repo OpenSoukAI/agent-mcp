@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"crypto/ecdsa"
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/hex"
@@ -248,67 +247,6 @@ func hexToBytes32(s string) ([32]byte, error) {
 	return out, nil
 }
 
-// keystore holds the signing keys parsed once at startup. agentID is the decimal string.
-type keystore struct {
-	keys     map[string]*ecdsa.PrivateKey
-	fallback *ecdsa.PrivateKey
-}
-
-// parseKeystore parses AGENT_KEYS (comma-separated "agentId:0xkey") + the AGENT_PRIVATE_KEY
-// fallback, validating every key at boot. Fails if no keys are configured or any entry is malformed.
-func parseKeystore(agentKeys, agentPrivKey string) (*keystore, error) {
-	ks := &keystore{keys: make(map[string]*ecdsa.PrivateKey)}
-	if agentKeys != "" {
-		for _, entry := range strings.Split(agentKeys, ",") {
-			entry = strings.TrimSpace(entry)
-			if entry == "" {
-				continue
-			}
-			id, keyHex, ok := strings.Cut(entry, ":")
-			if !ok {
-				return nil, fmt.Errorf("AGENT_KEYS entry %q missing ':' (want agentId:0xkey)", entry)
-			}
-			id = strings.TrimSpace(id)
-			if id == "" {
-				return nil, fmt.Errorf("AGENT_KEYS entry %q has empty agentId", entry)
-			}
-			key, err := crypto.HexToECDSA(strings.TrimPrefix(strings.TrimSpace(keyHex), "0x"))
-			if err != nil {
-				return nil, fmt.Errorf("AGENT_KEYS agent %s: invalid key: %w", id, err)
-			}
-			if _, dup := ks.keys[id]; dup {
-				return nil, fmt.Errorf("AGENT_KEYS duplicate agentId %s", id)
-			}
-			ks.keys[id] = key
-		}
-	}
-	if agentPrivKey != "" {
-		key, err := crypto.HexToECDSA(strings.TrimPrefix(agentPrivKey, "0x"))
-		if err != nil {
-			return nil, fmt.Errorf("AGENT_PRIVATE_KEY: invalid key: %w", err)
-		}
-		ks.fallback = key
-	}
-	if len(ks.keys) == 0 && ks.fallback == nil {
-		return nil, fmt.Errorf("no signing keys configured: set AGENT_KEYS or AGENT_PRIVATE_KEY")
-	}
-	return ks, nil
-}
-
-// KeyFor returns the signing key for agentID: exact AGENT_KEYS match first, then fallback.
-func (ks *keystore) KeyFor(agentID string) (*ecdsa.PrivateKey, error) {
-	if k, ok := ks.keys[agentID]; ok {
-		return k, nil
-	}
-	if ks.fallback != nil {
-		return ks.fallback, nil
-	}
-	return nil, fmt.Errorf("no key for agent %s — not in AGENT_KEYS and no AGENT_PRIVATE_KEY fallback", agentID)
-}
-
-// signerKeys is initialized once in main() before the server starts.
-var signerKeys *keystore
-
 func handleSign(
 	ctx context.Context,
 	_ *sdkmcp.CallToolRequest,
@@ -317,7 +255,7 @@ func handleSign(
 	if err := pinDomain(ctx, in.Commitment.Domain, specReview); err != nil {
 		return nil, signOutput{}, err
 	}
-	privKey, err := signerKeys.KeyFor(in.Commitment.Message.AgentID)
+	keySigner, err := signerKeys.KeyFor(in.Commitment.Message.AgentID)
 	if err != nil {
 		return nil, signOutput{}, err
 	}
@@ -327,7 +265,11 @@ func handleSign(
 		return nil, signOutput{}, fmt.Errorf("compute digest: %w", err)
 	}
 
-	sig, err := crypto.Sign(digest, privKey)
+	td, err := reviewTypedData(in.Commitment)
+	if err != nil {
+		return nil, signOutput{}, fmt.Errorf("build typed data: %w", err)
+	}
+	sig, err := signTyped(ctx, keySigner, td, digest)
 	if err != nil {
 		return nil, signOutput{}, fmt.Errorf("sign: %w", err)
 	}
@@ -434,7 +376,7 @@ func handleSignVote(
 	if err := pinDomain(ctx, in.Commitment.Domain, specVote); err != nil {
 		return nil, signOutput{}, err
 	}
-	privKey, err := signerKeys.KeyFor(in.Commitment.Message.AgentID)
+	keySigner, err := signerKeys.KeyFor(in.Commitment.Message.AgentID)
 	if err != nil {
 		return nil, signOutput{}, err
 	}
@@ -444,7 +386,11 @@ func handleSignVote(
 		return nil, signOutput{}, fmt.Errorf("compute digest: %w", err)
 	}
 
-	sig, err := crypto.Sign(digest, privKey)
+	td, err := voteTypedData(in.Commitment)
+	if err != nil {
+		return nil, signOutput{}, fmt.Errorf("build typed data: %w", err)
+	}
+	sig, err := signTyped(ctx, keySigner, td, digest)
 	if err != nil {
 		return nil, signOutput{}, fmt.Errorf("sign: %w", err)
 	}
@@ -558,7 +504,7 @@ func handleSignCashbackRate(
 	if err := pinDomain(ctx, in.Commitment.Domain, specCashbackRate); err != nil {
 		return nil, signOutput{}, err
 	}
-	privKey, err := signerKeys.KeyFor(in.Commitment.Message.AgentID)
+	keySigner, err := signerKeys.KeyFor(in.Commitment.Message.AgentID)
 	if err != nil {
 		return nil, signOutput{}, err
 	}
@@ -568,7 +514,11 @@ func handleSignCashbackRate(
 		return nil, signOutput{}, fmt.Errorf("compute digest: %w", err)
 	}
 
-	sig, err := crypto.Sign(digest, privKey)
+	td, err := cashbackRateTypedData(in.Commitment)
+	if err != nil {
+		return nil, signOutput{}, fmt.Errorf("build typed data: %w", err)
+	}
+	sig, err := signTyped(ctx, keySigner, td, digest)
 	if err != nil {
 		return nil, signOutput{}, fmt.Errorf("sign: %w", err)
 	}
@@ -619,7 +569,7 @@ func handlePublishEscrowReview(
 	_ *sdkmcp.CallToolRequest,
 	in publishEscrowReviewInput,
 ) (*sdkmcp.CallToolResult, publishEscrowReviewOutput, error) {
-	privKey, err := signerKeys.KeyFor(in.AgentID)
+	keySigner, err := signerKeys.KeyFor(in.AgentID)
 	if err != nil {
 		return nil, publishEscrowReviewOutput{}, err
 	}
@@ -694,10 +644,7 @@ func handlePublishEscrowReview(
 		return nil, publishEscrowReviewOutput{}, err
 	}
 
-	auth, err := bind.NewKeyedTransactorWithChainID(privKey, big.NewInt(chainIDInt))
-	if err != nil {
-		return nil, publishEscrowReviewOutput{}, fmt.Errorf("build transactor: %w", err)
-	}
+	auth := transactOpts(ctx, keySigner, big.NewInt(chainIDInt))
 
 	contract := bind.NewBoundContract(registryAddr, reviewRegistryABI, client, client, client)
 
@@ -905,11 +852,11 @@ func handlePayForProduct(
 	if err := validateVoteArgs(in.SubmitVotes); err != nil {
 		return nil, payForProductOutput{}, err
 	}
-	privKey, err := signerKeys.KeyFor(in.AgentID)
+	keySigner, err := signerKeys.KeyFor(in.AgentID)
 	if err != nil {
 		return nil, payForProductOutput{}, err
 	}
-	buyerAddr := crypto.PubkeyToAddress(privKey.PublicKey).Hex()
+	buyerAddr := keySigner.Address().Hex()
 
 	// Agent-less buyer (REF-134): an empty agent_id means "no ERC-8004 identity yet".
 	// Pay with the fallback wallet key (resolved above) and send the sentinel buyer id
@@ -1039,7 +986,7 @@ func handlePayForProduct(
 	// reuses the nonce and the second transfer reverts (at-most-once); random otherwise.
 	var nonce32 [32]byte
 	if strings.TrimSpace(in.IdempotencyKey) != "" {
-		nonce32 = deriveNonce(crypto.PubkeyToAddress(privKey.PublicKey), in.IdempotencyKey)
+		nonce32 = deriveNonce(keySigner.Address(), in.IdempotencyKey)
 	} else if _, err := rand.Read(nonce32[:]); err != nil {
 		return nil, payForProductOutput{}, fmt.Errorf("generate nonce: %w", err)
 	}
@@ -1060,7 +1007,11 @@ func handlePayForProduct(
 	if err != nil {
 		return nil, payForProductOutput{}, fmt.Errorf("hash erc3009: %w", err)
 	}
-	erc3009Sig, err := crypto.Sign(erc3009Hash, privKey)
+	td, err := erc3009ReceiveTypedData(authz, chainID, tokenAddr, tokenName, tokenVersion)
+	if err != nil {
+		return nil, payForProductOutput{}, fmt.Errorf("build typed data: %w", err)
+	}
+	erc3009Sig, err := signTyped(ctx, keySigner, td, erc3009Hash)
 	if err != nil {
 		return nil, payForProductOutput{}, fmt.Errorf("sign erc3009: %w", err)
 	}
@@ -1156,7 +1107,7 @@ func handlePayForProduct(
 		// Payment has settled — cast the inline votes now. A vote failure must NOT fail the
 		// whole call (the purchase already stands); report it so the agent can retry manually.
 		mcpURL := os.Getenv("REFERRER_AGENT_MCP_URL")
-		recorded, voteErr := castVotesViaBackend(ctx, mcpURL, agentIDInt(in.AgentID), escrowID.Int64(), in.SubmitVotes, privKey)
+		recorded, voteErr := castVotesViaBackend(ctx, mcpURL, agentIDInt(in.AgentID), escrowID.Int64(), in.SubmitVotes, keySigner)
 		if voteErr != nil {
 			out.VotesError = voteErr.Error()
 			out.NextSteps = "Payment succeeded but inline voting failed: " + voteErr.Error() +
@@ -1268,10 +1219,13 @@ func main() {
 		nil,
 	)
 
-	ks, err := parseKeystore(os.Getenv("AGENT_KEYS"), os.Getenv("AGENT_PRIVATE_KEY"))
+	ks, report, err := loadKeystore(context.Background(), os.Getenv, defaultKMSClient)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "referrer-signer: key config:", err)
 		os.Exit(1)
+	}
+	for _, line := range report {
+		fmt.Fprintln(os.Stderr, "referrer-signer:", line)
 	}
 	signerKeys = ks
 

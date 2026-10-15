@@ -134,7 +134,7 @@ func payTestEnvWith(t *testing.T, opts merchantOpts) (string, *requestLog) {
 		t.Fatalf("generate signer key: %v", err)
 	}
 	prev := signerKeys
-	signerKeys = &keystore{fallback: key}
+	signerKeys = &keystore{fallback: newLocalSigner(key)}
 	t.Cleanup(func() { signerKeys = prev })
 
 	return srv.URL + "/r/" + signTestToken(t, priv, tok), log
@@ -429,7 +429,7 @@ func TestPayForProduct_ManifestFromOriginOnly(t *testing.T) {
 		t.Fatal(err)
 	}
 	prev := signerKeys
-	signerKeys = &keystore{fallback: signerKey}
+	signerKeys = &keystore{fallback: newLocalSigner(signerKey)}
 	t.Cleanup(func() { signerKeys = prev })
 
 	tok := validTestToken()

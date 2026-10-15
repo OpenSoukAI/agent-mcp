@@ -190,7 +190,7 @@ func handleUpdateReviewContentOnchain(
 	// including one that is not review.AgentID. What actually blocks that case is the contract's
 	// _isAgentCaller check plus the CallerNotAgentOwner entry in the revert map below — the
 	// estimate fails, no gas is spent, and the caller gets a clear reason why.
-	privKey, err := signerKeys.KeyFor(review.AgentID.String())
+	keySigner, err := signerKeys.KeyFor(review.AgentID.String())
 	if err != nil {
 		return nil, updateReviewOnchainOutput{}, fmt.Errorf("review %s belongs to agent %s: %w", reviewID, review.AgentID, err)
 	}
@@ -209,10 +209,7 @@ func handleUpdateReviewContentOnchain(
 	}
 
 	// ── send ───────────────────────────────────────────────────────────────────
-	auth, err := bind.NewKeyedTransactorWithChainID(privKey, big.NewInt(chainIDInt))
-	if err != nil {
-		return nil, updateReviewOnchainOutput{}, fmt.Errorf("build transactor: %w", err)
-	}
+	auth := transactOpts(ctx, keySigner, big.NewInt(chainIDInt))
 	contract := bind.NewBoundContract(registryAddr, reviewRegistryABI, client, client, client)
 
 	tx, err := contract.Transact(auth, "updateReviewContent", reviewID, newHash)

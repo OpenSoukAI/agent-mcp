@@ -3,7 +3,6 @@ package main
 import (
 	"bytes"
 	"context"
-	"crypto/ecdsa"
 	"encoding/binary"
 	"encoding/hex"
 	"fmt"
@@ -13,6 +12,7 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum/accounts"
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
 )
 
@@ -49,11 +49,11 @@ func agentAuthPayloadHash(body []byte, timestamp int64) []byte {
 }
 
 // agentAuthSignature returns the 65-byte signature as 0x-hex with v in {27, 28}.
-func agentAuthSignature(body []byte, timestamp int64, key *ecdsa.PrivateKey) (string, error) {
+func agentAuthSignature(ctx context.Context, body []byte, timestamp int64, key Signer) (string, error) {
 	if key == nil {
 		return "", fmt.Errorf("no signing key for the authenticated backend call")
 	}
-	sig, err := crypto.Sign(accounts.TextHash(agentAuthPayloadHash(body, timestamp)), key)
+	sig, err := key.SignDigest(ctx, common.BytesToHash(accounts.TextHash(agentAuthPayloadHash(body, timestamp))))
 	if err != nil {
 		return "", fmt.Errorf("sign agent auth payload: %w", err)
 	}
@@ -66,14 +66,14 @@ func newAuthedRequest(
 	ctx context.Context,
 	method, url string,
 	body []byte,
-	key *ecdsa.PrivateKey,
+	key Signer,
 ) (*http.Request, error) {
 	timestamp, err := freshTimestampFor(body)
 	if err != nil {
 		return nil, err
 	}
 
-	sig, err := agentAuthSignature(body, timestamp, key)
+	sig, err := agentAuthSignature(ctx, body, timestamp, key)
 	if err != nil {
 		return nil, err
 	}

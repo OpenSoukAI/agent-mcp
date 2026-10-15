@@ -70,7 +70,7 @@ func callAuthedRaw(
 	merchantID *big.Int,
 	advice map[int]string,
 ) ([]byte, error) {
-	privKey, err := signerKeys.KeyFor(merchantID.String())
+	keySigner, err := signerKeys.KeyFor(merchantID.String())
 	if err != nil {
 		return nil, err
 	}
@@ -80,7 +80,7 @@ func callAuthedRaw(
 		return nil, err
 	}
 
-	req, err := newAuthedRequest(ctx, method, base+path, body, privKey)
+	req, err := newAuthedRequest(ctx, method, base+path, body, keySigner)
 	if err != nil {
 		return nil, err
 	}

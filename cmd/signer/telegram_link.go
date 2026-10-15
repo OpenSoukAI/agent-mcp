@@ -103,7 +103,7 @@ func handleSignTelegramLink(
 	if err := pinDomain(ctx, in.Commitment.Domain, specTelegramLink); err != nil {
 		return nil, signOutput{}, err
 	}
-	privKey, err := signerKeys.KeyFor(in.Commitment.Message.AgentID)
+	keySigner, err := signerKeys.KeyFor(in.Commitment.Message.AgentID)
 	if err != nil {
 		return nil, signOutput{}, err
 	}
@@ -113,7 +113,11 @@ func handleSignTelegramLink(
 		return nil, signOutput{}, fmt.Errorf("compute digest: %w", err)
 	}
 
-	sig, err := crypto.Sign(digest, privKey)
+	td, err := telegramLinkTypedData(in.Commitment)
+	if err != nil {
+		return nil, signOutput{}, fmt.Errorf("build typed data: %w", err)
+	}
+	sig, err := signTyped(ctx, keySigner, td, digest)
 	if err != nil {
 		return nil, signOutput{}, fmt.Errorf("sign: %w", err)
 	}

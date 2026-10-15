@@ -229,7 +229,7 @@ func crossProductEnv(t *testing.T, asserted string) (string, func() []string) {
 		t.Fatal(err)
 	}
 	prev := signerKeys
-	signerKeys = &keystore{fallback: key}
+	signerKeys = &keystore{fallback: newLocalSigner(key)}
 	t.Cleanup(func() { signerKeys = prev })
 
 	return srv.URL + "/r/" + signTestToken(t, priv, tok), func() []string {
