@@ -55,10 +55,26 @@ var parByChain = map[int64]common.Address{
 	84532: common.HexToAddress("0xe6383d10EDb4c86F72d8327973d246680FFdDDdA"),
 }
 
+// addressFromEnv reads a 20-byte 0x address from envVar. Unset is (zero, false, nil); a value
+// that is not a well-formed non-zero address is an error naming the variable, because
+// common.HexToAddress would otherwise silently yield a zero or mis-padded address.
+func addressFromEnv(envVar string) (common.Address, bool, error) {
+	v := strings.TrimSpace(os.Getenv(envVar))
+	if v == "" {
+		return common.Address{}, false, nil
+	}
+	if !common.IsHexAddress(v) || common.HexToAddress(v) == (common.Address{}) {
+		return common.Address{}, false, fmt.Errorf("%s=%q is not a 20-byte 0x address", envVar, v)
+	}
+	return common.HexToAddress(v), true, nil
+}
+
 // parAddressFor is PROTOCOL_ADDRESS_REGISTRY, else the baked entry for chainID.
 func parAddressFor(chainID int64) (common.Address, error) {
-	if v := os.Getenv("PROTOCOL_ADDRESS_REGISTRY"); v != "" {
-		return common.HexToAddress(v), nil
+	if a, set, err := addressFromEnv("PROTOCOL_ADDRESS_REGISTRY"); err != nil {
+		return common.Address{}, err
+	} else if set {
+		return a, nil
 	}
 	if a, ok := parByChain[chainID]; ok {
 		return a, nil
@@ -83,8 +99,10 @@ var callPAR = parGetAddress
 // resolveAddress returns the contract behind key on chainID: the env override if set, else
 // the cached registry answer, else one registry read.
 func resolveAddress(ctx context.Context, chainID int64, key protocolKey) (common.Address, error) {
-	if v := os.Getenv(key.envVar()); v != "" {
-		return common.HexToAddress(v), nil
+	if a, set, err := addressFromEnv(key.envVar()); err != nil {
+		return common.Address{}, err
+	} else if set {
+		return a, nil
 	}
 	cacheKey := strconv.FormatInt(chainID, 10) + "|" + string(key)
 	addrCacheMu.Lock()
@@ -133,6 +151,9 @@ func parGetAddress(ctx context.Context, chainID int64, par common.Address, key p
 	if err != nil {
 		return common.Address{}, fmt.Errorf("getAddress(%s): %w", key, err)
 	}
+	if len(out) == 0 {
+		return common.Address{}, fmt.Errorf("no contract at ProtocolAddressRegistry %s on the chain BASE_RPC_URL serves (configured chain %d): set PROTOCOL_ADDRESS_REGISTRY to that chain's registry, or set %s", par.Hex(), chainID, key.envVar())
+	}
 	var addr common.Address
 	if err := parABI.UnpackIntoInterface(&addr, "getAddress", out); err != nil {
 		return common.Address{}, fmt.Errorf("decode getAddress(%s): %w", key, err)
@@ -141,9 +162,10 @@ func parGetAddress(ctx context.Context, chainID int64, par common.Address, key p
 }
 
 // defaultAttestationOrigin is where this build fetches /.well-known/opensouk per chain.
-// Base mainnet only; testnet and local stacks set ATTESTATION_ORIGIN.
+// Local stacks (anvil) set ATTESTATION_ORIGIN to their own backend.
 var defaultAttestationOrigin = map[int64]string{
-	8453: "https://api.opensouk.ai",
+	8453:  "https://api.opensouk.ai",
+	84532: "https://api.sysdev.wtf",
 }
 
 // attestationOrigin is the only origin pay_for_product fetches the manifest and product

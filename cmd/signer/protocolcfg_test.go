@@ -3,7 +3,11 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -226,5 +230,62 @@ func TestNoRequireAddrLeft(t *testing.T) {
 		if strings.Contains(string(b), "requireAddr(") {
 			t.Errorf("%s still calls requireAddr; use resolveAddress", f)
 		}
+	}
+}
+
+func TestAttestationOrigin_TestnetDefault(t *testing.T) {
+	t.Setenv("ATTESTATION_ORIGIN", "")
+	got, err := attestationOrigin(84532)
+	if err != nil || got != "https://api.sysdev.wtf" {
+		t.Fatalf("got %q, %v", got, err)
+	}
+}
+
+func TestResolveAddress_RejectsMalformedOverride(t *testing.T) {
+	for _, bad := range []string{"0x1234", "garbage", "0xZZ"} {
+		resetAddressCache()
+		t.Setenv("REVIEW_REGISTRY_ADDRESS", bad)
+		_, err := resolveAddress(context.Background(), 84532, keyReviewRegistry)
+		if err == nil || !strings.Contains(err.Error(), "REVIEW_REGISTRY_ADDRESS") {
+			t.Fatalf("override %q: want error naming the env var, got %v", bad, err)
+		}
+	}
+}
+
+func TestResolveAddress_RejectsZeroOverride(t *testing.T) {
+	resetAddressCache()
+	t.Setenv("COMMISSION_ESCROW_ADDRESS", "0x0000000000000000000000000000000000000000")
+	_, err := resolveAddress(context.Background(), 84532, keyEscrow)
+	if err == nil || !strings.Contains(err.Error(), "COMMISSION_ESCROW_ADDRESS") {
+		t.Fatalf("want error naming the env var, got %v", err)
+	}
+}
+
+func TestParAddressFor_RejectsMalformedOverride(t *testing.T) {
+	t.Setenv("PROTOCOL_ADDRESS_REGISTRY", "not-an-address")
+	_, err := parAddressFor(84532)
+	if err == nil || !strings.Contains(err.Error(), "PROTOCOL_ADDRESS_REGISTRY") {
+		t.Fatalf("want error naming the env var, got %v", err)
+	}
+}
+
+// TestParGetAddress_NoContractAtPAR: an RPC whose chain has no contract at the registry
+// address answers eth_call with empty data. That is a configuration error (wrong PAR for
+// this RPC), and the message must say so rather than surface an ABI decode failure.
+func TestParGetAddress_NoContractAtPAR(t *testing.T) {
+	rpc := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			ID     json.RawMessage `json:"id"`
+			Method string          `json:"method"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&req)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = fmt.Fprintf(w, `{"jsonrpc":"2.0","id":%s,"result":"0x"}`, req.ID)
+	}))
+	t.Cleanup(rpc.Close)
+	t.Setenv("BASE_RPC_URL", rpc.URL)
+	_, err := parGetAddress(context.Background(), 84532, common.HexToAddress("0xe6383d10EDb4c86F72d8327973d246680FFdDDdA"), keySplitRouter)
+	if err == nil || !strings.Contains(err.Error(), "no contract") || !strings.Contains(err.Error(), "PROTOCOL_ADDRESS_REGISTRY") {
+		t.Fatalf("want a no-contract error naming PROTOCOL_ADDRESS_REGISTRY, got %v", err)
 	}
 }
