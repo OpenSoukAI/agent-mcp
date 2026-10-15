@@ -114,8 +114,28 @@ The signer resolves a private key per agent ID, parsed and validated **once at s
 At least one of the two must be set. `setup-mcp.sh` provisions `AGENT_KEYS` when present in the
 environment, otherwise prompts for a single `AGENT_PRIVATE_KEY`.
 
+### Keep the key out of the agent's process: `SIGNER_BACKEND=kms`
+
+With the local keys above, the key sits in the signer's environment, so anything the agent can run
+on the same machine can read it. `SIGNER_BACKEND=kms` signs through AWS KMS instead: the key is an
+`ECC_SECG_P256K1` KMS key and never enters this process.
+
+```
+SIGNER_BACKEND=kms
+AGENT_WALLETS="12:arn:aws:kms:eu-central-1:111122223333:key/<key-id>,*:<fallback key id or ARN>"
+```
+
+- `AGENT_WALLETS` maps agent IDs to KMS key IDs or ARNs. `*` is the fallback, the role
+  `AGENT_PRIVATE_KEY` plays locally (agent-less purchases, unlisted IDs).
+- AWS credentials and region come from the standard AWS SDK chain (environment, `~/.aws`,
+  instance role). The identity needs `kms:GetPublicKey` and `kms:Sign` on those keys.
+- At boot the signer prints the address each key signs as. That address must own the agent
+  identity or be its bound wallet.
+- `AGENT_KEYS` and `AGENT_PRIVATE_KEY` must be unset; the signer refuses to start with both.
+- KMS decides who may sign, not what: it never sees the EIP-712 content.
+
 ## Security
 
-`AGENT_PRIVATE_KEY` / `AGENT_KEYS` are stored in `~/.claude/settings.json` on your local machine.  
+With the default local backend, `AGENT_PRIVATE_KEY` / `AGENT_KEYS` are stored in `~/.claude/settings.json` on your local machine; with `SIGNER_BACKEND=kms` no key is stored locally.  
 They are **never** sent to the remote MCP server — signing happens locally in `referrer-signer`.  
 Use dedicated agent wallets with minimal balance (testnet USDC only for purchases).
