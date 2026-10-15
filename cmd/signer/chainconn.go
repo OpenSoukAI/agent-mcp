@@ -44,16 +44,19 @@ func dialChain(ctx context.Context, chainIDOverride string) (*ethclient.Client, 
 		return nil, 0, fmt.Errorf("BASE_RPC_URL env var not set")
 	}
 
-	chainIDStr := chainIDOverride
-	if chainIDStr == "" {
-		chainIDStr = os.Getenv("CHAIN_ID")
-	}
-	if chainIDStr == "" {
-		chainIDStr = defaultChainID
-	}
-	chainID, err := strconv.ParseInt(chainIDStr, 10, 64)
-	if err != nil {
-		return nil, 0, fmt.Errorf("invalid chain id %q: %w", chainIDStr, err)
+	var chainID int64
+	if chainIDOverride != "" {
+		id, err := strconv.ParseInt(chainIDOverride, 10, 64)
+		if err != nil {
+			return nil, 0, fmt.Errorf("invalid chain id %q: %w", chainIDOverride, err)
+		}
+		chainID = id
+	} else {
+		id, err := configuredChainID()
+		if err != nil {
+			return nil, 0, err
+		}
+		chainID = id
 	}
 
 	client, err := ethclient.DialContext(ctx, rpcURL)

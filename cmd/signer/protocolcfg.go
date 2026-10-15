@@ -1,0 +1,139 @@
+package main
+
+import (
+	"context"
+	"fmt"
+	"os"
+	"strconv"
+	"strings"
+	"sync"
+
+	"github.com/ethereum/go-ethereum"
+	"github.com/ethereum/go-ethereum/accounts/abi"
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/crypto"
+)
+
+// configuredChainID is the chain this signer serves: CHAIN_ID, else defaultChainID.
+func configuredChainID() (int64, error) {
+	s := os.Getenv("CHAIN_ID")
+	if s == "" {
+		s = defaultChainID
+	}
+	id, err := strconv.ParseInt(s, 10, 64)
+	if err != nil {
+		return 0, fmt.Errorf("invalid chain id %q: %w", s, err)
+	}
+	return id, nil
+}
+
+// protocolKey is a ProtocolAddressRegistry key label (keccak256 of the label on-chain).
+type protocolKey string
+
+const (
+	keyReviewRegistry   protocolKey = "REVIEW_REGISTRY"
+	keyEscrow           protocolKey = "ESCROW"
+	keyMerchantRegistry protocolKey = "MERCHANT_REGISTRY"
+	keyProductRegistry  protocolKey = "PRODUCT_REGISTRY"
+	keySplitRouter      protocolKey = "SPLIT_ROUTER"
+)
+
+// envVar is the override variable for a key. ESCROW keeps its historical name.
+func (k protocolKey) envVar() string {
+	if k == keyEscrow {
+		return "COMMISSION_ESCROW_ADDRESS"
+	}
+	return string(k) + "_ADDRESS"
+}
+
+// parByChain is the ProtocolAddressRegistry per chain this build knows. Base mainnet has no
+// deployment yet. The testnet entry must equal the PAR the live backend reads, or every
+// step-1 payload is refused on verifyingContract.
+var parByChain = map[int64]common.Address{
+	84532: common.HexToAddress("0xe6383d10EDb4c86F72d8327973d246680FFdDDdA"),
+}
+
+// parAddressFor is PROTOCOL_ADDRESS_REGISTRY, else the baked entry for chainID.
+func parAddressFor(chainID int64) (common.Address, error) {
+	if v := os.Getenv("PROTOCOL_ADDRESS_REGISTRY"); v != "" {
+		return common.HexToAddress(v), nil
+	}
+	if a, ok := parByChain[chainID]; ok {
+		return a, nil
+	}
+	return common.Address{}, fmt.Errorf("chain %d has no built-in ProtocolAddressRegistry: set PROTOCOL_ADDRESS_REGISTRY, or set the contract address env vars directly", chainID)
+}
+
+var (
+	addrCacheMu sync.Mutex
+	addrCache   = map[string]common.Address{} // "<chainID>|<key>"
+)
+
+func resetAddressCache() {
+	addrCacheMu.Lock()
+	addrCache = map[string]common.Address{}
+	addrCacheMu.Unlock()
+}
+
+// callPAR is the on-chain lookup, replaceable in tests.
+var callPAR = parGetAddress
+
+// resolveAddress returns the contract behind key on chainID: the env override if set, else
+// the cached registry answer, else one registry read.
+func resolveAddress(ctx context.Context, chainID int64, key protocolKey) (common.Address, error) {
+	if v := os.Getenv(key.envVar()); v != "" {
+		return common.HexToAddress(v), nil
+	}
+	cacheKey := strconv.FormatInt(chainID, 10) + "|" + string(key)
+	addrCacheMu.Lock()
+	cached, ok := addrCache[cacheKey]
+	addrCacheMu.Unlock()
+	if ok {
+		return cached, nil
+	}
+	par, err := parAddressFor(chainID)
+	if err != nil {
+		return common.Address{}, fmt.Errorf("resolve %s: %w (or set %s)", key, err, key.envVar())
+	}
+	addr, err := callPAR(ctx, chainID, par, key)
+	if err != nil {
+		return common.Address{}, fmt.Errorf("resolve %s from ProtocolAddressRegistry %s on chain %d: %w", key, par.Hex(), chainID, err)
+	}
+	if addr == (common.Address{}) {
+		return common.Address{}, fmt.Errorf("ProtocolAddressRegistry %s on chain %d has no address for %s", par.Hex(), chainID, key)
+	}
+	addrCacheMu.Lock()
+	addrCache[cacheKey] = addr
+	addrCacheMu.Unlock()
+	return addr, nil
+}
+
+var parABI = func() abi.ABI {
+	a, err := abi.JSON(strings.NewReader(`[{"inputs":[{"name":"key","type":"bytes32"}],"name":"getAddress","outputs":[{"name":"","type":"address"}],"stateMutability":"view","type":"function"}]`))
+	if err != nil {
+		panic(err)
+	}
+	return a
+}()
+
+// parGetAddress reads ProtocolAddressRegistry.getAddress(keccak256(key)) over BASE_RPC_URL.
+func parGetAddress(ctx context.Context, chainID int64, par common.Address, key protocolKey) (common.Address, error) {
+	client, _, err := dialChain(ctx, strconv.FormatInt(chainID, 10))
+	if err != nil {
+		return common.Address{}, err
+	}
+	defer client.Close()
+	data, err := parABI.Pack("getAddress", crypto.Keccak256Hash([]byte(key)))
+	if err != nil {
+		return common.Address{}, err
+	}
+	out, err := client.CallContract(ctx, ethereum.CallMsg{To: &par, Data: data}, nil)
+	if err != nil {
+		return common.Address{}, fmt.Errorf("getAddress(%s): %w", key, err)
+	}
+	var addr common.Address
+	if err := parABI.UnpackIntoInterface(&addr, "getAddress", out); err != nil {
+		return common.Address{}, fmt.Errorf("decode getAddress(%s): %w", key, err)
+	}
+	return addr, nil
+}
