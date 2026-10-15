@@ -1219,10 +1219,13 @@ func main() {
 		nil,
 	)
 
-	ks, err := parseKeystore(os.Getenv("AGENT_KEYS"), os.Getenv("AGENT_PRIVATE_KEY"))
+	ks, report, err := loadKeystore(context.Background(), os.Getenv, defaultKMSClient)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "referrer-signer: key config:", err)
 		os.Exit(1)
+	}
+	for _, line := range report {
+		fmt.Fprintln(os.Stderr, "referrer-signer:", line)
 	}
 	signerKeys = ks
 
