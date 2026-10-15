@@ -1,8 +1,11 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -181,5 +184,47 @@ func TestAttestationOrigin_RejectsBareHost(t *testing.T) {
 	t.Setenv("ATTESTATION_ORIGIN", "api.example.test")
 	if _, err := attestationOrigin(84532); err == nil {
 		t.Fatal("want error: origin needs a scheme")
+	}
+}
+
+func TestWarnAddressOverrides_KnownChainWarns(t *testing.T) {
+	t.Setenv("REVIEW_REGISTRY_ADDRESS", "0x1111111111111111111111111111111111111111")
+	t.Setenv("COMMISSION_ESCROW_ADDRESS", "")
+	var buf bytes.Buffer
+	warnAddressOverrides(84532, &buf)
+	out := buf.String()
+	if !strings.Contains(out, "REVIEW_REGISTRY_ADDRESS") || strings.Contains(out, "COMMISSION_ESCROW_ADDRESS") {
+		t.Fatalf("want a warning naming only the set override, got %q", out)
+	}
+}
+
+func TestWarnAddressOverrides_UnknownChainSilent(t *testing.T) {
+	t.Setenv("REVIEW_REGISTRY_ADDRESS", "0x1111111111111111111111111111111111111111")
+	var buf bytes.Buffer
+	warnAddressOverrides(31337, &buf)
+	if buf.Len() != 0 {
+		t.Fatalf("anvil-style chain must not warn, got %q", buf.String())
+	}
+}
+
+// TestNoRequireAddrLeft: every contract address comes from resolveAddress (env override, else
+// the ProtocolAddressRegistry); a surviving requireAddr call would reintroduce a hand-typed
+// address with no registry fallback.
+func TestNoRequireAddrLeft(t *testing.T) {
+	files, err := filepath.Glob("*.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range files {
+		if strings.HasSuffix(f, "_test.go") {
+			continue
+		}
+		b, err := os.ReadFile(f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(string(b), "requireAddr(") {
+			t.Errorf("%s still calls requireAddr; use resolveAddress", f)
+		}
 	}
 }

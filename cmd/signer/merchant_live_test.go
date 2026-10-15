@@ -118,7 +118,7 @@ func (e liveEnv) readProduct(t *testing.T) (commissionBps uint16, active bool, p
 func (e liveEnv) readProductAt(t *testing.T, productIDHex string) (commissionBps uint16, active bool, productType uint8) {
 	t.Helper()
 
-	client, _, err := dialChain(context.Background(), e.chainID)
+	client, chainID, err := dialChain(context.Background(), e.chainID)
 	if err != nil {
 		t.Fatalf("dial: %v", err)
 	}
@@ -133,7 +133,7 @@ func (e liveEnv) readProductAt(t *testing.T, productIDHex string) (commissionBps
 		t.Fatalf("parse merchant id: %v", err)
 	}
 
-	addr, err := requireAddr("PRODUCT_REGISTRY_ADDRESS")
+	addr, err := resolveAddress(context.Background(), chainID, keyProductRegistry)
 	if err != nil {
 		t.Fatalf("product registry address: %v", err)
 	}
@@ -174,7 +174,7 @@ func TestLive_SetMerchantActive(t *testing.T) {
 
 	w := merchantWrite{
 		tool:    "activate_merchant",
-		addrEnv: "MERCHANT_REGISTRY_ADDRESS",
+		addrKey: keyMerchantRegistry,
 		abi:     merchantRegistryABI,
 		method:  "setActive",
 		reverts: newRevertTable(map[string]string{}),
@@ -201,7 +201,7 @@ func TestLive_SetMerchantActive(t *testing.T) {
 func (e liveEnv) readMerchantActive(t *testing.T) bool {
 	t.Helper()
 
-	client, _, err := dialChain(context.Background(), e.chainID)
+	client, chainID, err := dialChain(context.Background(), e.chainID)
 	if err != nil {
 		t.Fatalf("dial: %v", err)
 	}
@@ -211,7 +211,7 @@ func (e liveEnv) readMerchantActive(t *testing.T) bool {
 	if err != nil {
 		t.Fatalf("parse merchant id: %v", err)
 	}
-	addr, err := requireAddr("MERCHANT_REGISTRY_ADDRESS")
+	addr, err := resolveAddress(context.Background(), chainID, keyMerchantRegistry)
 	if err != nil {
 		t.Fatalf("merchant registry address: %v", err)
 	}
@@ -617,7 +617,7 @@ func (e liveEnv) setMerchantActiveDirect(t *testing.T, active bool) {
 
 	w := merchantWrite{
 		tool:    "test_setup",
-		addrEnv: "MERCHANT_REGISTRY_ADDRESS",
+		addrKey: keyMerchantRegistry,
 		abi:     merchantRegistryABI,
 		method:  "setActive",
 		reverts: setMerchantActiveRevertTable,

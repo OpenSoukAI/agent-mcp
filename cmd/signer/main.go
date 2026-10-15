@@ -623,16 +623,6 @@ func handlePublishEscrowReview(
 	if err != nil {
 		return nil, publishEscrowReviewOutput{}, err
 	}
-	// Two addresses, and no chain_id input on this tool — hence requireAddr twice and an
-	// empty override, rather than dialChain taking the addresses itself.
-	registryAddr, err := requireAddr("REVIEW_REGISTRY_ADDRESS")
-	if err != nil {
-		return nil, publishEscrowReviewOutput{}, err
-	}
-	escrowAddr, err := requireAddr("COMMISSION_ESCROW_ADDRESS")
-	if err != nil {
-		return nil, publishEscrowReviewOutput{}, err
-	}
 
 	agentID, ok := new(big.Int).SetString(in.AgentID, 10)
 	if !ok {
@@ -660,6 +650,14 @@ func handlePublishEscrowReview(
 		return nil, publishEscrowReviewOutput{}, err
 	}
 	defer client.Close()
+	registryAddr, err := resolveAddress(ctx, chainIDInt, keyReviewRegistry)
+	if err != nil {
+		return nil, publishEscrowReviewOutput{}, err
+	}
+	escrowAddr, err := resolveAddress(ctx, chainIDInt, keyEscrow)
+	if err != nil {
+		return nil, publishEscrowReviewOutput{}, err
+	}
 
 	// Fetch authoritative merchantId/productId from CommissionEscrow.
 	// The contract reads these from the escrow record and stores them in the on-chain Review;
@@ -1283,6 +1281,10 @@ func main() {
 		os.Exit(1)
 	}
 	signerSpendPolicy = policy
+
+	if id, err := configuredChainID(); err == nil {
+		warnAddressOverrides(id, os.Stderr)
+	}
 
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name: "sign_review_commitment",

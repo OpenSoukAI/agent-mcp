@@ -169,7 +169,7 @@ func applyMerchantRole(
 
 	w := merchantWrite{
 		tool:    tool,
-		addrEnv: "MERCHANT_REGISTRY_ADDRESS",
+		addrKey: keyMerchantRegistry,
 		abi:     merchantRegistryABI,
 		method:  method,
 		reverts: merchantRoleRevertTable,
@@ -219,16 +219,16 @@ func readHasMerchantRole(
 	account common.Address,
 	chainIDOverride string,
 ) (bool, error) {
-	addr, err := requireAddr("MERCHANT_REGISTRY_ADDRESS")
-	if err != nil {
-		return false, err
-	}
 
-	client, _, err := dialChain(ctx, chainIDOverride)
+	client, chainIDInt, err := dialChain(ctx, chainIDOverride)
 	if err != nil {
 		return false, err
 	}
 	defer client.Close()
+	addr, err := resolveAddress(ctx, chainIDInt, keyMerchantRegistry)
+	if err != nil {
+		return false, err
+	}
 
 	var out []any
 	contract := bind.NewBoundContract(addr, merchantRegistryABI, client, client, client)

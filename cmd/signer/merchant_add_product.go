@@ -123,7 +123,7 @@ func handleAddProduct(
 	} else {
 		w := merchantWrite{
 			tool:    "add_product",
-			addrEnv: "PRODUCT_REGISTRY_ADDRESS",
+			addrKey: keyProductRegistry,
 			abi:     productRegistryABI,
 			method:  "addProduct",
 			reverts: addProductRevertTable,
@@ -202,16 +202,16 @@ func readProductCommission(
 	productID [32]byte,
 	chainIDOverride string,
 ) (uint16, bool, error) {
-	addr, err := requireAddr("PRODUCT_REGISTRY_ADDRESS")
-	if err != nil {
-		return 0, false, err
-	}
 
-	client, _, err := dialChain(ctx, chainIDOverride)
+	client, chainIDInt, err := dialChain(ctx, chainIDOverride)
 	if err != nil {
 		return 0, false, err
 	}
 	defer client.Close()
+	addr, err := resolveAddress(ctx, chainIDInt, keyProductRegistry)
+	if err != nil {
+		return 0, false, err
+	}
 
 	var out []any
 	contract := bind.NewBoundContract(addr, productRegistryABI, client, client, client)

@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
 	"net/url"
 	"os"
 	"strconv"
@@ -161,4 +162,17 @@ func attestationOrigin(chainID int64) (string, error) {
 		return "", fmt.Errorf("ATTESTATION_ORIGIN %q: want scheme://host with no path", v)
 	}
 	return v, nil
+}
+
+// warnAddressOverrides says, once at boot, which contract addresses are being overridden on a
+// chain this build already knows. An override on a known chain is almost always a stale value.
+func warnAddressOverrides(chainID int64, w io.Writer) {
+	if _, known := parByChain[chainID]; !known {
+		return
+	}
+	for _, k := range []protocolKey{keyReviewRegistry, keyEscrow, keyMerchantRegistry, keyProductRegistry, keySplitRouter} {
+		if os.Getenv(k.envVar()) != "" {
+			fmt.Fprintf(w, "referrer-signer: %s overrides the ProtocolAddressRegistry value on chain %d; unset it unless you are testing\n", k.envVar(), chainID)
+		}
+	}
 }

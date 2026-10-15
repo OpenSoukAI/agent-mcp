@@ -53,7 +53,7 @@ func handleSetProductCommission(
 
 	w := merchantWrite{
 		tool:    "set_product_commission",
-		addrEnv: "PRODUCT_REGISTRY_ADDRESS",
+		addrKey: keyProductRegistry,
 		abi:     productRegistryABI,
 		method:  "setCommission",
 		reverts: setCommissionRevertTable,
@@ -118,7 +118,7 @@ func handleSetProductActive(
 
 	w := merchantWrite{
 		tool:    "set_product_active",
-		addrEnv: "PRODUCT_REGISTRY_ADDRESS",
+		addrKey: keyProductRegistry,
 		abi:     productRegistryABI,
 		method:  "setProductActive",
 		reverts: setProductActiveRevertTable,

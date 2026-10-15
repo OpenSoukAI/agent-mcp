@@ -67,16 +67,15 @@ func handleBindEscrow(
 		return nil, bindEscrowOutput{}, err
 	}
 
-	escrowAddr, err := requireAddr("COMMISSION_ESCROW_ADDRESS")
-	if err != nil {
-		return nil, bindEscrowOutput{}, err
-	}
-
 	client, chainIDInt, err := dialChain(ctx, in.ChainID)
 	if err != nil {
 		return nil, bindEscrowOutput{}, err
 	}
 	defer client.Close()
+	escrowAddr, err := resolveAddress(ctx, chainIDInt, keyEscrow)
+	if err != nil {
+		return nil, bindEscrowOutput{}, err
+	}
 
 	auth, err := bind.NewKeyedTransactorWithChainID(privKey, big.NewInt(chainIDInt))
 	if err != nil {
