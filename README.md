@@ -160,7 +160,7 @@ credential. `AGENT_WALLETS` maps agent IDs to the provider's wallet, `*` for the
 | Credentials | `TURNKEY_ORG_ID`, `TURNKEY_API_PUBLIC_KEY`, `TURNKEY_API_PRIVATE_KEY` (hex P-256) | `PRIVY_APP_ID`, `PRIVY_APP_SECRET`, `PRIVY_AUTHORIZATION_KEY` (`wallet-auth:…`) |
 | The API key must belong to | a **non-root** user (root bypasses every policy) | an **additional signer**, not the wallet's owner (an owner can replace the policy) |
 | Checked at boot | the API key, with `whoami` | the wallet exists and has an owner |
-| Merchant REST tools | unavailable: Turnkey can personal-sign only as a raw payload | work (`personal_sign`, 32-byte messages) |
+| Merchant REST tools | unavailable: Turnkey can personal-sign only as a raw payload | work (`personal_sign`) |
 
 Generate the policy with `referrer-signer policy --provider turnkey|privy`. For Privy,
 `referrer-signer privy-setup` then creates the policy, the wallet and the signer entry with your

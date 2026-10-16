@@ -11,6 +11,9 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+
+	"github.com/ethereum/go-ethereum/accounts/abi"
+	"github.com/ethereum/go-ethereum/common/hexutil"
 )
 
 func templatePath(provider string) string {
@@ -294,15 +297,19 @@ func TestPrivyPolicyBoundsTxValueAndPersonalSign(t *testing.T) {
 		b, _ := json.Marshal(r["conditions"])
 		switch r["method"] {
 		case "eth_signTransaction":
+			// Privy's ethereum_transaction has only to/value/chain_id (live 2026-10-16), so the function is
+			// pinned with an ethereum_calldata condition carrying its ABI fragment.
 			sawTx = strings.Contains(string(b), `"field":"value","field_source":"ethereum_transaction","operator":"eq","value":"0x0"`) &&
-				strings.Contains(string(b), `"field":"data","field_source":"ethereum_transaction","operator":"starts_with"`)
+				strings.Contains(string(b), `"field":"function_name","field_source":"ethereum_calldata","operator":"eq"`) &&
+				!strings.Contains(string(b), `"field":"data"`)
 		case "personal_sign":
-			// Agent auth signs a 32-byte hash and nothing else.
-			sawPersonal = strings.Contains(string(b), `"field":"byte_length"`) && strings.Contains(string(b), `"value":"32"`)
+			// No message condition: Privy evaluates message conditions only on valid UTF-8, so one
+			// never matches the binary agent-auth hash (live 2026-10-16, even byte_length gte 0).
+			sawPersonal = string(b) == "[]"
 		}
 	}
 	if !sawTx || !sawPersonal {
-		t.Fatalf("Privy policy must require tx value 0 and a known selector (%v), and 32-byte personal messages (%v)", sawTx, sawPersonal)
+		t.Fatalf("Privy policy must require tx value 0 and a known function (%v), and allow personal_sign unconditioned (%v)", sawTx, sawPersonal)
 	}
 }
 
@@ -319,5 +326,43 @@ func TestPrivyTxRulesArePerFunction(t *testing.T) {
 	}
 	if got != n {
 		t.Fatalf("%d Privy transaction rules, want one per tool method (%d)", got, n)
+	}
+}
+
+// Each Privy calldata condition's ABI fragment must decode to the very selector the tool sends.
+func TestPrivyCalldataFragmentsMatchSelectors(t *testing.T) {
+	seen := 0
+	for _, r := range privyRules(t) {
+		for _, c := range r["conditions"].([]any) {
+			cond := c.(map[string]any)
+			if cond["field_source"] != "ethereum_calldata" {
+				continue
+			}
+			frag, _ := json.Marshal(cond["abi"])
+			parsed, err := abi.JSON(bytes.NewReader(frag))
+			if err != nil {
+				t.Fatalf("rule %v: ABI fragment does not parse: %v", r["name"], err)
+			}
+			name := cond["value"].(string)
+			m, ok := parsed.Methods[name]
+			if !ok {
+				t.Fatalf("rule %v: fragment has no %s", r["name"], name)
+			}
+			found := false
+			for k, ms := range txMethods {
+				for _, want := range ms {
+					if want == name && hexutil.Encode(m.ID) == hexSelector(k, want) {
+						found = true
+					}
+				}
+			}
+			if !found {
+				t.Fatalf("rule %v: fragment selector %x is not the tool's", r["name"], m.ID)
+			}
+			seen++
+		}
+	}
+	if seen != 10 {
+		t.Fatalf("%d calldata conditions, want 10", seen)
 	}
 }

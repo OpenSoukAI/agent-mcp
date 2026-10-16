@@ -161,8 +161,7 @@ func TestProviderLive(t *testing.T) {
 		case *privySigner:
 			_, err = ps.rpc(ctx, "secp256k1_sign", map[string]any{"hash": hexutil.Encode(digest[:])}, "signature")
 			refused(t, "raw digest (secp256k1_sign)", err)
-			_, err = ps.SignPersonalMessage(ctx, make([]byte, 64))
-			refused(t, "personal_sign of 64 bytes", err)
+			// personal_sign is allowed unconditioned (see privyPolicyDoc), so no length case here.
 		}
 	})
 }

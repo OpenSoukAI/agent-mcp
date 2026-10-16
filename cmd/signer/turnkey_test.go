@@ -253,8 +253,8 @@ func fakeTurnkeyKeystore(t *testing.T, f *fakeTurnkey, privHex string) *keystore
 	if err != nil {
 		t.Fatalf("load turnkey keystore: %v", err)
 	}
-	if len(report) != 1 || !strings.Contains(report[0], f.walletAddr().Hex()) {
-		t.Fatalf("boot report %v must name the wallet address", report)
+	if len(report) != 2 || !strings.Contains(report[0], f.walletAddr().Hex()) || !strings.Contains(report[1], "user-signer") {
+		t.Fatalf("boot report %v must name the wallet address and the API user the policy is scoped to", report)
 	}
 	return ks
 }

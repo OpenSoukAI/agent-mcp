@@ -87,17 +87,19 @@ func providerMessage(raw []byte) string {
 	return s
 }
 
-func (c *turnkeyClient) whoami(ctx context.Context) error {
+// whoami checks the API key against the organization and returns the user it belongs to.
+func (c *turnkeyClient) whoami(ctx context.Context) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, providerCallTimeout)
 	defer cancel()
 	out, err := c.post(ctx, "/public/v1/query/whoami", map[string]any{"organizationId": c.org})
 	if err != nil {
-		return err
+		return "", err
 	}
 	if out["organizationId"] != c.org {
-		return fmt.Errorf("whoami answered for organization %v", out["organizationId"])
+		return "", fmt.Errorf("whoami answered for organization %v", out["organizationId"])
 	}
-	return nil
+	user, _ := out["userId"].(string)
+	return user, nil
 }
 
 // activity submits a Turnkey activity and waits for it to finish, returning its result.
@@ -240,13 +242,18 @@ func turnkeyKeystore(ctx context.Context, getenv func(string) string, wallets st
 		base = turnkeyDefaultBase
 	}
 	c := &turnkeyClient{base: base, org: vals["TURNKEY_ORG_ID"], cred: cred, http: &http.Client{}}
-	if err := c.whoami(ctx); err != nil {
+	user, err := c.whoami(ctx)
+	if err != nil {
 		return nil, nil, fmt.Errorf("Turnkey whoami with TURNKEY_API_PUBLIC_KEY failed (check the key belongs to a user in TURNKEY_ORG_ID): %w", err)
 	}
-	return walletKeystore(ctx, wallets, "Turnkey wallet", func(_ context.Context, ref string) (Signer, error) {
+	ks, report, err := walletKeystore(ctx, wallets, "Turnkey wallet", func(_ context.Context, ref string) (Signer, error) {
 		if !common.IsHexAddress(ref) {
 			return nil, fmt.Errorf("AGENT_WALLETS Turnkey entry %q is not a wallet account address", ref)
 		}
 		return &turnkeySigner{c: c, addr: common.HexToAddress(ref)}, nil
 	})
+	if err != nil {
+		return nil, nil, err
+	}
+	return ks, append(report, "Turnkey API user "+user+" (the policy's --turnkey-user-id)"), nil
 }

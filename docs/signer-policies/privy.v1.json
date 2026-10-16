@@ -693,10 +693,32 @@
           "value": "0x0"
         },
         {
-          "field": "data",
-          "field_source": "ethereum_transaction",
-          "operator": "starts_with",
-          "value": "0xccfbba6e"
+          "abi": [
+            {
+              "inputs": [
+                {
+                  "name": "agentId",
+                  "type": "uint256"
+                },
+                {
+                  "name": "contentHash",
+                  "type": "bytes32"
+                },
+                {
+                  "name": "escrowId",
+                  "type": "uint256"
+                }
+              ],
+              "name": "publishReviewWithEscrowProof",
+              "outputs": [],
+              "stateMutability": "nonpayable",
+              "type": "function"
+            }
+          ],
+          "field": "function_name",
+          "field_source": "ethereum_calldata",
+          "operator": "eq",
+          "value": "publishReviewWithEscrowProof"
         }
       ],
       "method": "eth_signTransaction",
@@ -724,10 +746,28 @@
           "value": "0x0"
         },
         {
-          "field": "data",
-          "field_source": "ethereum_transaction",
-          "operator": "starts_with",
-          "value": "0x283a90b8"
+          "abi": [
+            {
+              "inputs": [
+                {
+                  "name": "reviewId",
+                  "type": "uint256"
+                },
+                {
+                  "name": "newContentHash",
+                  "type": "bytes32"
+                }
+              ],
+              "name": "updateReviewContent",
+              "outputs": [],
+              "stateMutability": "nonpayable",
+              "type": "function"
+            }
+          ],
+          "field": "function_name",
+          "field_source": "ethereum_calldata",
+          "operator": "eq",
+          "value": "updateReviewContent"
         }
       ],
       "method": "eth_signTransaction",
@@ -755,10 +795,28 @@
           "value": "0x0"
         },
         {
-          "field": "data",
-          "field_source": "ethereum_transaction",
-          "operator": "starts_with",
-          "value": "0xcadc1f0a"
+          "abi": [
+            {
+              "inputs": [
+                {
+                  "name": "escrowId",
+                  "type": "uint256"
+                },
+                {
+                  "name": "agentId",
+                  "type": "uint256"
+                }
+              ],
+              "name": "bind",
+              "outputs": [],
+              "stateMutability": "nonpayable",
+              "type": "function"
+            }
+          ],
+          "field": "function_name",
+          "field_source": "ethereum_calldata",
+          "operator": "eq",
+          "value": "bind"
         }
       ],
       "method": "eth_signTransaction",
@@ -786,10 +844,24 @@
           "value": "0x0"
         },
         {
-          "field": "data",
-          "field_source": "ethereum_transaction",
-          "operator": "starts_with",
-          "value": "0x5da6bb45"
+          "abi": [
+            {
+              "inputs": [
+                {
+                  "name": "escrowId",
+                  "type": "uint256"
+                }
+              ],
+              "name": "triggerSettleFallback",
+              "outputs": [],
+              "stateMutability": "nonpayable",
+              "type": "function"
+            }
+          ],
+          "field": "function_name",
+          "field_source": "ethereum_calldata",
+          "operator": "eq",
+          "value": "triggerSettleFallback"
         }
       ],
       "method": "eth_signTransaction",
@@ -817,10 +889,28 @@
           "value": "0x0"
         },
         {
-          "field": "data",
-          "field_source": "ethereum_transaction",
-          "operator": "starts_with",
-          "value": "0xe60a955d"
+          "abi": [
+            {
+              "inputs": [
+                {
+                  "name": "merchantId",
+                  "type": "uint256"
+                },
+                {
+                  "name": "active",
+                  "type": "bool"
+                }
+              ],
+              "name": "setActive",
+              "outputs": [],
+              "stateMutability": "nonpayable",
+              "type": "function"
+            }
+          ],
+          "field": "function_name",
+          "field_source": "ethereum_calldata",
+          "operator": "eq",
+          "value": "setActive"
         }
       ],
       "method": "eth_signTransaction",
@@ -848,10 +938,32 @@
           "value": "0x0"
         },
         {
-          "field": "data",
-          "field_source": "ethereum_transaction",
-          "operator": "starts_with",
-          "value": "0xfb42204d"
+          "abi": [
+            {
+              "inputs": [
+                {
+                  "name": "merchantId",
+                  "type": "uint256"
+                },
+                {
+                  "name": "role",
+                  "type": "bytes32"
+                },
+                {
+                  "name": "account",
+                  "type": "address"
+                }
+              ],
+              "name": "grantRole",
+              "outputs": [],
+              "stateMutability": "nonpayable",
+              "type": "function"
+            }
+          ],
+          "field": "function_name",
+          "field_source": "ethereum_calldata",
+          "operator": "eq",
+          "value": "grantRole"
         }
       ],
       "method": "eth_signTransaction",
@@ -879,10 +991,32 @@
           "value": "0x0"
         },
         {
-          "field": "data",
-          "field_source": "ethereum_transaction",
-          "operator": "starts_with",
-          "value": "0x4a120dd7"
+          "abi": [
+            {
+              "inputs": [
+                {
+                  "name": "merchantId",
+                  "type": "uint256"
+                },
+                {
+                  "name": "role",
+                  "type": "bytes32"
+                },
+                {
+                  "name": "account",
+                  "type": "address"
+                }
+              ],
+              "name": "revokeRole",
+              "outputs": [],
+              "stateMutability": "nonpayable",
+              "type": "function"
+            }
+          ],
+          "field": "function_name",
+          "field_source": "ethereum_calldata",
+          "operator": "eq",
+          "value": "revokeRole"
         }
       ],
       "method": "eth_signTransaction",
@@ -910,10 +1044,40 @@
           "value": "0x0"
         },
         {
-          "field": "data",
-          "field_source": "ethereum_transaction",
-          "operator": "starts_with",
-          "value": "0xf5aad229"
+          "abi": [
+            {
+              "inputs": [
+                {
+                  "name": "merchantId",
+                  "type": "uint256"
+                },
+                {
+                  "name": "productId",
+                  "type": "bytes32"
+                },
+                {
+                  "name": "commissionBps",
+                  "type": "uint16"
+                },
+                {
+                  "name": "productType",
+                  "type": "uint8"
+                },
+                {
+                  "name": "productCardURI",
+                  "type": "string"
+                }
+              ],
+              "name": "addProduct",
+              "outputs": [],
+              "stateMutability": "nonpayable",
+              "type": "function"
+            }
+          ],
+          "field": "function_name",
+          "field_source": "ethereum_calldata",
+          "operator": "eq",
+          "value": "addProduct"
         }
       ],
       "method": "eth_signTransaction",
@@ -941,10 +1105,32 @@
           "value": "0x0"
         },
         {
-          "field": "data",
-          "field_source": "ethereum_transaction",
-          "operator": "starts_with",
-          "value": "0xc16df641"
+          "abi": [
+            {
+              "inputs": [
+                {
+                  "name": "merchantId",
+                  "type": "uint256"
+                },
+                {
+                  "name": "productId",
+                  "type": "bytes32"
+                },
+                {
+                  "name": "commissionBps",
+                  "type": "uint16"
+                }
+              ],
+              "name": "setCommission",
+              "outputs": [],
+              "stateMutability": "nonpayable",
+              "type": "function"
+            }
+          ],
+          "field": "function_name",
+          "field_source": "ethereum_calldata",
+          "operator": "eq",
+          "value": "setCommission"
         }
       ],
       "method": "eth_signTransaction",
@@ -972,10 +1158,32 @@
           "value": "0x0"
         },
         {
-          "field": "data",
-          "field_source": "ethereum_transaction",
-          "operator": "starts_with",
-          "value": "0xc7482c28"
+          "abi": [
+            {
+              "inputs": [
+                {
+                  "name": "merchantId",
+                  "type": "uint256"
+                },
+                {
+                  "name": "productId",
+                  "type": "bytes32"
+                },
+                {
+                  "name": "active",
+                  "type": "bool"
+                }
+              ],
+              "name": "setProductActive",
+              "outputs": [],
+              "stateMutability": "nonpayable",
+              "type": "function"
+            }
+          ],
+          "field": "function_name",
+          "field_source": "ethereum_calldata",
+          "operator": "eq",
+          "value": "setProductActive"
         }
       ],
       "method": "eth_signTransaction",
@@ -983,14 +1191,7 @@
     },
     {
       "action": "ALLOW",
-      "conditions": [
-        {
-          "field": "byte_length",
-          "field_source": "message",
-          "operator": "eq",
-          "value": "32"
-        }
-      ],
+      "conditions": [],
       "method": "personal_sign",
       "name": "allow agent-auth personal_sign"
     }

@@ -44,6 +44,17 @@ var txABIs = map[protocolKey]*abi.ABI{
 	keyMerchantRegistry: &merchantRegistryABI, keyProductRegistry: &productRegistryABI,
 }
 
+// abiFragment is method m of contract k as a one-entry JSON ABI, built from the tools' own ABI.
+// The ten transaction methods take only flat types.
+func abiFragment(k protocolKey, m string) []any {
+	method := txABIs[k].Methods[m]
+	inputs := make([]any, len(method.Inputs))
+	for i, in := range method.Inputs {
+		inputs[i] = map[string]any{"name": in.Name, "type": in.Type.String()}
+	}
+	return []any{map[string]any{"type": "function", "name": method.RawName, "stateMutability": method.StateMutability, "inputs": inputs, "outputs": []any{}}}
+}
+
 // hexSelector is the 4-byte selector of method m on contract k, 0x-hex, or "" if the tools' ABI
 // for k has no such method.
 func hexSelector(k protocolKey, m string) string {
@@ -212,14 +223,16 @@ func privyPolicyDoc(in policyInputs) map[string]any {
 					map[string]any{"field_source": "ethereum_transaction", "field": "chain_id", "operator": "eq", "value": in.ChainID},
 					map[string]any{"field_source": "ethereum_transaction", "field": "to", "operator": "eq", "value": in.Addrs[k]},
 					map[string]any{"field_source": "ethereum_transaction", "field": "value", "operator": "eq", "value": "0x0"},
-					map[string]any{"field_source": "ethereum_transaction", "field": "data", "operator": "starts_with", "value": hexSelector(k, m)},
+					// Privy's ethereum_transaction exposes only to/value/chain_id; the function is matched
+					// by decoding the calldata against its ABI fragment.
+					map[string]any{"field_source": "ethereum_calldata", "field": "function_name", "abi": abiFragment(k, m), "operator": "eq", "value": m},
 				}})
 		}
 	}
-	// personal_sign cannot collide with a typed-data or transaction hash (EIP-191 prefix). Agent
-	// auth, the merchant REST tools' request signature, signs a 32-byte hash and nothing else.
-	rules = append(rules, map[string]any{"name": "allow agent-auth personal_sign", "method": "personal_sign", "action": "ALLOW",
-		"conditions": []any{map[string]any{"field_source": "message", "field": "byte_length", "operator": "eq", "value": "32"}}})
+	// personal_sign cannot collide with a typed-data or transaction hash (EIP-191 prefix), so it
+	// cannot reach anything the rules above protect. It has no condition because Privy evaluates
+	// message conditions only on valid UTF-8, and the agent-auth message is a binary hash.
+	rules = append(rules, map[string]any{"name": "allow agent-auth personal_sign", "method": "personal_sign", "action": "ALLOW", "conditions": []any{}})
 	return map[string]any{"version": "1.0", "name": "opensouk-signer-v1", "chain_type": "ethereum", "rules": rules}
 }
 
