@@ -234,9 +234,15 @@ func privyPolicyDoc(in policyInputs) map[string]any {
 		}
 	}
 	// personal_sign cannot collide with a typed-data or transaction hash (EIP-191 prefix), so it
-	// cannot reach anything the rules above protect. It has no condition because Privy evaluates
-	// message conditions only on valid UTF-8, and the agent-auth message is a binary hash.
-	rules = append(rules, map[string]any{"name": "allow agent-auth personal_sign", "method": "personal_sign", "action": "ALLOW", "conditions": []any{}})
+	// cannot reach anything the rules above protect. Privy evaluates message conditions only on
+	// valid UTF-8: the ALLOW therefore has none (the agent-auth message is a binary hash), and the
+	// DENY, true for any text, refuses everything else, such as a sign-in message for another site.
+	// If Privy ever measures binary messages too, the DENY catches the hash and agent auth fails
+	// visibly rather than widening.
+	rules = append(rules,
+		map[string]any{"name": "allow agent-auth personal_sign", "method": "personal_sign", "action": "ALLOW", "conditions": []any{}},
+		map[string]any{"name": "deny personal_sign of text", "method": "personal_sign", "action": "DENY",
+			"conditions": []any{map[string]any{"field_source": "message", "field": "byte_length", "operator": "gte", "value": "0"}}})
 	return map[string]any{"version": "1.0", "name": "opensouk-signer-v1", "chain_type": "ethereum", "rules": rules}
 }
 

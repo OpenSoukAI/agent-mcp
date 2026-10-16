@@ -1194,6 +1194,19 @@
       "conditions": [],
       "method": "personal_sign",
       "name": "allow agent-auth personal_sign"
+    },
+    {
+      "action": "DENY",
+      "conditions": [
+        {
+          "field": "byte_length",
+          "field_source": "message",
+          "operator": "gte",
+          "value": "0"
+        }
+      ],
+      "method": "personal_sign",
+      "name": "deny personal_sign of text"
     }
   ],
   "version": "1.0"

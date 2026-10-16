@@ -95,10 +95,26 @@ func TestPrivyPolicyTypesMatchBuilders(t *testing.T) {
 
 func TestPrivyPolicyHasNoWildcard(t *testing.T) {
 	allowed := map[string]bool{"eth_signTypedData_v4": true, "eth_signTransaction": true, "personal_sign": true}
+	denies := 0
 	for _, r := range privyRules(t) {
-		if !allowed[r["method"].(string)] || r["action"] != "ALLOW" {
-			t.Fatalf("rule %v: only ALLOW rules for %v belong in the policy; anything else is denied by default", r, allowed)
+		if !allowed[r["method"].(string)] {
+			t.Fatalf("rule %v: only %v belong in the policy; anything else is denied by default", r, allowed)
 		}
+		if r["action"] == "DENY" {
+			denies++
+			// The one DENY refuses personal_sign of any text (a message condition evaluates only on
+			// valid UTF-8), leaving the binary agent-auth hash. Live 2026-10-16: 8/8 hashes signed,
+			// a sign-in message was refused.
+			b, _ := json.Marshal(r)
+			if r["method"] != "personal_sign" || !strings.Contains(string(b), `"field":"byte_length","field_source":"message","operator":"gte","value":"0"`) {
+				t.Fatalf("unexpected DENY rule %s", b)
+			}
+		} else if r["action"] != "ALLOW" {
+			t.Fatalf("rule %v has action %v", r["name"], r["action"])
+		}
+	}
+	if denies != 1 {
+		t.Fatalf("%d DENY rules, want the one personal_sign text deny", denies)
 	}
 }
 
@@ -303,6 +319,9 @@ func TestPrivyPolicyBoundsTxValueAndPersonalSign(t *testing.T) {
 				strings.Contains(string(b), `"field":"function_name","field_source":"ethereum_calldata","operator":"eq"`) &&
 				!strings.Contains(string(b), `"field":"data"`)
 		case "personal_sign":
+			if r["action"] != "ALLOW" {
+				continue // the text DENY is checked in TestPrivyPolicyHasNoWildcard
+			}
 			// No message condition: Privy evaluates message conditions only on valid UTF-8, so one
 			// never matches the binary agent-auth hash (live 2026-10-16, even byte_length gte 0).
 			sawPersonal = string(b) == "[]"

@@ -16,10 +16,11 @@ Both allow exactly:
   payment ceiling;
 - transactions with no ETH value, each only to one function a signer tool calls on the
   ReviewRegistry, CommissionEscrow, MerchantRegistry or ProductRegistry (ten in all);
-- on Privy, `personal_sign`, which the merchant REST tools use to authenticate. Its EIP-191
-  prefix keeps it from producing a typed-data or transaction signature. It carries no condition:
-  Privy evaluates message conditions only on valid UTF-8, and the signed message is a binary
-  hash. Turnkey has no equivalent its policy can inspect, so those tools are unavailable there.
+- on Privy, `personal_sign` of the binary hash the merchant REST tools authenticate with. Its
+  EIP-191 prefix keeps it from producing a typed-data or transaction signature. Text, such as a
+  sign-in message for another site, is denied: Privy evaluates message conditions only on valid
+  UTF-8, so a DENY on any text leaves exactly the binary hash. Turnkey has no equivalent its
+  policy can inspect, so those tools are unavailable there.
 
 Everything else is denied. On Turnkey, raw payloads that are not EIP-712 are denied explicitly: a
 raw hash can be any typed-data or transaction signature, so allowing one would void the rest.
