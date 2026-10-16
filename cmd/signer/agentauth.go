@@ -53,7 +53,14 @@ func agentAuthSignature(ctx context.Context, body []byte, timestamp int64, key S
 	if key == nil {
 		return "", fmt.Errorf("no signing key for the authenticated backend call")
 	}
-	sig, err := key.SignDigest(ctx, common.BytesToHash(accounts.TextHash(agentAuthPayloadHash(body, timestamp))))
+	msg := agentAuthPayloadHash(body, timestamp)
+	var sig []byte
+	var err error
+	if ms, ok := key.(MessageSigner); ok {
+		sig, err = ms.SignPersonalMessage(ctx, msg)
+	} else {
+		sig, err = key.SignDigest(ctx, common.BytesToHash(accounts.TextHash(msg)))
+	}
 	if err != nil {
 		return "", fmt.Errorf("sign agent auth payload: %w", err)
 	}
