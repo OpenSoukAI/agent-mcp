@@ -683,21 +683,314 @@
         {
           "field": "to",
           "field_source": "ethereum_transaction",
-          "operator": "in",
-          "value": [
-            "<REVIEW_REGISTRY>",
-            "<ESCROW>",
-            "<MERCHANT_REGISTRY>",
-            "<PRODUCT_REGISTRY>"
-          ]
+          "operator": "eq",
+          "value": "<REVIEW_REGISTRY>"
+        },
+        {
+          "field": "value",
+          "field_source": "ethereum_transaction",
+          "operator": "eq",
+          "value": "0x0"
+        },
+        {
+          "field": "data",
+          "field_source": "ethereum_transaction",
+          "operator": "starts_with",
+          "value": "0xccfbba6e"
         }
       ],
       "method": "eth_signTransaction",
-      "name": "allow protocol transactions"
+      "name": "allow REVIEW_REGISTRY.publishReviewWithEscrowProof"
     },
     {
       "action": "ALLOW",
-      "conditions": [],
+      "conditions": [
+        {
+          "field": "chain_id",
+          "field_source": "ethereum_transaction",
+          "operator": "eq",
+          "value": "<CHAIN_ID>"
+        },
+        {
+          "field": "to",
+          "field_source": "ethereum_transaction",
+          "operator": "eq",
+          "value": "<REVIEW_REGISTRY>"
+        },
+        {
+          "field": "value",
+          "field_source": "ethereum_transaction",
+          "operator": "eq",
+          "value": "0x0"
+        },
+        {
+          "field": "data",
+          "field_source": "ethereum_transaction",
+          "operator": "starts_with",
+          "value": "0x283a90b8"
+        }
+      ],
+      "method": "eth_signTransaction",
+      "name": "allow REVIEW_REGISTRY.updateReviewContent"
+    },
+    {
+      "action": "ALLOW",
+      "conditions": [
+        {
+          "field": "chain_id",
+          "field_source": "ethereum_transaction",
+          "operator": "eq",
+          "value": "<CHAIN_ID>"
+        },
+        {
+          "field": "to",
+          "field_source": "ethereum_transaction",
+          "operator": "eq",
+          "value": "<ESCROW>"
+        },
+        {
+          "field": "value",
+          "field_source": "ethereum_transaction",
+          "operator": "eq",
+          "value": "0x0"
+        },
+        {
+          "field": "data",
+          "field_source": "ethereum_transaction",
+          "operator": "starts_with",
+          "value": "0xcadc1f0a"
+        }
+      ],
+      "method": "eth_signTransaction",
+      "name": "allow ESCROW.bind"
+    },
+    {
+      "action": "ALLOW",
+      "conditions": [
+        {
+          "field": "chain_id",
+          "field_source": "ethereum_transaction",
+          "operator": "eq",
+          "value": "<CHAIN_ID>"
+        },
+        {
+          "field": "to",
+          "field_source": "ethereum_transaction",
+          "operator": "eq",
+          "value": "<ESCROW>"
+        },
+        {
+          "field": "value",
+          "field_source": "ethereum_transaction",
+          "operator": "eq",
+          "value": "0x0"
+        },
+        {
+          "field": "data",
+          "field_source": "ethereum_transaction",
+          "operator": "starts_with",
+          "value": "0x5da6bb45"
+        }
+      ],
+      "method": "eth_signTransaction",
+      "name": "allow ESCROW.triggerSettleFallback"
+    },
+    {
+      "action": "ALLOW",
+      "conditions": [
+        {
+          "field": "chain_id",
+          "field_source": "ethereum_transaction",
+          "operator": "eq",
+          "value": "<CHAIN_ID>"
+        },
+        {
+          "field": "to",
+          "field_source": "ethereum_transaction",
+          "operator": "eq",
+          "value": "<MERCHANT_REGISTRY>"
+        },
+        {
+          "field": "value",
+          "field_source": "ethereum_transaction",
+          "operator": "eq",
+          "value": "0x0"
+        },
+        {
+          "field": "data",
+          "field_source": "ethereum_transaction",
+          "operator": "starts_with",
+          "value": "0xe60a955d"
+        }
+      ],
+      "method": "eth_signTransaction",
+      "name": "allow MERCHANT_REGISTRY.setActive"
+    },
+    {
+      "action": "ALLOW",
+      "conditions": [
+        {
+          "field": "chain_id",
+          "field_source": "ethereum_transaction",
+          "operator": "eq",
+          "value": "<CHAIN_ID>"
+        },
+        {
+          "field": "to",
+          "field_source": "ethereum_transaction",
+          "operator": "eq",
+          "value": "<MERCHANT_REGISTRY>"
+        },
+        {
+          "field": "value",
+          "field_source": "ethereum_transaction",
+          "operator": "eq",
+          "value": "0x0"
+        },
+        {
+          "field": "data",
+          "field_source": "ethereum_transaction",
+          "operator": "starts_with",
+          "value": "0xfb42204d"
+        }
+      ],
+      "method": "eth_signTransaction",
+      "name": "allow MERCHANT_REGISTRY.grantRole"
+    },
+    {
+      "action": "ALLOW",
+      "conditions": [
+        {
+          "field": "chain_id",
+          "field_source": "ethereum_transaction",
+          "operator": "eq",
+          "value": "<CHAIN_ID>"
+        },
+        {
+          "field": "to",
+          "field_source": "ethereum_transaction",
+          "operator": "eq",
+          "value": "<MERCHANT_REGISTRY>"
+        },
+        {
+          "field": "value",
+          "field_source": "ethereum_transaction",
+          "operator": "eq",
+          "value": "0x0"
+        },
+        {
+          "field": "data",
+          "field_source": "ethereum_transaction",
+          "operator": "starts_with",
+          "value": "0x4a120dd7"
+        }
+      ],
+      "method": "eth_signTransaction",
+      "name": "allow MERCHANT_REGISTRY.revokeRole"
+    },
+    {
+      "action": "ALLOW",
+      "conditions": [
+        {
+          "field": "chain_id",
+          "field_source": "ethereum_transaction",
+          "operator": "eq",
+          "value": "<CHAIN_ID>"
+        },
+        {
+          "field": "to",
+          "field_source": "ethereum_transaction",
+          "operator": "eq",
+          "value": "<PRODUCT_REGISTRY>"
+        },
+        {
+          "field": "value",
+          "field_source": "ethereum_transaction",
+          "operator": "eq",
+          "value": "0x0"
+        },
+        {
+          "field": "data",
+          "field_source": "ethereum_transaction",
+          "operator": "starts_with",
+          "value": "0xf5aad229"
+        }
+      ],
+      "method": "eth_signTransaction",
+      "name": "allow PRODUCT_REGISTRY.addProduct"
+    },
+    {
+      "action": "ALLOW",
+      "conditions": [
+        {
+          "field": "chain_id",
+          "field_source": "ethereum_transaction",
+          "operator": "eq",
+          "value": "<CHAIN_ID>"
+        },
+        {
+          "field": "to",
+          "field_source": "ethereum_transaction",
+          "operator": "eq",
+          "value": "<PRODUCT_REGISTRY>"
+        },
+        {
+          "field": "value",
+          "field_source": "ethereum_transaction",
+          "operator": "eq",
+          "value": "0x0"
+        },
+        {
+          "field": "data",
+          "field_source": "ethereum_transaction",
+          "operator": "starts_with",
+          "value": "0xc16df641"
+        }
+      ],
+      "method": "eth_signTransaction",
+      "name": "allow PRODUCT_REGISTRY.setCommission"
+    },
+    {
+      "action": "ALLOW",
+      "conditions": [
+        {
+          "field": "chain_id",
+          "field_source": "ethereum_transaction",
+          "operator": "eq",
+          "value": "<CHAIN_ID>"
+        },
+        {
+          "field": "to",
+          "field_source": "ethereum_transaction",
+          "operator": "eq",
+          "value": "<PRODUCT_REGISTRY>"
+        },
+        {
+          "field": "value",
+          "field_source": "ethereum_transaction",
+          "operator": "eq",
+          "value": "0x0"
+        },
+        {
+          "field": "data",
+          "field_source": "ethereum_transaction",
+          "operator": "starts_with",
+          "value": "0xc7482c28"
+        }
+      ],
+      "method": "eth_signTransaction",
+      "name": "allow PRODUCT_REGISTRY.setProductActive"
+    },
+    {
+      "action": "ALLOW",
+      "conditions": [
+        {
+          "field": "byte_length",
+          "field_source": "message",
+          "operator": "eq",
+          "value": "32"
+        }
+      ],
       "method": "personal_sign",
       "name": "allow agent-auth personal_sign"
     }

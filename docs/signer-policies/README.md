@@ -14,7 +14,8 @@ Both allow exactly:
   configured chain, with the protocol contract as `verifyingContract`;
 - `ReceiveWithAuthorization` (ERC-3009) on USDC, only to the SplitRouter, and only up to the
   payment ceiling;
-- transactions to the ReviewRegistry, CommissionEscrow, MerchantRegistry and ProductRegistry;
+- transactions with no ETH value, each only to one function a signer tool calls on the
+  ReviewRegistry, CommissionEscrow, MerchantRegistry or ProductRegistry (ten in all);
 - on Privy, `personal_sign`, which the merchant REST tools use to authenticate. Turnkey has no
   equivalent that its policy can inspect, so those tools are unavailable under Turnkey.
 
@@ -33,7 +34,7 @@ CHAIN_ID=84532 BASE_RPC_URL=… referrer-signer policy --provider privy \
 
 CHAIN_ID=84532 BASE_RPC_URL=… referrer-signer policy --provider turnkey \
   --usdc 0x036CbD53842c5426634e7929541eC2318f3dCF7e --max-payment 5000000 \
-  --turnkey-user-id <signer user id> > turnkey-policies.json
+  --turnkey-user-id <signer user id> --wallet <wallet account address> > turnkey-policies.json
 ```
 
 `--max-payment` defaults to `MAX_PAYMENT_PER_TX`. One of them is required.
@@ -41,7 +42,8 @@ CHAIN_ID=84532 BASE_RPC_URL=… referrer-signer policy --provider turnkey \
 ## Apply it
 
 **Turnkey.** Sign in as the root user and create each entry of `policies` (Policies → Create
-policy) with its effect, consensus and condition. The signer's API key must belong to a
+policy) with its effect, consensus and condition. Every ALLOW is scoped to the signer user and to
+the one wallet account. The signer's API key must belong to a
 **non-root** user: root users bypass every policy.
 
 **Privy.** The wallet needs an owner (a key quorum you keep off the agent's machine), and the

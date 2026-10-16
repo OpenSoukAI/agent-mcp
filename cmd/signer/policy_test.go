@@ -4,8 +4,11 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
+	"path/filepath"
 	"reflect"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -110,7 +113,12 @@ func TestTurnkeyPolicyDeniesRawPayloads(t *testing.T) {
 		cond, _ := p["condition"].(string)
 		switch p["effect"] {
 		case "EFFECT_DENY":
-			for _, typ := range []string{"ACTIVITY_TYPE_SIGN_RAW_PAYLOAD", "ACTIVITY_TYPE_SIGN_RAW_PAYLOAD_V2", "ACTIVITY_TYPE_SIGN_RAW_PAYLOADS"} {
+			// v1 is denied outright: its condition must not read a parameter v1 may lack, since a
+			// Turnkey policy whose condition errors is skipped, and a skipped DENY fails open.
+			if cond == "activity.type == 'ACTIVITY_TYPE_SIGN_RAW_PAYLOAD'" {
+				denied["ACTIVITY_TYPE_SIGN_RAW_PAYLOAD"] = true
+			}
+			for _, typ := range []string{"ACTIVITY_TYPE_SIGN_RAW_PAYLOAD_V2", "ACTIVITY_TYPE_SIGN_RAW_PAYLOADS"} {
 				if strings.Contains(cond, "activity.type == '"+typ+"'") && strings.Contains(cond, "activity.params.encoding != 'PAYLOAD_ENCODING_EIP712'") {
 					denied[typ] = true
 				}
@@ -162,19 +170,80 @@ func TestPoliciesCoverEveryPrimaryType(t *testing.T) {
 			t.Fatalf("%s policy must carry the USDC address and the payment ceiling", provider)
 		}
 	}
-	// The transaction allowlist is exactly the four contracts the transaction tools call.
+	// Transactions: exactly one policy per (contract, function) a transaction tool calls, value 0.
+	want := map[string]bool{}
+	for k, methods := range txMethods {
+		for _, m := range methods {
+			want[in.Addrs[k]+" "+hexSelector(k, m)] = true
+		}
+	}
+	got := map[string]bool{}
 	for _, p := range turnkeyPolicies(t) {
 		cond, _ := p["condition"].(string)
-		if strings.Contains(cond, "ACTIVITY_TYPE_SIGN_TRANSACTION_V2") {
-			for _, k := range []protocolKey{keyReviewRegistry, keyEscrow, keyMerchantRegistry, keyProductRegistry} {
-				if !strings.Contains(cond, "eth.tx.to == '"+in.Addrs[k]+"'") {
-					t.Fatalf("transaction policy misses %s: %s", k, cond)
+		if !strings.Contains(cond, "ACTIVITY_TYPE_SIGN_TRANSACTION_V2") {
+			continue
+		}
+		if !strings.Contains(cond, "eth.tx.value == 0") || !strings.Contains(cond, "eth.tx.chain_id == "+in.ChainID) {
+			t.Fatalf("transaction policy must pin chain and value 0: %s", cond)
+		}
+		for k := range txMethods {
+			for _, m := range txMethods[k] {
+				if strings.Contains(cond, "eth.tx.to == '"+in.Addrs[k]+"'") && strings.Contains(cond, "eth.tx.data[0..10] == '"+hexSelector(k, m)+"'") {
+					got[in.Addrs[k]+" "+hexSelector(k, m)] = true
 				}
 			}
-			if strings.Contains(cond, in.Addrs[keySplitRouter]) {
-				t.Fatal("no transaction tool calls the SplitRouter; it must not be in the transaction allowlist")
+		}
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("Turnkey transaction policies allow %v, want exactly %v", got, want)
+	}
+	if strings.Contains(fmt.Sprint(got), in.Addrs[keySplitRouter]) {
+		t.Fatal("no transaction tool calls the SplitRouter")
+	}
+}
+
+// Every ALLOW on Turnkey names the wallet: the signer user may be able to sign with other keys
+// in the organization.
+func TestTurnkeyAllowsAreScopedToTheWallet(t *testing.T) {
+	for _, p := range turnkeyPolicies(t) {
+		if p["effect"] == "EFFECT_ALLOW" && !strings.Contains(p["condition"].(string), "wallet_account.address == '<WALLET>'") {
+			t.Fatalf("ALLOW %v is not scoped to the wallet", p["policyName"])
+		}
+	}
+}
+
+// txMethods must list every on-chain method a tool sends, or the policy refuses a real tool;
+// and nothing else, or the policy grants more than the tools use.
+func TestTxMethodsMatchTheTools(t *testing.T) {
+	files, _ := filepath.Glob("*.go")
+	re := regexp.MustCompile(`Transact\(auth, "(\w+)"|method:\s+"(\w+)"|method :?= [^\n]*"(\w+)"\s*$`)
+	used := map[string]bool{}
+	for _, f := range files {
+		if strings.HasSuffix(f, "_test.go") {
+			continue
+		}
+		b, _ := os.ReadFile(f)
+		for _, line := range strings.Split(string(b), "\n") {
+			for _, m := range re.FindAllStringSubmatch(line, -1) {
+				for _, g := range m[1:] {
+					if g != "" {
+						used[g] = true
+					}
+				}
 			}
 		}
+	}
+	listed := map[string]bool{}
+	for k, ms := range txMethods {
+		for _, m := range ms {
+			listed[m] = true
+			if hexSelector(k, m) == "" {
+				t.Fatalf("%s.%s is not in that contract's ABI", k, m)
+			}
+		}
+	}
+	if !reflect.DeepEqual(used, listed) {
+		t.Fatalf("tools send %v, txMethods lists %v", used, listed)
 	}
 }
 
@@ -216,5 +285,39 @@ func TestPolicyCLI(t *testing.T) {
 	}
 	if code, _, e := run("--provider", "vault", "--template"); code == 0 || !strings.Contains(e, "provider") {
 		t.Fatalf("unknown provider must be refused, got %d %q", code, e)
+	}
+}
+
+func TestPrivyPolicyBoundsTxValueAndPersonalSign(t *testing.T) {
+	var sawTx, sawPersonal bool
+	for _, r := range privyRules(t) {
+		b, _ := json.Marshal(r["conditions"])
+		switch r["method"] {
+		case "eth_signTransaction":
+			sawTx = strings.Contains(string(b), `"field":"value","field_source":"ethereum_transaction","operator":"eq","value":"0x0"`) &&
+				strings.Contains(string(b), `"field":"data","field_source":"ethereum_transaction","operator":"starts_with"`)
+		case "personal_sign":
+			// Agent auth signs a 32-byte hash and nothing else.
+			sawPersonal = strings.Contains(string(b), `"field":"byte_length"`) && strings.Contains(string(b), `"value":"32"`)
+		}
+	}
+	if !sawTx || !sawPersonal {
+		t.Fatalf("Privy policy must require tx value 0 and a known selector (%v), and 32-byte personal messages (%v)", sawTx, sawPersonal)
+	}
+}
+
+func TestPrivyTxRulesArePerFunction(t *testing.T) {
+	n := 0
+	for _, ms := range txMethods {
+		n += len(ms)
+	}
+	got := 0
+	for _, r := range privyRules(t) {
+		if r["method"] == "eth_signTransaction" {
+			got++
+		}
+	}
+	if got != n {
+		t.Fatalf("%d Privy transaction rules, want one per tool method (%d)", got, n)
 	}
 }
