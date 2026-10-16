@@ -28,10 +28,11 @@ const (
 	ServerSigner = "referrer-signer"
 )
 
-// registration matches `sdkmcp.AddTool(<srv>, &sdkmcp.Tool{Name: "x"`, anchored on AddTool so a
-// CallToolParams{Name: ...} is not mistaken for a registration — the signer calls the backend's
-// cast_review_votes that way, which would otherwise look like the signer registering it.
-var registration = regexp.MustCompile(`sdkmcp\.AddTool\([^,]+,\s*&sdkmcp\.Tool\{\s*Name:\s*"([a-z_]+)"`)
+// registration matches `sdkmcp.AddTool(<srv>, &sdkmcp.Tool{Name: "x"`, and the same call through
+// the backend's `addTool` wrapper (REF-441). Anchored on the call so a CallToolParams{Name: ...} is
+// not mistaken for a registration — the signer calls the backend's cast_review_votes that way,
+// which would otherwise look like the signer registering it.
+var registration = regexp.MustCompile(`(?:\bsdkmcp\.AddTool|\baddTool)\([^,]+,\s*&sdkmcp\.Tool\{\s*Name:\s*"([a-z_]+)"`)
 
 // inventoryRow matches a leading-cell tool name in a markdown table: `| `tool_name` | ... |`.
 var inventoryRow = regexp.MustCompile("(?m)^\\|\\s*`([a-z_]+)`\\s*\\|")
@@ -40,7 +41,7 @@ var inventoryRow = regexp.MustCompile("(?m)^\\|\\s*`([a-z_]+)`\\s*\\|")
 var inventoryHeading = regexp.MustCompile("(?m)^## `([a-z-]+)`")
 
 // Registered returns the tool names registered under dir, which should hold the Go sources that
-// call sdkmcp.AddTool. Test files are skipped: they construct tools that are never served.
+// call sdkmcp.AddTool or the backend's addTool wrapper. Test files are skipped: they construct tools that are never served.
 func Registered(dir string) (map[string]bool, error) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {

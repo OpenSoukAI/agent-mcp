@@ -100,6 +100,42 @@ func f() {
 	}
 }
 
+// The backend registers every tool through its own addTool wrapper (REF-441), which calls
+// sdkmcp.AddTool once with a variable. Seeing only the SDK call found zero backend tools, and the
+// check could not run at all from 2026-10-06 — long enough for an undocumented tool to ship.
+func TestRegistered_SeesTheBackendAddToolWrapper(t *testing.T) {
+	dir := t.TempDir()
+	src := `package mcp
+func addTool[In, Out any](srv *sdkmcp.Server, t *sdkmcp.Tool, h sdkmcp.ToolHandlerFor[In, Out]) {
+	sdkmcp.AddTool(srv, t, func(ctx context.Context, req *sdkmcp.CallToolRequest, in In) (*sdkmcp.CallToolResult, Out, error) {
+		return h(ctx, req, in)
+	})
+}
+func (s *Server) register() {
+	addTool(s.sdkServer, &sdkmcp.Tool{
+		Name:        "get_products",
+		Description: "…",
+	}, s.handleGetProducts)
+	s.addToolset(&sdkmcp.Tool{Name: "not_a_registration"})
+}`
+	if err := os.WriteFile(filepath.Join(dir, "tools.go"), []byte(src), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got, err := Registered(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got["get_products"] {
+		t.Error("did not find a tool registered through the addTool wrapper")
+	}
+	if got["not_a_registration"] {
+		t.Error("counted a call to some other function as a registration")
+	}
+	if len(got) != 1 {
+		t.Errorf("want exactly the one registered tool, got %v", got)
+	}
+}
+
 // Tools constructed in tests are never served, so they must not count as registered — otherwise a
 // fixture could satisfy the inventory and hide a tool nobody actually exposes.
 func TestRegistered_IgnoresTestFiles(t *testing.T) {
