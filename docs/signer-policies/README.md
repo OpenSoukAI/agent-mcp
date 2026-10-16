@@ -43,8 +43,8 @@ CHAIN_ID=84532 BASE_RPC_URL=… referrer-signer policy --provider turnkey \
 
 **Turnkey.** Sign in as the root user and create each entry of `policies` (Policies → Create
 policy) with its effect, consensus and condition. Every ALLOW is scoped to the signer user and to
-the one wallet account. The signer's API key must belong to a
-**non-root** user: root users bypass every policy.
+the one wallet account. The signer's API key must belong to a **non-root** user: root users
+bypass every policy.
 
 **Privy.** The wallet needs an owner (a key quorum you keep off the agent's machine), and the
 signer's authorization key must be an **additional signer** with this policy, not the owner: an

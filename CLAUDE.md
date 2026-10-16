@@ -394,3 +394,6 @@ instant settlement. `splitCharge` is permissionless and idempotent per `paymentR
   validated once at startup, so a bad key fails the signer at boot, not mid-flow.
   To keep the key out of this machine entirely, set `SIGNER_BACKEND=kms` with `AGENT_WALLETS`
   (`agentId:kmsKeyId` pairs, `*` for the fallback); the signer then signs through AWS KMS (see README).
+  `SIGNER_BACKEND=turnkey` or `privy` does the same with a provider whose policy also limits what
+  is signed (docs/signer-policies). A refusal from either provider is the policy working: do not
+  retry it another way. Under `turnkey` the merchant REST tools are unavailable.

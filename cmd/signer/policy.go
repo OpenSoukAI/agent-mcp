@@ -80,7 +80,13 @@ const zero32 = "0x00000000000000000000000000000000000000000000000000000000000000
 // sampleTypedData is spec's typed data built by the real builder from a zero payload. Only its
 // types are used: they do not depend on the values.
 func sampleTypedData(spec domainSpec) apitypes.TypedData {
-	d := commitmentDomain{Name: spec.name, Version: spec.version, ChainID: 1, VerifyingContract: common.Address{}.Hex()}
+	return specTypedData(spec, 1, common.Address{}.Hex())
+}
+
+// specTypedData is a zero-payload commitment of spec's type in its own domain on chainID at
+// verifying.
+func specTypedData(spec domainSpec, chainID int64, verifying string) apitypes.TypedData {
+	d := commitmentDomain{Name: spec.name, Version: spec.version, ChainID: chainID, VerifyingContract: verifying}
 	var td apitypes.TypedData
 	var err error
 	switch spec.primary {
@@ -99,7 +105,7 @@ func sampleTypedData(spec domainSpec) apitypes.TypedData {
 	case specTelegramLink.primary:
 		td, err = telegramLinkTypedData(telegramLinkCommitmentPayload{Domain: d, Message: telegramLinkCommitmentMessage{AgentID: "0", Nonce: zero32, Expiry: "0"}})
 	case specCharge.primary:
-		td, err = chargeTypedData(common.Address{}, [32]byte{}, big.NewInt(0), [32]byte{}, 1, common.Address{})
+		td, err = chargeTypedData(common.Address{}, [32]byte{}, big.NewInt(0), [32]byte{}, chainID, common.HexToAddress(verifying))
 	default:
 		panic("sampleTypedData: no builder for " + spec.primary)
 	}
