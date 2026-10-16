@@ -191,7 +191,7 @@ func TestPoliciesCoverEveryPrimaryType(t *testing.T) {
 		}
 		for k := range txMethods {
 			for _, m := range txMethods[k] {
-				if strings.Contains(cond, "eth.tx.to == '"+in.Addrs[k]+"'") && strings.Contains(cond, "eth.tx.data[0..10] == '"+hexSelector(k, m)+"'") {
+				if strings.Contains(cond, "(eth.tx.to == '"+in.Addrs[k]+"' && eth.tx.data[0..10] == '"+hexSelector(k, m)+"')") {
 					got[in.Addrs[k]+" "+hexSelector(k, m)] = true
 				}
 			}
@@ -364,5 +364,19 @@ func TestPrivyCalldataFragmentsMatchSelectors(t *testing.T) {
 	}
 	if seen != 10 {
 		t.Fatalf("%d calldata conditions, want 10", seen)
+	}
+}
+
+// Five policies, so a person can apply them in the Turnkey dashboard: commitments, ERC-3009,
+// transactions, and the two raw-payload denies. Each holds one activity kind, because a clause
+// that errors makes Turnkey skip the whole policy.
+func TestTurnkeyPolicyCount(t *testing.T) {
+	ps := turnkeyPolicies(t)
+	if len(ps) != 5 {
+		names := []any{}
+		for _, p := range ps {
+			names = append(names, p["policyName"])
+		}
+		t.Fatalf("%d Turnkey policies %v, want 5", len(ps), names)
 	}
 }
