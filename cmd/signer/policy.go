@@ -251,12 +251,13 @@ func privyPolicyDoc(in policyInputs) map[string]any {
 				}})
 		}
 	}
-	// personal_sign cannot collide with a typed-data or transaction hash (EIP-191 prefix), so it
+	// personal_sign cannot pass as a typed-data or transaction signature (EIP-191 prefix), so it
 	// cannot reach anything the rules above protect. Privy evaluates message conditions only on
 	// valid UTF-8: the ALLOW therefore has none (the agent-auth message is a binary hash), and the
-	// DENY, true for any text, refuses everything else, such as a sign-in message for another site.
-	// If Privy ever measures binary messages too, the DENY catches the hash and agent auth fails
-	// visibly rather than widening.
+	// DENY, true for any text, refuses text such as a sign-in message for another site. Any binary
+	// message still signs, which an EIP-191 verifier elsewhere (a Safe eth_sign approval) would
+	// accept; docs/signer-policies says so. If Privy ever measures binary messages too, the DENY
+	// catches the hash and agent auth fails visibly rather than widening.
 	rules = append(rules,
 		map[string]any{"name": "allow agent-auth personal_sign", "method": "personal_sign", "action": "ALLOW", "conditions": []any{}},
 		map[string]any{"name": "deny personal_sign of text", "method": "personal_sign", "action": "DENY",

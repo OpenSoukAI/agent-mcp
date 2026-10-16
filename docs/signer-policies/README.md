@@ -16,11 +16,15 @@ Both allow exactly:
   payment ceiling;
 - transactions with no ETH value, each only to one function a signer tool calls on the
   ReviewRegistry, CommissionEscrow, MerchantRegistry or ProductRegistry (ten in all);
-- on Privy, `personal_sign` of the binary hash the merchant REST tools authenticate with. Its
-  EIP-191 prefix keeps it from producing a typed-data or transaction signature. Text, such as a
-  sign-in message for another site, is denied: Privy evaluates message conditions only on valid
-  UTF-8, so a DENY on any text leaves exactly the binary hash. Turnkey has no equivalent its
-  policy can inspect, so those tools are unavailable there.
+- on Privy, `personal_sign` of binary messages, which the merchant REST tools authenticate with
+  (a 32-byte hash). Text, such as a sign-in message for another site, is denied: Privy evaluates
+  message conditions only on valid UTF-8, so a DENY on any text leaves binary messages. The
+  EIP-191 prefix keeps a personal signature from passing as a typed-data or transaction
+  signature, but any binary message is still signed, including a 32-byte hash that a contract
+  checking EIP-191 signatures would accept, such as a Safe owner's `eth_sign` approval.
+  OpenSouk's contracts check none. Do not make this wallet a Safe owner or a signer for any
+  contract that does. Turnkey has no equivalent its policy can inspect, so the merchant REST
+  tools are unavailable there.
 
 Everything else is denied. On Turnkey, raw payloads that are not EIP-712 are denied explicitly: a
 raw hash can be any typed-data or transaction signature, so allowing one would void the rest.
