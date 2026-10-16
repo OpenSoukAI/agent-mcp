@@ -171,7 +171,7 @@ func (s *turnkeySigner) SignTypedData(ctx context.Context, td apitypes.TypedData
 	if err != nil {
 		return nil, fmt.Errorf("hash typed data: %w", err)
 	}
-	payload, err := providerTypedDataJSON(td, "primaryType")
+	payload, err := providerTypedDataJSON(td, "primaryType", true)
 	if err != nil {
 		return nil, err
 	}

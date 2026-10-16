@@ -292,7 +292,7 @@ func TestProviderTypedDataJSON(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	m, err := providerTypedDataJSON(td, "primaryType")
+	m, err := providerTypedDataJSON(td, "primaryType", false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -320,7 +320,7 @@ func TestProviderTypedDataJSON(t *testing.T) {
 	if err != nil || hex.EncodeToString(h1) != hex.EncodeToString(h2) {
 		t.Fatalf("provider JSON hashes to %x (%v), want %x", h2, err, h1)
 	}
-	if m2, _ := providerTypedDataJSON(td, "primary_type"); m2["primary_type"] != "ReceiveWithAuthorization" {
+	if m2, _ := providerTypedDataJSON(td, "primary_type", false); m2["primary_type"] != "ReceiveWithAuthorization" {
 		t.Fatal("primary key name must be configurable for Privy")
 	}
 }
@@ -487,5 +487,30 @@ func TestLoadKeystore_Turnkey(t *testing.T) {
 	bad["TURNKEY_API_PUBLIC_KEY"] = hex.EncodeToString(elliptic.MarshalCompressed(elliptic.P256(), other.X, other.Y))
 	if _, _, err := loadKeystore(context.Background(), envOf(bad), nil); err == nil || !strings.Contains(err.Error(), "whoami") {
 		t.Fatalf("rejected credentials must fail at boot, got %v", err)
+	}
+}
+
+// Turnkey's policy compares message['value'] <= N; a decimal string there made the
+// ReceiveWithAuthorization ALLOW miss (live 2026-10-16), so uints that fit a JSON number exactly
+// go as numbers, and larger ones stay strings (the comparison then fails closed).
+func TestTurnkeyPayloadUintsAreNumbers(t *testing.T) {
+	td, err := erc3009ReceiveTypedData(vectorAuth(), big.NewInt(84532), "0x036CbD53842c5426634e7929541eC2318f3dCF7e", "USDC", "2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	td.Message["validBefore"] = "90071992547409930" // > 2^53
+	m, err := providerTypedDataJSON(td, "primaryType", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, _ := json.Marshal(m["message"])
+	s := string(b)
+	if !strings.Contains(s, `"value":1000000`) || !strings.Contains(s, `"validBefore":"90071992547409930"`) {
+		t.Fatalf("message %s: small uints must be numbers, large ones strings", s)
+	}
+	f, priv := newFakeTurnkey(t)
+	ks := fakeTurnkeyKeystore(t, f, priv)
+	if _, err := ks.fallback.SignTypedData(context.Background(), td); err != nil {
+		t.Fatalf("a payload with numeric uints must still hash to the same message: %v", err)
 	}
 }

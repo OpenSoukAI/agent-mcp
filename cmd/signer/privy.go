@@ -120,7 +120,7 @@ func (s *privySigner) SignTypedData(ctx context.Context, td apitypes.TypedData) 
 	if err != nil {
 		return nil, fmt.Errorf("hash typed data: %w", err)
 	}
-	payload, err := providerTypedDataJSON(td, "primary_type")
+	payload, err := providerTypedDataJSON(td, "primary_type", false)
 	if err != nil {
 		return nil, err
 	}

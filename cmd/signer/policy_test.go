@@ -60,7 +60,7 @@ func TestPrivyPolicyTypesMatchBuilders(t *testing.T) {
 	sent := map[string]any{}
 	for _, spec := range allSpecs {
 		td := sampleTypedData(spec)
-		m, err := providerTypedDataJSON(td, "primary_type")
+		m, err := providerTypedDataJSON(td, "primary_type", false)
 		if err != nil {
 			t.Fatal(err)
 		}

@@ -13,7 +13,12 @@ import (
 // providerTypedDataJSON is td in the JSON shape a policy provider receives: types including
 // EIP712Domain, chainId as a JSON number, and every hex value lowercase (Turnkey evaluates
 // policies on lowercase hex). primaryKey is the provider's field name for the primary type.
-func providerTypedDataJSON(td apitypes.TypedData, primaryKey string) (map[string]any, error) {
+// numericUints sends each uint message value that a JSON number holds exactly (< 2^53) as a
+// number: Turnkey's policy compares message['value'] <= N only against a number. Larger values
+// stay decimal strings, so such a comparison fails closed.
+var maxJSONSafeInt = big.NewInt(1<<53 - 1)
+
+func providerTypedDataJSON(td apitypes.TypedData, primaryKey string, numericUints bool) (map[string]any, error) {
 	fields, ok := td.Types[td.PrimaryType]
 	if !ok {
 		return nil, fmt.Errorf("typed data has no type for primary %s", td.PrimaryType)
@@ -38,6 +43,11 @@ func providerTypedDataJSON(td apitypes.TypedData, primaryKey string) (map[string
 		// Lowercase only hex-typed values: a string field (an intent's reason) is the user's text.
 		if s, isStr := v.(string); isStr && (f.Type == "address" || strings.HasPrefix(f.Type, "bytes")) {
 			v = strings.ToLower(s)
+		}
+		if s, isStr := v.(string); isStr && numericUints && strings.HasPrefix(f.Type, "uint") {
+			if n, ok := new(big.Int).SetString(s, 10); ok && n.Sign() >= 0 && n.Cmp(maxJSONSafeInt) <= 0 {
+				v = json.Number(n.String())
+			}
 		}
 		msg[f.Name] = v
 	}

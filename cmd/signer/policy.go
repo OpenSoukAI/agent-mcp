@@ -136,7 +136,7 @@ func sampleReceiveTypedData() apitypes.TypedData {
 }
 
 func providerTypes(td apitypes.TypedData) any {
-	m, err := providerTypedDataJSON(td, "primary_type")
+	m, err := providerTypedDataJSON(td, "primary_type", false)
 	if err != nil {
 		panic(err)
 	}
