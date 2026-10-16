@@ -38,8 +38,12 @@ type fakePrivy struct {
 	secret  string
 	id      string
 	noOwner bool
-	deny    bool
-	alterTo *common.Address
+	// ownerIsSigner: the owner quorum lists the signer's own key. noPolicy: neither the wallet
+	// nor the signer entry names a policy.
+	ownerIsSigner, noPolicy bool
+	ownerPub                *ecdsa.PublicKey
+	deny                    bool
+	alterTo                 *common.Address
 
 	mu       sync.Mutex
 	requests []map[string]any
@@ -50,7 +54,8 @@ func newFakePrivy(t *testing.T) (*fakePrivy, string) {
 	wallet, _ := crypto.HexToECDSA(testLocalKeyHex)
 	auth, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	der, _ := x509.MarshalPKCS8PrivateKey(auth)
-	f := &fakePrivy{t: t, wallet: wallet, authPub: &auth.PublicKey, appID: "app-test", secret: "secret-test", id: "wallet123"}
+	owner, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	f := &fakePrivy{t: t, wallet: wallet, authPub: &auth.PublicKey, ownerPub: &owner.PublicKey, appID: "app-test", secret: "secret-test", id: "wallet123"}
 	f.srv = httptest.NewServer(http.HandlerFunc(f.serve))
 	t.Cleanup(f.srv.Close)
 	return f, "wallet-auth:" + base64.StdEncoding.EncodeToString(der)
@@ -102,7 +107,33 @@ func (f *fakePrivy) serve(w http.ResponseWriter, r *http.Request) {
 		if f.noOwner {
 			owner = nil
 		}
-		_ = json.NewEncoder(w).Encode(map[string]any{"id": f.id, "address": f.walletAddr().Hex(), "chain_type": "ethereum", "owner_id": owner})
+		policies := []any{"pol1"}
+		signers := []any{map[string]any{"signer_id": "quorum-signer", "override_policy_ids": []any{"pol1"}}}
+		if f.noPolicy {
+			policies, signers = []any{}, []any{map[string]any{"signer_id": "quorum-signer", "override_policy_ids": []any{}}}
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"id": f.id, "address": f.walletAddr().Hex(), "chain_type": "ethereum", "owner_id": owner,
+			"policy_ids": policies, "additional_signers": signers})
+	case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/v1/key_quorums/"):
+		if !f.authorised(r, nil, false) {
+			http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
+			return
+		}
+		pub := f.ownerPub
+		switch strings.TrimPrefix(r.URL.Path, "/v1/key_quorums/") {
+		case "quorum-signer":
+			pub = f.authPub
+		case "quorum-owner":
+			if f.ownerIsSigner {
+				pub = f.authPub
+			}
+		default:
+			http.NotFound(w, r)
+			return
+		}
+		der, _ := x509.MarshalPKIXPublicKey(pub)
+		_ = json.NewEncoder(w).Encode(map[string]any{"authorization_keys": []any{map[string]any{"public_key": base64.StdEncoding.EncodeToString(der)}},
+			"authorization_threshold": 1, "key_quorum_ids": []any{}})
 	case r.Method == http.MethodPost && r.URL.Path == walletPath+"/rpc":
 		if !f.authorised(r, body, true) {
 			http.Error(w, `{"error":"invalid authorization signature"}`, http.StatusUnauthorized)
@@ -294,6 +325,16 @@ func TestPrivy_BootChecks(t *testing.T) {
 		t.Fatalf("a wallet with no owner must be refused, got %v", err)
 	}
 	f.noOwner = false
+	f.ownerIsSigner = true
+	if _, _, err := loadKeystore(context.Background(), envOf(f.env(auth)), nil); err == nil || !strings.Contains(err.Error(), "owner") {
+		t.Fatalf("a signer key that owns the wallet must be refused (it can replace the policy), got %v", err)
+	}
+	f.ownerIsSigner = false
+	f.noPolicy = true
+	if _, _, err := loadKeystore(context.Background(), envOf(f.env(auth)), nil); err == nil || !strings.Contains(err.Error(), "no policy") {
+		t.Fatalf("a wallet no policy applies to must be refused, got %v", err)
+	}
+	f.noPolicy = false
 	for _, c := range []struct{ name, key, val, want string }{
 		{"no authorization key", "PRIVY_AUTHORIZATION_KEY", "", "PRIVY_AUTHORIZATION_KEY"},
 		{"key without prefix", "PRIVY_AUTHORIZATION_KEY", strings.TrimPrefix(auth, "wallet-auth:"), "wallet-auth:"},

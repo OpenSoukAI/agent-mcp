@@ -41,6 +41,7 @@ type fakeTurnkey struct {
 	pending int    // polls answered PENDING before COMPLETED
 	stuck   bool   // CONSENSUS_NEEDED forever
 	alterTo *common.Address
+	root    bool // the signer's API user is in the root quorum
 
 	mu       sync.Mutex
 	requests []map[string]any
@@ -109,6 +110,12 @@ func (f *fakeTurnkey) serve(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	switch r.URL.Path {
+	case "/public/v1/query/get_organization_configs":
+		users := []any{"user-root"}
+		if f.root {
+			users = append(users, "user-signer")
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"configs": map[string]any{"quorum": map[string]any{"threshold": 1, "userIds": users}}})
 	case "/public/v1/query/whoami":
 		_ = json.NewEncoder(w).Encode(map[string]any{"organizationId": f.org, "userId": "user-signer", "username": "referrer-signer"})
 	case "/public/v1/submit/sign_raw_payload":
@@ -534,5 +541,17 @@ func TestTurnkey_ChainThenRESTToolsRefuseUpFront(t *testing.T) {
 	}
 	if len(f.requests) != before {
 		t.Fatal("a refused merchant tool reached Turnkey")
+	}
+}
+
+// A root user bypasses every Turnkey policy, so a signer key on one would sign anything.
+func TestTurnkey_RefusesARootAPIUser(t *testing.T) {
+	f, priv := newFakeTurnkey(t)
+	f.root = true
+	f.env(t, priv)
+	t.Setenv("SIGNER_BACKEND", "turnkey")
+	t.Setenv("AGENT_WALLETS", "*:"+f.walletAddr().Hex())
+	if _, _, err := loadKeystore(context.Background(), os.Getenv, nil); err == nil || !strings.Contains(err.Error(), "root quorum") {
+		t.Fatalf("a root API user must be refused at boot, got %v", err)
 	}
 }

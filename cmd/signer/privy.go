@@ -177,6 +177,72 @@ func (s *privySigner) SignTx(ctx context.Context, tx *types.Transaction, chainID
 	return attachProviderSig(signed, tx, chainID, s.addr)
 }
 
+// checkSignerSetup refuses the two setups that void the policy: the signer's key in the owner
+// quorum (an owner can replace the policy), and a wallet no policy applies to for this signer
+// (neither the wallet nor the signer's additional-signer entry names one).
+func (c *privyClient) checkSignerSetup(ctx context.Context, walletID, owner string, w map[string]any) error {
+	pub, err := c.cred.spkiB64()
+	if err != nil {
+		return err
+	}
+	owns, err := c.quorumHasKey(ctx, owner, pub, 0)
+	if err != nil {
+		return fmt.Errorf("Privy wallet %s: read its owner quorum: %w", walletID, err)
+	}
+	if owns {
+		return fmt.Errorf("PRIVY_AUTHORIZATION_KEY is in Privy wallet %s's owner quorum, and an owner can replace the wallet's policy: use a separate key, added as an additional signer (see docs/signer-policies)", walletID)
+	}
+	if ids, _ := w["policy_ids"].([]any); len(ids) > 0 {
+		return nil
+	}
+	signers, _ := w["additional_signers"].([]any)
+	for _, e := range signers {
+		entry, _ := e.(map[string]any)
+		sid, _ := entry["signer_id"].(string)
+		if sid == "" {
+			continue
+		}
+		mine, err := c.quorumHasKey(ctx, sid, pub, 0)
+		if err != nil {
+			return fmt.Errorf("Privy wallet %s: read signer %s: %w", walletID, sid, err)
+		}
+		if override, _ := entry["override_policy_ids"].([]any); mine && len(override) > 0 {
+			return nil
+		}
+	}
+	return fmt.Errorf("Privy wallet %s: no policy applies to this signer (the wallet has no policy_ids and its additional-signer entry for this key has no override_policy_ids); attach the policy (see docs/signer-policies)", walletID)
+}
+
+// quorumHasKey reports whether key quorum id, or a quorum nested in it, lists pub. An id that is
+// not a key quorum (404, e.g. a user) lists no key.
+func (c *privyClient) quorumHasKey(ctx context.Context, id, pub string, depth int) (bool, error) {
+	if depth > 3 || !privyWalletID.MatchString(id) {
+		return false, nil
+	}
+	q, err := c.do(ctx, http.MethodGet, "/v1/key_quorums/"+id, nil)
+	if err != nil {
+		if strings.Contains(err.Error(), "HTTP 404") {
+			return false, nil
+		}
+		return false, err
+	}
+	keys, _ := q["authorization_keys"].([]any)
+	for _, k := range keys {
+		if m, _ := k.(map[string]any); m["public_key"] == pub {
+			return true, nil
+		}
+	}
+	children, _ := q["key_quorum_ids"].([]any)
+	for _, ch := range children {
+		if cid, _ := ch.(string); cid != "" {
+			if has, err := c.quorumHasKey(ctx, cid, pub, depth+1); err != nil || has {
+				return has, err
+			}
+		}
+	}
+	return false, nil
+}
+
 // privyKeystore opens SIGNER_BACKEND=privy: AGENT_WALLETS maps agent ids to Privy wallet ids.
 // Each wallet is fetched at boot; one with no owner is refused, because then the app secret alone
 // can sign and replace the wallet's policy.
@@ -211,8 +277,12 @@ func privyKeystore(ctx context.Context, getenv func(string) string, wallets stri
 		if !common.IsHexAddress(addr) || w["chain_type"] != "ethereum" {
 			return nil, fmt.Errorf("Privy wallet %s is not an Ethereum wallet", id)
 		}
-		if owner, _ := w["owner_id"].(string); owner == "" {
+		owner, _ := w["owner_id"].(string)
+		if owner == "" {
 			return nil, fmt.Errorf("Privy wallet %s has no owner, so the app secret alone can sign and replace its policy; create it with an owner key quorum and add this signer as an additional signer (see docs/signer-policies)", id)
+		}
+		if err := c.checkSignerSetup(ctx, id, owner, w); err != nil {
+			return nil, err
 		}
 		return &privySigner{c: c, walletID: id, addr: common.HexToAddress(addr)}, nil
 	})

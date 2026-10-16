@@ -102,6 +102,32 @@ func (c *turnkeyClient) whoami(ctx context.Context) (string, error) {
 	return user, nil
 }
 
+// refuseRootUser refuses an API user in the organization's root quorum: root bypasses every
+// policy, so a signer key on a root user would sign anything.
+func (c *turnkeyClient) refuseRootUser(ctx context.Context, user string) error {
+	if user == "" {
+		return errors.New("Turnkey whoami returned no user id, so the signer cannot confirm its API user is not root")
+	}
+	ctx, cancel := context.WithTimeout(ctx, providerCallTimeout)
+	defer cancel()
+	out, err := c.post(ctx, "/public/v1/query/get_organization_configs", map[string]any{"organizationId": c.org})
+	if err != nil {
+		return fmt.Errorf("read the root quorum to confirm the API user is not root: %w", err)
+	}
+	cfg, _ := out["configs"].(map[string]any)
+	quorum, _ := cfg["quorum"].(map[string]any)
+	ids, ok := quorum["userIds"].([]any)
+	if !ok {
+		return errors.New("Turnkey returned no root quorum, so the signer cannot confirm its API user is not root")
+	}
+	for _, id := range ids {
+		if id == user {
+			return fmt.Errorf("Turnkey API user %s is in the root quorum, which bypasses every policy: give the signer's API key to a non-root user (see docs/signer-policies)", user)
+		}
+	}
+	return nil
+}
+
 // activity submits a Turnkey activity and waits for it to finish, returning its result.
 func (c *turnkeyClient) activity(ctx context.Context, path, typ string, params map[string]any) (map[string]any, error) {
 	ctx, cancel := context.WithTimeout(ctx, providerCallTimeout)
@@ -249,6 +275,9 @@ func turnkeyKeystore(ctx context.Context, getenv func(string) string, wallets st
 	user, err := c.whoami(ctx)
 	if err != nil {
 		return nil, nil, fmt.Errorf("Turnkey whoami with TURNKEY_API_PUBLIC_KEY failed (check the key belongs to a user in TURNKEY_ORG_ID): %w", err)
+	}
+	if err := c.refuseRootUser(ctx, user); err != nil {
+		return nil, nil, err
 	}
 	ks, report, err := walletKeystore(ctx, wallets, "Turnkey wallet", func(_ context.Context, ref string) (Signer, error) {
 		if !common.IsHexAddress(ref) {

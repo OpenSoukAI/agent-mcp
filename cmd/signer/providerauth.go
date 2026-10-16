@@ -104,3 +104,13 @@ func (c *p256Credential) privySignature(method, url string, body []byte, appID s
 	}
 	return base64.StdEncoding.EncodeToString(sig), canon, nil
 }
+
+// spkiB64 is the public key as Privy lists it on a key quorum: base64 of the DER
+// SubjectPublicKeyInfo.
+func (c *p256Credential) spkiB64() (string, error) {
+	der, err := x509.MarshalPKIXPublicKey(&c.priv.PublicKey)
+	if err != nil {
+		return "", err
+	}
+	return base64.StdEncoding.EncodeToString(der), nil
+}
