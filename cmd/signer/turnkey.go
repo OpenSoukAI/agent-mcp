@@ -163,7 +163,11 @@ func (s *turnkeySigner) SignDigest(context.Context, [32]byte) ([]byte, error) {
 }
 
 func (s *turnkeySigner) SignPersonalMessage(context.Context, []byte) ([]byte, error) {
-	return nil, errors.New("SIGNER_BACKEND=turnkey cannot personal-sign: Turnkey signs a message only as a raw payload, which its policy cannot inspect. The merchant REST tools need it; run them with SIGNER_BACKEND=privy, kms or local")
+	return nil, s.agentAuthRefusal()
+}
+
+func (s *turnkeySigner) agentAuthRefusal() error {
+	return errors.New("SIGNER_BACKEND=turnkey cannot personal-sign: Turnkey signs a message only as a raw payload, which its policy cannot inspect. The merchant REST tools need it; run them with SIGNER_BACKEND=privy, kms or local")
 }
 
 func (s *turnkeySigner) SignTypedData(ctx context.Context, td apitypes.TypedData) ([]byte, error) {

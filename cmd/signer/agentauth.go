@@ -6,6 +6,7 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"fmt"
+	"math/big"
 	"net/http"
 	"strconv"
 	"sync"
@@ -66,6 +67,23 @@ func agentAuthSignature(ctx context.Context, body []byte, timestamp int64, key S
 	}
 	sig[64] += 27 // personal_sign uses v=27/28; crypto.Sign returns v=0/1
 	return "0x" + hex.EncodeToString(sig), nil
+}
+
+// agentAuthUnavailable is implemented by a backend that cannot sign agent-auth requests.
+type agentAuthUnavailable interface{ agentAuthRefusal() error }
+
+// requireAgentAuth refuses, before anything is sent, a tool that will need an agent-auth request
+// the signer for merchantID cannot make. Tools that write on-chain and then sync the backend call
+// it first, so the write never lands without the sync.
+func requireAgentAuth(tool string, merchantID *big.Int) error {
+	key, err := signerKeys.KeyFor(merchantID.String())
+	if err != nil {
+		return err
+	}
+	if u, ok := key.(agentAuthUnavailable); ok {
+		return fmt.Errorf("%s ends with a signed backend request; nothing was sent: %w", tool, u.agentAuthRefusal())
+	}
+	return nil
 }
 
 // newAuthedRequest builds a signed JSON request against the backend.

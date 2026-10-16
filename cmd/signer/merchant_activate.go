@@ -58,6 +58,9 @@ func handleActivateMerchant(
 	if err != nil {
 		return nil, activateMerchantOutput{}, err
 	}
+	if err := requireAgentAuth("activate_merchant", merchantID); err != nil {
+		return nil, activateMerchantOutput{}, err
+	}
 	restID, err := merchantIDForREST(merchantID)
 	if err != nil {
 		return nil, activateMerchantOutput{}, err

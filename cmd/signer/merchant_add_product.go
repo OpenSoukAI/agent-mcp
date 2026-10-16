@@ -70,6 +70,9 @@ func handleAddProduct(
 	if err != nil {
 		return nil, addProductOutput{}, err
 	}
+	if err := requireAgentAuth("add_product", merchantID); err != nil {
+		return nil, addProductOutput{}, err
+	}
 	restID, err := merchantIDForREST(merchantID)
 	if err != nil {
 		return nil, addProductOutput{}, err

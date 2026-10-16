@@ -514,3 +514,25 @@ func TestTurnkeyPayloadUintsAreNumbers(t *testing.T) {
 		t.Fatalf("a payload with numeric uints must still hash to the same message: %v", err)
 	}
 }
+
+// add_product and activate_merchant write on-chain and then sync the backend with an agent-auth
+// request. Under Turnkey the second half cannot be signed, so they must refuse before the write,
+// not after it has spent gas and left an on-chain product the backend never hears of.
+func TestTurnkey_ChainThenRESTToolsRefuseUpFront(t *testing.T) {
+	f, priv := newFakeTurnkey(t)
+	signerKeys = fakeTurnkeyKeystore(t, f, priv)
+	t.Setenv("BASE_RPC_URL", "http://127.0.0.1:1") // any chain access would fail differently
+	before := len(f.requests)
+	_, _, err := handleAddProduct(context.Background(), nil, addProductInput{MerchantID: "4", ProductID: zero32, CommissionBps: 500,
+		EndpointURL: "https://m.example/buy", Name: "x", Category: "chain.wallet"})
+	if err == nil || !strings.Contains(err.Error(), "SIGNER_BACKEND=turnkey") || !strings.Contains(err.Error(), "nothing was sent") {
+		t.Fatalf("add_product under turnkey: want an up-front refusal, got %v", err)
+	}
+	_, _, err = handleActivateMerchant(context.Background(), nil, activateMerchantInput{MerchantID: "4"})
+	if err == nil || !strings.Contains(err.Error(), "SIGNER_BACKEND=turnkey") || !strings.Contains(err.Error(), "nothing was sent") {
+		t.Fatalf("activate_merchant under turnkey: want an up-front refusal, got %v", err)
+	}
+	if len(f.requests) != before {
+		t.Fatal("a refused merchant tool reached Turnkey")
+	}
+}
