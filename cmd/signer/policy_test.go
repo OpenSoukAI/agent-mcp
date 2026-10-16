@@ -399,3 +399,29 @@ func TestTurnkeyPolicyCount(t *testing.T) {
 		t.Fatalf("%d Turnkey policies %v, want 5", len(ps), names)
 	}
 }
+
+// Live 2026-10-16: Turnkey compares wallet_account.address case-sensitively against the EIP-55
+// form (a lowercase clause matched nothing; the checksummed one signed). How it cases the parsed
+// transaction's `to` is undocumented, so that clause accepts both forms of the same address.
+func TestTurnkeyAddressCasing(t *testing.T) {
+	in := templatePolicyInputs()
+	for k := range in.Addrs {
+		in.Addrs[k] = "0x5fc8d32690cc91d4c39d9d3abcbd16989f875707"
+	}
+	in.ChainID, in.USDC, in.MaxValue, in.TurnkeyUserID = "84532", "0x00000000000000000000000000000000000000b1", "5000000", "u1"
+	in.Wallet = "0x2ad0aadd90f07263402c01d378740598073e7375"
+	b, err := renderPolicy("turnkey", in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(b)
+	if !strings.Contains(s, "wallet_account.address == '0x2AD0aAdD90f07263402C01d378740598073e7375'") || strings.Contains(s, "wallet_account.address == '0x2ad0") {
+		t.Fatal("the wallet clause must use the checksummed address only")
+	}
+	if !strings.Contains(s, "(eth.tx.to == '0x5FC8d32690cc91D4c39d9d3abcBD16989F875707' || eth.tx.to == '0x5fc8d32690cc91d4c39d9d3abcbd16989f875707')") {
+		t.Fatal("the transaction `to` clause must accept both forms of the address")
+	}
+	if !strings.Contains(s, "verifying_contract == '0x5fc8d32690cc91d4c39d9d3abcbd16989f875707'") {
+		t.Fatal("EIP-712 fields stay lowercase (Turnkey's documented form, confirmed live)")
+	}
+}

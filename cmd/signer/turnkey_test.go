@@ -102,6 +102,12 @@ func (f *fakeTurnkey) serve(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, `{"message":"wrong organization"}`, http.StatusBadRequest)
 		return
 	}
+	// Live Turnkey matches signWith case-sensitively against the checksummed address (404 "Could not
+	// find any resource to sign with. Addresses are case sensitive." on 2026-10-16).
+	if p, ok := req["parameters"].(map[string]any); ok && p["signWith"] != f.walletAddr().Hex() {
+		http.Error(w, `{"message":"Could not find any resource to sign with. Addresses are case sensitive."}`, http.StatusNotFound)
+		return
+	}
 	switch r.URL.Path {
 	case "/public/v1/query/whoami":
 		_ = json.NewEncoder(w).Encode(map[string]any{"organizationId": f.org, "userId": "user-signer", "username": "referrer-signer"})

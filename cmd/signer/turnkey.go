@@ -180,7 +180,7 @@ func (s *turnkeySigner) SignTypedData(ctx context.Context, td apitypes.TypedData
 		return nil, err
 	}
 	res, err := s.c.activity(ctx, "/public/v1/submit/sign_raw_payload", "ACTIVITY_TYPE_SIGN_RAW_PAYLOAD_V2", map[string]any{
-		"signWith": strings.ToLower(s.addr.Hex()), "payload": string(b),
+		"signWith": s.addr.Hex(), "payload": string(b),
 		"encoding": "PAYLOAD_ENCODING_EIP712", "hashFunction": "HASH_FUNCTION_NO_OP",
 	})
 	if err != nil {
@@ -201,7 +201,7 @@ func (s *turnkeySigner) SignTx(ctx context.Context, tx *types.Transaction, chain
 		return nil, err
 	}
 	res, err := s.c.activity(ctx, "/public/v1/submit/sign_transaction", "ACTIVITY_TYPE_SIGN_TRANSACTION_V2", map[string]any{
-		"signWith": strings.ToLower(s.addr.Hex()), "unsignedTransaction": hex.EncodeToString(raw), "type": "TRANSACTION_TYPE_ETHEREUM",
+		"signWith": s.addr.Hex(), "unsignedTransaction": hex.EncodeToString(raw), "type": "TRANSACTION_TYPE_ETHEREUM",
 	})
 	if err != nil {
 		return nil, err

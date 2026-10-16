@@ -109,12 +109,13 @@ func TestProviderLive(t *testing.T) {
 			t.Errorf("%s: SIGNED; the policy must refuse it", name)
 			return
 		}
-		marker := "HTTP 4"
-		if provider == "turnkey" && strings.Contains(err.Error(), "Turnkey refused") {
-			marker = "Turnkey refused"
+		// A policy denial, not any error: a 404 for a misaddressed wallet must not pass as one.
+		denied := strings.Contains(err.Error(), "policy_violation")
+		if provider == "turnkey" {
+			denied = strings.Contains(err.Error(), "Turnkey refused activity") || strings.Contains(err.Error(), "HTTP 403")
 		}
-		if !strings.Contains(err.Error(), marker) {
-			t.Errorf("%s: refused, but not by the provider: %v", name, err)
+		if !denied {
+			t.Errorf("%s: failed, but not as a policy denial: %v", name, err)
 			return
 		}
 		t.Logf("%s: refused by %s: %v", name, provider, err)
@@ -153,10 +154,10 @@ func TestProviderLive(t *testing.T) {
 		switch ps := s.(type) {
 		case *turnkeySigner:
 			_, err = ps.c.activity(ctx, "/public/v1/submit/sign_raw_payload", "ACTIVITY_TYPE_SIGN_RAW_PAYLOAD_V2", map[string]any{
-				"signWith": strings.ToLower(ps.addr.Hex()), "payload": hex.EncodeToString(digest[:]), "encoding": "PAYLOAD_ENCODING_HEXADECIMAL", "hashFunction": "HASH_FUNCTION_NO_OP"})
+				"signWith": ps.addr.Hex(), "payload": hex.EncodeToString(digest[:]), "encoding": "PAYLOAD_ENCODING_HEXADECIMAL", "hashFunction": "HASH_FUNCTION_NO_OP"})
 			refused(t, "raw digest (HEXADECIMAL, NO_OP)", err)
 			_, err = ps.c.activity(ctx, "/public/v1/submit/sign_raw_payload", "ACTIVITY_TYPE_SIGN_RAW_PAYLOAD_V2", map[string]any{
-				"signWith": strings.ToLower(ps.addr.Hex()), "payload": hex.EncodeToString(digest[:]), "encoding": "PAYLOAD_ENCODING_HEXADECIMAL", "hashFunction": "HASH_FUNCTION_KECCAK256"})
+				"signWith": ps.addr.Hex(), "payload": hex.EncodeToString(digest[:]), "encoding": "PAYLOAD_ENCODING_HEXADECIMAL", "hashFunction": "HASH_FUNCTION_KECCAK256"})
 			refused(t, "raw bytes (HEXADECIMAL, KECCAK256)", err)
 		case *privySigner:
 			_, err = ps.rpc(ctx, "secp256k1_sign", map[string]any{"hash": hexutil.Encode(digest[:])}, "signature")
