@@ -146,6 +146,9 @@ func defaultKMSClient(ctx context.Context) (kmsAPI, error) {
 	return kms.NewFromConfig(cfg), nil
 }
 
+// walletRefName is what an AGENT_WALLETS entry names, per backend, for error messages.
+var walletRefName = map[string]string{"kms": "kmsKeyId", "turnkey": "walletAddress", "privy": "privyWalletId"}
+
 // loadKeystore builds the keystore SIGNER_BACKEND selects. It returns, for a remote backend, one
 // line per key naming the address it signs as, for the boot log.
 func loadKeystore(ctx context.Context, getenv func(string) string, newKMS func(context.Context) (kmsAPI, error)) (*keystore, []string, error) {
@@ -163,12 +166,18 @@ func loadKeystore(ctx context.Context, getenv func(string) string, newKMS func(c
 		}
 		ks, err := parseKeystore(agentKeys, agentPriv)
 		return ks, nil, err
-	case "kms":
+	case "kms", "turnkey", "privy":
 		if agentKeys != "" || agentPriv != "" {
-			return nil, nil, errors.New("SIGNER_BACKEND=kms takes keys from AGENT_WALLETS only: unset AGENT_KEYS and AGENT_PRIVATE_KEY so no raw key sits in this process")
+			return nil, nil, fmt.Errorf("SIGNER_BACKEND=%s takes keys from AGENT_WALLETS only: unset AGENT_KEYS and AGENT_PRIVATE_KEY so no raw key sits in this process", backend)
 		}
 		if wallets == "" {
-			return nil, nil, errors.New("SIGNER_BACKEND=kms needs AGENT_WALLETS (comma-separated agentId:kmsKeyId, '*' for the fallback)")
+			return nil, nil, fmt.Errorf("SIGNER_BACKEND=%s needs AGENT_WALLETS (comma-separated agentId:%s, '*' for the fallback)", backend, walletRefName[backend])
+		}
+		switch backend {
+		case "turnkey":
+			return turnkeyKeystore(ctx, getenv, wallets)
+		case "privy":
+			return nil, nil, errors.New("SIGNER_BACKEND=privy is not implemented yet")
 		}
 		api, err := newKMS(ctx)
 		if err != nil {
@@ -176,7 +185,7 @@ func loadKeystore(ctx context.Context, getenv func(string) string, newKMS func(c
 		}
 		return kmsKeystore(ctx, api, wallets)
 	default:
-		return nil, nil, fmt.Errorf("SIGNER_BACKEND %q is not supported: use local (default) or kms", backend)
+		return nil, nil, fmt.Errorf("SIGNER_BACKEND %q is not supported: use local (default), kms, turnkey or privy", backend)
 	}
 }
 

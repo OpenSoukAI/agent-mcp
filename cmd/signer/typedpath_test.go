@@ -62,11 +62,14 @@ func assertTypedOnly(t *testing.T, rec *recordingSigner, primary string) {
 	}
 }
 
-func TestEveryCommitmentToolSignsTypedData(t *testing.T) {
-	cases := []struct {
-		primary string
-		call    func() error
-	}{
+type commitmentToolCase struct {
+	primary string
+	call    func() error
+}
+
+// commitmentToolCases calls each EIP-712 commitment tool with a payload pinEnv accepts.
+func commitmentToolCases() []commitmentToolCase {
+	return []commitmentToolCase{
 		{"ReviewCommitment", func() error {
 			_, _, err := handleSign(context.Background(), nil, signInput{Commitment: reviewCommitmentPayload{
 				Domain:  goodReviewDomain(),
@@ -116,7 +119,10 @@ func TestEveryCommitmentToolSignsTypedData(t *testing.T) {
 			return err
 		}},
 	}
-	for _, c := range cases {
+}
+
+func TestEveryCommitmentToolSignsTypedData(t *testing.T) {
+	for _, c := range commitmentToolCases() {
 		t.Run(c.primary, func(t *testing.T) {
 			pinEnv(t)
 			rec := recordingKeystore(t)
