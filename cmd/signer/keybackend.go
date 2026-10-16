@@ -28,6 +28,18 @@ type Signer interface {
 	SignTypedData(ctx context.Context, td apitypes.TypedData) ([]byte, error)
 }
 
+// TxSigner is implemented by a backend that must see the whole transaction: a policy engine
+// checks its destination, which a signer hash hides. transactOpts prefers it over SignDigest.
+type TxSigner interface {
+	SignTx(ctx context.Context, tx *types.Transaction, chainID *big.Int) (*types.Transaction, error)
+}
+
+// MessageSigner signs an EIP-191 personal message, the provider applying the prefix, and returns
+// r||s||v with v in {0,1}. agentAuthSignature prefers it over SignDigest of the prefixed hash.
+type MessageSigner interface {
+	SignPersonalMessage(ctx context.Context, msg []byte) ([]byte, error)
+}
+
 type localSigner struct{ key *ecdsa.PrivateKey }
 
 func newLocalSigner(k *ecdsa.PrivateKey) *localSigner { return &localSigner{key: k} }
@@ -51,7 +63,8 @@ func signTypedDataViaDigest(ctx context.Context, s Signer, td apitypes.TypedData
 	return s.SignDigest(ctx, common.BytesToHash(hash))
 }
 
-// transactOpts signs transactions through s over the chain's EIP-155 signer hash.
+// transactOpts signs transactions through s: whole, when s is a TxSigner, otherwise over the
+// chain's EIP-155 signer hash.
 func transactOpts(ctx context.Context, s Signer, chainID *big.Int) *bind.TransactOpts {
 	from := s.Address()
 	signer := types.LatestSignerForChainID(chainID)
@@ -61,6 +74,9 @@ func transactOpts(ctx context.Context, s Signer, chainID *big.Int) *bind.Transac
 		Signer: func(addr common.Address, tx *types.Transaction) (*types.Transaction, error) {
 			if addr != from {
 				return nil, bind.ErrNotAuthorized
+			}
+			if ts, ok := s.(TxSigner); ok {
+				return ts.SignTx(ctx, tx, chainID)
 			}
 			sig, err := s.SignDigest(ctx, signer.Hash(tx))
 			if err != nil {

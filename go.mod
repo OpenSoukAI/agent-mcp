@@ -7,6 +7,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/config v1.33.9
 	github.com/aws/aws-sdk-go-v2/service/kms v1.61.4
 	github.com/ethereum/go-ethereum v1.17.2
+	github.com/gowebpki/jcs v1.0.2
 	github.com/modelcontextprotocol/go-sdk v1.6.0
 	github.com/x402-foundation/x402/go v0.0.0-20260513203758-9a718b002deb
 )

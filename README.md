@@ -141,6 +141,37 @@ AGENT_WALLETS="12:arn:aws:kms:eu-central-1:111122223333:key/<key-id>,*:<fallback
   identity or be its bound wallet.
 - `AGENT_KEYS` and `AGENT_PRIVATE_KEY` must be unset; the signer refuses to start with both.
 
+### Let a policy decide what is signed: `SIGNER_BACKEND=turnkey` or `privy`
+
+KMS keeps the key out of reach but signs any digest it is given. Turnkey and Privy keep the key
+too, and each request goes to them as EIP-712 typed data or a whole transaction, so their policy
+engine can refuse anything outside
+[the OpenSouk policy](docs/signer-policies/README.md): the eight commitment types in their own
+domains, `ReceiveWithAuthorization` to the SplitRouter up to a ceiling, and the ten contract
+functions the transaction tools call. The signer never asks either provider for a raw-hash
+signature, and the policy denies one: a raw hash can be any signature.
+
+You create the wallet under your own provider account; OpenSouk never holds a provider
+credential. `AGENT_WALLETS` maps agent IDs to the provider's wallet, `*` for the fallback.
+
+| | Turnkey | Privy |
+|---|---|---|
+| `AGENT_WALLETS` entry | `12:<wallet account address>` | `12:<wallet id>` |
+| Credentials | `TURNKEY_ORG_ID`, `TURNKEY_API_PUBLIC_KEY`, `TURNKEY_API_PRIVATE_KEY` (hex P-256) | `PRIVY_APP_ID`, `PRIVY_APP_SECRET`, `PRIVY_AUTHORIZATION_KEY` (`wallet-auth:…`) |
+| The API key must belong to | a **non-root** user (root bypasses every policy) | an **additional signer**, not the wallet's owner (an owner can replace the policy) |
+| Checked at boot | the API key, with `whoami` | the wallet exists and has an owner |
+| Merchant REST tools | unavailable: Turnkey can personal-sign only as a raw payload | work: `personal_sign` of binary messages (any; do not make the wallet a Safe owner) |
+
+Generate the policy with `referrer-signer policy --provider turnkey|privy`. For Privy,
+`referrer-signer privy-setup` then creates the policy, the wallet and the signer entry with your
+owner key, which you keep off the agent's machine. See
+[docs/signer-policies](docs/signer-policies/README.md).
+
+A bound agent wallet is also where payouts go (`SplitRouter._resolveWallet`), so a provider
+wallet bound to an identity receives its earnings until the owner rebinds it. Until the backend
+accepts the bound wallet for signed requests (REF-491), the provider wallet must be the identity's
+owner.
+
 ## Security
 
 With the default local backend, `AGENT_PRIVATE_KEY` / `AGENT_KEYS` live in the environment of the shell that starts your client, and its config holds only their names; with `SIGNER_BACKEND=kms` the key stays in KMS and only the AWS credentials that can use it are local.  

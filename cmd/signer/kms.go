@@ -81,25 +81,7 @@ func ethSigFromDER(derSig []byte, digest [32]byte, want common.Address) ([]byte,
 	if len(rest) != 0 {
 		return nil, fmt.Errorf("parse DER signature: %d trailing bytes", len(rest))
 	}
-	if parsed.R == nil || parsed.S == nil || parsed.R.Sign() <= 0 || parsed.S.Sign() <= 0 ||
-		parsed.R.Cmp(secp256k1N) >= 0 || parsed.S.Cmp(secp256k1N) >= 0 {
-		return nil, errors.New("parse DER signature: r or s out of range")
-	}
-	// KMS does not normalise s; OZ's ECDSA reverts on the high variant.
-	s := parsed.S
-	if s.Cmp(secp256k1HalfN) > 0 {
-		s = new(big.Int).Sub(secp256k1N, s)
-	}
-	sig := make([]byte, 65)
-	parsed.R.FillBytes(sig[0:32])
-	s.FillBytes(sig[32:64])
-	for _, v := range []byte{0, 1} {
-		sig[64] = v
-		if pub, err := crypto.SigToPub(digest[:], sig); err == nil && crypto.PubkeyToAddress(*pub) == want {
-			return sig, nil
-		}
-	}
-	return nil, fmt.Errorf("no recovery id yields %s: the signature is over a different digest or from a different key", want.Hex())
+	return normaliseSig(parsed.R, parsed.S, digest, want)
 }
 
 // unexpandedRef matches a whole value that is still an environment reference, which a client
@@ -164,6 +146,9 @@ func defaultKMSClient(ctx context.Context) (kmsAPI, error) {
 	return kms.NewFromConfig(cfg), nil
 }
 
+// walletRefName is what an AGENT_WALLETS entry names, per backend, for error messages.
+var walletRefName = map[string]string{"kms": "kmsKeyId", "turnkey": "walletAddress", "privy": "privyWalletId"}
+
 // loadKeystore builds the keystore SIGNER_BACKEND selects. It returns, for a remote backend, one
 // line per key naming the address it signs as, for the boot log.
 func loadKeystore(ctx context.Context, getenv func(string) string, newKMS func(context.Context) (kmsAPI, error)) (*keystore, []string, error) {
@@ -181,12 +166,18 @@ func loadKeystore(ctx context.Context, getenv func(string) string, newKMS func(c
 		}
 		ks, err := parseKeystore(agentKeys, agentPriv)
 		return ks, nil, err
-	case "kms":
+	case "kms", "turnkey", "privy":
 		if agentKeys != "" || agentPriv != "" {
-			return nil, nil, errors.New("SIGNER_BACKEND=kms takes keys from AGENT_WALLETS only: unset AGENT_KEYS and AGENT_PRIVATE_KEY so no raw key sits in this process")
+			return nil, nil, fmt.Errorf("SIGNER_BACKEND=%s takes keys from AGENT_WALLETS only: unset AGENT_KEYS and AGENT_PRIVATE_KEY so no raw key sits in this process", backend)
 		}
 		if wallets == "" {
-			return nil, nil, errors.New("SIGNER_BACKEND=kms needs AGENT_WALLETS (comma-separated agentId:kmsKeyId, '*' for the fallback)")
+			return nil, nil, fmt.Errorf("SIGNER_BACKEND=%s needs AGENT_WALLETS (comma-separated agentId:%s, '*' for the fallback)", backend, walletRefName[backend])
+		}
+		switch backend {
+		case "turnkey":
+			return turnkeyKeystore(ctx, getenv, wallets)
+		case "privy":
+			return privyKeystore(ctx, getenv, wallets)
 		}
 		api, err := newKMS(ctx)
 		if err != nil {
@@ -194,47 +185,12 @@ func loadKeystore(ctx context.Context, getenv func(string) string, newKMS func(c
 		}
 		return kmsKeystore(ctx, api, wallets)
 	default:
-		return nil, nil, fmt.Errorf("SIGNER_BACKEND %q is not supported: use local (default) or kms", backend)
+		return nil, nil, fmt.Errorf("SIGNER_BACKEND %q is not supported: use local (default), kms, turnkey or privy", backend)
 	}
 }
 
 func kmsKeystore(ctx context.Context, api kmsAPI, wallets string) (*keystore, []string, error) {
-	ks := &keystore{keys: make(map[string]Signer)}
-	var report []string
-	for _, entry := range strings.Split(wallets, ",") {
-		entry = strings.TrimSpace(entry)
-		if entry == "" {
-			continue
-		}
-		// Split on the first colon only: a KMS key ARN contains colons of its own.
-		id, keyID, _ := strings.Cut(entry, ":")
-		id, keyID = strings.TrimSpace(id), strings.TrimSpace(keyID)
-		if keyID == "" {
-			return nil, nil, fmt.Errorf("AGENT_WALLETS entry %q has no key id (want agentId:kmsKeyId)", entry)
-		}
-		if id != "*" {
-			// Canonical form only: tools look keys up by exact string, so "007" would never match
-			// agent 7 and every call would silently sign with the * key.
-			if n, ok := new(big.Int).SetString(id, 10); !ok || n.Sign() < 0 || n.String() != id {
-				return nil, nil, fmt.Errorf("AGENT_WALLETS entry %q: agent id must be a decimal number without sign or leading zeros, or *", entry)
-			}
-		}
-		if _, dup := ks.keys[id]; dup || (id == "*" && ks.fallback != nil) {
-			return nil, nil, fmt.Errorf("AGENT_WALLETS duplicate agent id %s", id)
-		}
-		s, err := newKMSSigner(ctx, api, keyID)
-		if err != nil {
-			return nil, nil, err
-		}
-		if id == "*" {
-			ks.fallback = s
-		} else {
-			ks.keys[id] = s
-		}
-		report = append(report, fmt.Sprintf("agent %s signs as %s (KMS key %s)", id, s.Address().Hex(), keyID))
-	}
-	if len(ks.keys) == 0 && ks.fallback == nil {
-		return nil, nil, errors.New("AGENT_WALLETS has no entries")
-	}
-	return ks, report, nil
+	return walletKeystore(ctx, wallets, "KMS key", func(ctx context.Context, ref string) (Signer, error) {
+		return newKMSSigner(ctx, api, ref)
+	})
 }

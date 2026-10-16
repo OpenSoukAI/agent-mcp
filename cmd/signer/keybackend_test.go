@@ -99,6 +99,11 @@ func TestNoRawKeyOutsideLocalAdapter(t *testing.T) {
 			t.Fatal(err)
 		}
 		for _, banned := range []string{"crypto.Sign(", "NewKeyedTransactor", "ecdsa.PrivateKey", "crypto.HexToECDSA(", "crypto.ToECDSA", "crypto.GenerateKey(", "types.SignTx(", "types.SignNewTx("} {
+			// providerauth.go holds the P-256 API credentials Turnkey and Privy authenticate
+			// requests with. They cannot sign for a wallet; the secp256k1 bans still apply there.
+			if f == "providerauth.go" && banned == "ecdsa.PrivateKey" {
+				continue
+			}
 			if strings.Contains(string(b), banned) {
 				t.Errorf("%s uses %s; sign through a Signer", f, banned)
 			}

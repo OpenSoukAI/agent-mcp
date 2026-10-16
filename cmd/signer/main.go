@@ -1214,6 +1214,14 @@ func extractEscrowID(receipt *types.Receipt) (*big.Int, error) {
 // ── Main ───────────────────────────────────────────────────────────────────────
 
 func main() {
+	if len(os.Args) > 1 {
+		switch os.Args[1] {
+		case "policy":
+			os.Exit(runPolicyCLI(context.Background(), os.Args[2:], os.Stdout, os.Stderr))
+		case "privy-setup":
+			os.Exit(runPrivySetup(context.Background(), os.Args[2:], os.Stdout, os.Stderr))
+		}
+	}
 	srv := sdkmcp.NewServer(
 		&sdkmcp.Implementation{Name: "referrer-signer", Version: "1"},
 		nil,
