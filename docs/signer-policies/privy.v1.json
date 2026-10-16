@@ -1,0 +1,706 @@
+{
+  "chain_type": "ethereum",
+  "name": "opensouk-signer-v1",
+  "rules": [
+    {
+      "action": "ALLOW",
+      "conditions": [
+        {
+          "field": "chainId",
+          "field_source": "ethereum_typed_data_domain",
+          "operator": "eq",
+          "value": "<CHAIN_ID>"
+        },
+        {
+          "field": "verifyingContract",
+          "field_source": "ethereum_typed_data_domain",
+          "operator": "eq",
+          "value": "<REVIEW_REGISTRY>"
+        },
+        {
+          "field": "agentId",
+          "field_source": "ethereum_typed_data_message",
+          "operator": "gte",
+          "typed_data": {
+            "primary_type": "ReviewCommitment",
+            "types": {
+              "EIP712Domain": [
+                {
+                  "name": "name",
+                  "type": "string"
+                },
+                {
+                  "name": "version",
+                  "type": "string"
+                },
+                {
+                  "name": "chainId",
+                  "type": "uint256"
+                },
+                {
+                  "name": "verifyingContract",
+                  "type": "address"
+                }
+              ],
+              "ReviewCommitment": [
+                {
+                  "name": "agentId",
+                  "type": "uint256"
+                },
+                {
+                  "name": "merchantId",
+                  "type": "uint256"
+                },
+                {
+                  "name": "productId",
+                  "type": "bytes32"
+                },
+                {
+                  "name": "contentHash",
+                  "type": "bytes32"
+                },
+                {
+                  "name": "nonce",
+                  "type": "uint256"
+                },
+                {
+                  "name": "expiry",
+                  "type": "uint256"
+                }
+              ]
+            }
+          },
+          "value": "0"
+        }
+      ],
+      "method": "eth_signTypedData_v4",
+      "name": "allow ReviewCommitment"
+    },
+    {
+      "action": "ALLOW",
+      "conditions": [
+        {
+          "field": "chainId",
+          "field_source": "ethereum_typed_data_domain",
+          "operator": "eq",
+          "value": "<CHAIN_ID>"
+        },
+        {
+          "field": "verifyingContract",
+          "field_source": "ethereum_typed_data_domain",
+          "operator": "eq",
+          "value": "<REVIEW_REGISTRY>"
+        },
+        {
+          "field": "agentId",
+          "field_source": "ethereum_typed_data_message",
+          "operator": "gte",
+          "typed_data": {
+            "primary_type": "VoteCommitment",
+            "types": {
+              "EIP712Domain": [
+                {
+                  "name": "name",
+                  "type": "string"
+                },
+                {
+                  "name": "version",
+                  "type": "string"
+                },
+                {
+                  "name": "chainId",
+                  "type": "uint256"
+                },
+                {
+                  "name": "verifyingContract",
+                  "type": "address"
+                }
+              ],
+              "VoteCommitment": [
+                {
+                  "name": "agentId",
+                  "type": "uint256"
+                },
+                {
+                  "name": "escrowId",
+                  "type": "uint256"
+                },
+                {
+                  "name": "votesHash",
+                  "type": "bytes32"
+                },
+                {
+                  "name": "nonce",
+                  "type": "uint256"
+                },
+                {
+                  "name": "expiry",
+                  "type": "uint256"
+                }
+              ]
+            }
+          },
+          "value": "0"
+        }
+      ],
+      "method": "eth_signTypedData_v4",
+      "name": "allow VoteCommitment"
+    },
+    {
+      "action": "ALLOW",
+      "conditions": [
+        {
+          "field": "chainId",
+          "field_source": "ethereum_typed_data_domain",
+          "operator": "eq",
+          "value": "<CHAIN_ID>"
+        },
+        {
+          "field": "verifyingContract",
+          "field_source": "ethereum_typed_data_domain",
+          "operator": "eq",
+          "value": "<REVIEW_REGISTRY>"
+        },
+        {
+          "field": "agentId",
+          "field_source": "ethereum_typed_data_message",
+          "operator": "gte",
+          "typed_data": {
+            "primary_type": "CashbackRateCommitment",
+            "types": {
+              "CashbackRateCommitment": [
+                {
+                  "name": "agentId",
+                  "type": "uint256"
+                },
+                {
+                  "name": "cashbackOfCommissionBps",
+                  "type": "uint16"
+                },
+                {
+                  "name": "nonce",
+                  "type": "bytes32"
+                },
+                {
+                  "name": "expiry",
+                  "type": "uint256"
+                }
+              ],
+              "EIP712Domain": [
+                {
+                  "name": "name",
+                  "type": "string"
+                },
+                {
+                  "name": "version",
+                  "type": "string"
+                },
+                {
+                  "name": "chainId",
+                  "type": "uint256"
+                },
+                {
+                  "name": "verifyingContract",
+                  "type": "address"
+                }
+              ]
+            }
+          },
+          "value": "0"
+        }
+      ],
+      "method": "eth_signTypedData_v4",
+      "name": "allow CashbackRateCommitment"
+    },
+    {
+      "action": "ALLOW",
+      "conditions": [
+        {
+          "field": "chainId",
+          "field_source": "ethereum_typed_data_domain",
+          "operator": "eq",
+          "value": "<CHAIN_ID>"
+        },
+        {
+          "field": "verifyingContract",
+          "field_source": "ethereum_typed_data_domain",
+          "operator": "eq",
+          "value": "<REVIEW_REGISTRY>"
+        },
+        {
+          "field": "agentId",
+          "field_source": "ethereum_typed_data_message",
+          "operator": "gte",
+          "typed_data": {
+            "primary_type": "IntentAccessCommitment",
+            "types": {
+              "EIP712Domain": [
+                {
+                  "name": "name",
+                  "type": "string"
+                },
+                {
+                  "name": "version",
+                  "type": "string"
+                },
+                {
+                  "name": "chainId",
+                  "type": "uint256"
+                },
+                {
+                  "name": "verifyingContract",
+                  "type": "address"
+                }
+              ],
+              "IntentAccessCommitment": [
+                {
+                  "name": "agentId",
+                  "type": "uint256"
+                },
+                {
+                  "name": "nonce",
+                  "type": "bytes32"
+                },
+                {
+                  "name": "expiry",
+                  "type": "uint256"
+                }
+              ]
+            }
+          },
+          "value": "0"
+        }
+      ],
+      "method": "eth_signTypedData_v4",
+      "name": "allow IntentAccessCommitment"
+    },
+    {
+      "action": "ALLOW",
+      "conditions": [
+        {
+          "field": "chainId",
+          "field_source": "ethereum_typed_data_domain",
+          "operator": "eq",
+          "value": "<CHAIN_ID>"
+        },
+        {
+          "field": "verifyingContract",
+          "field_source": "ethereum_typed_data_domain",
+          "operator": "eq",
+          "value": "<REVIEW_REGISTRY>"
+        },
+        {
+          "field": "agentId",
+          "field_source": "ethereum_typed_data_message",
+          "operator": "gte",
+          "typed_data": {
+            "primary_type": "IntentMarkCommitment",
+            "types": {
+              "EIP712Domain": [
+                {
+                  "name": "name",
+                  "type": "string"
+                },
+                {
+                  "name": "version",
+                  "type": "string"
+                },
+                {
+                  "name": "chainId",
+                  "type": "uint256"
+                },
+                {
+                  "name": "verifyingContract",
+                  "type": "address"
+                }
+              ],
+              "IntentMarkCommitment": [
+                {
+                  "name": "agentId",
+                  "type": "uint256"
+                },
+                {
+                  "name": "intentId",
+                  "type": "string"
+                },
+                {
+                  "name": "result",
+                  "type": "string"
+                },
+                {
+                  "name": "nonce",
+                  "type": "bytes32"
+                },
+                {
+                  "name": "expiry",
+                  "type": "uint256"
+                }
+              ]
+            }
+          },
+          "value": "0"
+        }
+      ],
+      "method": "eth_signTypedData_v4",
+      "name": "allow IntentMarkCommitment"
+    },
+    {
+      "action": "ALLOW",
+      "conditions": [
+        {
+          "field": "chainId",
+          "field_source": "ethereum_typed_data_domain",
+          "operator": "eq",
+          "value": "<CHAIN_ID>"
+        },
+        {
+          "field": "verifyingContract",
+          "field_source": "ethereum_typed_data_domain",
+          "operator": "eq",
+          "value": "<REVIEW_REGISTRY>"
+        },
+        {
+          "field": "agentId",
+          "field_source": "ethereum_typed_data_message",
+          "operator": "gte",
+          "typed_data": {
+            "primary_type": "IntentSkipCommitment",
+            "types": {
+              "EIP712Domain": [
+                {
+                  "name": "name",
+                  "type": "string"
+                },
+                {
+                  "name": "version",
+                  "type": "string"
+                },
+                {
+                  "name": "chainId",
+                  "type": "uint256"
+                },
+                {
+                  "name": "verifyingContract",
+                  "type": "address"
+                }
+              ],
+              "IntentSkipCommitment": [
+                {
+                  "name": "agentId",
+                  "type": "uint256"
+                },
+                {
+                  "name": "intentId",
+                  "type": "string"
+                },
+                {
+                  "name": "reason",
+                  "type": "string"
+                },
+                {
+                  "name": "nonce",
+                  "type": "bytes32"
+                },
+                {
+                  "name": "expiry",
+                  "type": "uint256"
+                }
+              ]
+            }
+          },
+          "value": "0"
+        }
+      ],
+      "method": "eth_signTypedData_v4",
+      "name": "allow IntentSkipCommitment"
+    },
+    {
+      "action": "ALLOW",
+      "conditions": [
+        {
+          "field": "chainId",
+          "field_source": "ethereum_typed_data_domain",
+          "operator": "eq",
+          "value": "<CHAIN_ID>"
+        },
+        {
+          "field": "verifyingContract",
+          "field_source": "ethereum_typed_data_domain",
+          "operator": "eq",
+          "value": "<REVIEW_REGISTRY>"
+        },
+        {
+          "field": "agentId",
+          "field_source": "ethereum_typed_data_message",
+          "operator": "gte",
+          "typed_data": {
+            "primary_type": "TelegramLinkCommitment",
+            "types": {
+              "EIP712Domain": [
+                {
+                  "name": "name",
+                  "type": "string"
+                },
+                {
+                  "name": "version",
+                  "type": "string"
+                },
+                {
+                  "name": "chainId",
+                  "type": "uint256"
+                },
+                {
+                  "name": "verifyingContract",
+                  "type": "address"
+                }
+              ],
+              "TelegramLinkCommitment": [
+                {
+                  "name": "agentId",
+                  "type": "uint256"
+                },
+                {
+                  "name": "nonce",
+                  "type": "bytes32"
+                },
+                {
+                  "name": "expiry",
+                  "type": "uint256"
+                }
+              ]
+            }
+          },
+          "value": "0"
+        }
+      ],
+      "method": "eth_signTypedData_v4",
+      "name": "allow TelegramLinkCommitment"
+    },
+    {
+      "action": "ALLOW",
+      "conditions": [
+        {
+          "field": "chainId",
+          "field_source": "ethereum_typed_data_domain",
+          "operator": "eq",
+          "value": "<CHAIN_ID>"
+        },
+        {
+          "field": "verifyingContract",
+          "field_source": "ethereum_typed_data_domain",
+          "operator": "eq",
+          "value": "<SPLIT_ROUTER>"
+        },
+        {
+          "field": "buyerAgentId",
+          "field_source": "ethereum_typed_data_message",
+          "operator": "gte",
+          "typed_data": {
+            "primary_type": "ChargeCommitment",
+            "types": {
+              "ChargeCommitment": [
+                {
+                  "name": "payer",
+                  "type": "address"
+                },
+                {
+                  "name": "paymentRef",
+                  "type": "bytes32"
+                },
+                {
+                  "name": "buyerAgentId",
+                  "type": "uint256"
+                },
+                {
+                  "name": "attributionTokenHash",
+                  "type": "bytes32"
+                }
+              ],
+              "EIP712Domain": [
+                {
+                  "name": "name",
+                  "type": "string"
+                },
+                {
+                  "name": "version",
+                  "type": "string"
+                },
+                {
+                  "name": "chainId",
+                  "type": "uint256"
+                },
+                {
+                  "name": "verifyingContract",
+                  "type": "address"
+                }
+              ]
+            }
+          },
+          "value": "0"
+        }
+      ],
+      "method": "eth_signTypedData_v4",
+      "name": "allow ChargeCommitment"
+    },
+    {
+      "action": "ALLOW",
+      "conditions": [
+        {
+          "field": "chainId",
+          "field_source": "ethereum_typed_data_domain",
+          "operator": "eq",
+          "value": "<CHAIN_ID>"
+        },
+        {
+          "field": "verifyingContract",
+          "field_source": "ethereum_typed_data_domain",
+          "operator": "eq",
+          "value": "<USDC>"
+        },
+        {
+          "field": "to",
+          "field_source": "ethereum_typed_data_message",
+          "operator": "eq",
+          "typed_data": {
+            "primary_type": "ReceiveWithAuthorization",
+            "types": {
+              "EIP712Domain": [
+                {
+                  "name": "name",
+                  "type": "string"
+                },
+                {
+                  "name": "version",
+                  "type": "string"
+                },
+                {
+                  "name": "chainId",
+                  "type": "uint256"
+                },
+                {
+                  "name": "verifyingContract",
+                  "type": "address"
+                }
+              ],
+              "ReceiveWithAuthorization": [
+                {
+                  "name": "from",
+                  "type": "address"
+                },
+                {
+                  "name": "to",
+                  "type": "address"
+                },
+                {
+                  "name": "value",
+                  "type": "uint256"
+                },
+                {
+                  "name": "validAfter",
+                  "type": "uint256"
+                },
+                {
+                  "name": "validBefore",
+                  "type": "uint256"
+                },
+                {
+                  "name": "nonce",
+                  "type": "bytes32"
+                }
+              ]
+            }
+          },
+          "value": "<SPLIT_ROUTER>"
+        },
+        {
+          "field": "value",
+          "field_source": "ethereum_typed_data_message",
+          "operator": "lte",
+          "typed_data": {
+            "primary_type": "ReceiveWithAuthorization",
+            "types": {
+              "EIP712Domain": [
+                {
+                  "name": "name",
+                  "type": "string"
+                },
+                {
+                  "name": "version",
+                  "type": "string"
+                },
+                {
+                  "name": "chainId",
+                  "type": "uint256"
+                },
+                {
+                  "name": "verifyingContract",
+                  "type": "address"
+                }
+              ],
+              "ReceiveWithAuthorization": [
+                {
+                  "name": "from",
+                  "type": "address"
+                },
+                {
+                  "name": "to",
+                  "type": "address"
+                },
+                {
+                  "name": "value",
+                  "type": "uint256"
+                },
+                {
+                  "name": "validAfter",
+                  "type": "uint256"
+                },
+                {
+                  "name": "validBefore",
+                  "type": "uint256"
+                },
+                {
+                  "name": "nonce",
+                  "type": "bytes32"
+                }
+              ]
+            }
+          },
+          "value": "<MAX_PAYMENT>"
+        }
+      ],
+      "method": "eth_signTypedData_v4",
+      "name": "allow ReceiveWithAuthorization"
+    },
+    {
+      "action": "ALLOW",
+      "conditions": [
+        {
+          "field": "chain_id",
+          "field_source": "ethereum_transaction",
+          "operator": "eq",
+          "value": "<CHAIN_ID>"
+        },
+        {
+          "field": "to",
+          "field_source": "ethereum_transaction",
+          "operator": "in",
+          "value": [
+            "<REVIEW_REGISTRY>",
+            "<ESCROW>",
+            "<MERCHANT_REGISTRY>",
+            "<PRODUCT_REGISTRY>"
+          ]
+        }
+      ],
+      "method": "eth_signTransaction",
+      "name": "allow protocol transactions"
+    },
+    {
+      "action": "ALLOW",
+      "conditions": [],
+      "method": "personal_sign",
+      "name": "allow agent-auth personal_sign"
+    }
+  ],
+  "version": "1.0"
+}
