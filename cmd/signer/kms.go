@@ -177,7 +177,7 @@ func loadKeystore(ctx context.Context, getenv func(string) string, newKMS func(c
 		case "turnkey":
 			return turnkeyKeystore(ctx, getenv, wallets)
 		case "privy":
-			return nil, nil, errors.New("SIGNER_BACKEND=privy is not implemented yet")
+			return privyKeystore(ctx, getenv, wallets)
 		}
 		api, err := newKMS(ctx)
 		if err != nil {
