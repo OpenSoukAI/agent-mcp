@@ -26,10 +26,12 @@ bash scripts/setup-mcp.sh
 
 The script will:
 1. Build the `referrer-signer` binary (`~/.local/bin/referrer-signer`)
-2. Ask for your agent private key (stored only in `~/.claude/settings.json`, never committed)
-3. Register both MCP servers in your Claude Code config
+2. Register both MCP servers for one project only (local scope; `MCP_PROJECT_DIR`, default the
+   current directory), so other projects do not get tools that sign and pay
+3. Write `${AGENT_KEYS}` or `${AGENT_PRIVATE_KEY}` into the signer's entry, not the key itself
 
-Restart Claude Code after setup. Verify with:
+Export that variable in the shell that starts Claude Code; Claude Code expands it when it starts
+the signer. Restart Claude Code after setup. Verify with:
 ```bash
 claude mcp list
 ```
@@ -111,8 +113,12 @@ The signer resolves a private key per agent ID, parsed and validated **once at s
 - **`AGENT_PRIVATE_KEY`** — single-key fallback. Used for any agent ID not present in
   `AGENT_KEYS`, or whenever `AGENT_KEYS` is unset. Back-compatible with single-agent setups.
 
-At least one of the two must be set. `setup-mcp.sh` provisions `AGENT_KEYS` when present in the
-environment, otherwise prompts for a single `AGENT_PRIVATE_KEY`.
+At least one of the two must be set. `setup-mcp.sh` names `AGENT_KEYS` when it is set in the
+environment, otherwise `AGENT_PRIVATE_KEY`. Leave `AGENT_PRIVATE_KEY` unset once `AGENT_KEYS` lists
+your agents, unless you make agent-less purchases: as the fallback it signs for any agent id.
+
+A value that is still a reference (`${AGENT_PRIVATE_KEY}`) means the MCP client did not expand it;
+the signer refuses to start and says so.
 
 ### Keep the key out of the agent's process: `SIGNER_BACKEND=kms`
 
@@ -137,6 +143,6 @@ AGENT_WALLETS="12:arn:aws:kms:eu-central-1:111122223333:key/<key-id>,*:<fallback
 
 ## Security
 
-With the default local backend, `AGENT_PRIVATE_KEY` / `AGENT_KEYS` are stored in `~/.claude/settings.json` on your local machine; with `SIGNER_BACKEND=kms` the key stays in KMS and only the AWS credentials that can use it are local.  
+With the default local backend, `AGENT_PRIVATE_KEY` / `AGENT_KEYS` live in the environment of the shell that starts your client, and its config holds only their names; with `SIGNER_BACKEND=kms` the key stays in KMS and only the AWS credentials that can use it are local.  
 They are **never** sent to the remote MCP server — signing happens locally in `referrer-signer`.  
 Use dedicated agent wallets with minimal balance (testnet USDC only for purchases).

@@ -309,3 +309,26 @@ func TestLoadKeystore_Refusals(t *testing.T) {
 		})
 	}
 }
+
+func TestLoadKeystore_RefusesAnUnexpandedReference(t *testing.T) {
+	for _, c := range []struct{ name, value string }{
+		{"AGENT_PRIVATE_KEY", "${AGENT_PRIVATE_KEY}"},
+		{"AGENT_KEYS", "${env:AGENT_KEYS}"},
+		{"AGENT_PRIVATE_KEY", "$AGENT_PRIVATE_KEY"},
+		{"AGENT_WALLETS", "${AGENT_WALLETS:-}"},
+	} {
+		_, _, err := loadKeystore(context.Background(), envOf(map[string]string{c.name: c.value}), nil)
+		if err == nil || !strings.Contains(err.Error(), "did not expand") || !strings.Contains(err.Error(), c.name) {
+			t.Errorf("%s=%s: want a refusal naming the unexpanded reference, got %v", c.name, c.value, err)
+		}
+	}
+	// The default of ${VAR:-…} can be a real key; the refusal must not print it.
+	_, _, err := loadKeystore(context.Background(), envOf(map[string]string{"AGENT_PRIVATE_KEY": "${AGENT_PRIVATE_KEY:-0x" + testLocalKeyHex + "}"}), nil)
+	if err == nil || strings.Contains(err.Error(), testLocalKeyHex) {
+		t.Fatalf("the refusal must not echo the value: %v", err)
+	}
+	// A real key is not a reference.
+	if _, _, err := loadKeystore(context.Background(), envOf(map[string]string{"AGENT_PRIVATE_KEY": "0x" + testLocalKeyHex}), nil); err != nil {
+		t.Fatalf("a valid key was refused: %v", err)
+	}
+}

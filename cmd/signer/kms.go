@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	"regexp"
 	"strings"
 	"time"
 
@@ -101,6 +102,11 @@ func ethSigFromDER(derSig []byte, digest [32]byte, want common.Address) ([]byte,
 	return nil, fmt.Errorf("no recovery id yields %s: the signature is over a different digest or from a different key", want.Hex())
 }
 
+// unexpandedRef matches a whole value that is still an environment reference, which a client
+// passes through when it does not expand that syntax. The value is never printed: a ${VAR:-default}
+// reference can carry a real key as its default.
+var unexpandedRef = regexp.MustCompile(`^\$\{?(env:)?[A-Za-z_][A-Za-z0-9_]*(:-[^}]*)?\}?$`)
+
 // kmsAPI is the part of the AWS KMS client the signer uses.
 type kmsAPI interface {
 	GetPublicKey(ctx context.Context, in *kms.GetPublicKeyInput, opts ...func(*kms.Options)) (*kms.GetPublicKeyOutput, error)
@@ -163,6 +169,11 @@ func defaultKMSClient(ctx context.Context) (kmsAPI, error) {
 func loadKeystore(ctx context.Context, getenv func(string) string, newKMS func(context.Context) (kmsAPI, error)) (*keystore, []string, error) {
 	backend := strings.ToLower(strings.TrimSpace(getenv("SIGNER_BACKEND")))
 	agentKeys, agentPriv, wallets := getenv("AGENT_KEYS"), getenv("AGENT_PRIVATE_KEY"), strings.TrimSpace(getenv("AGENT_WALLETS"))
+	for name, v := range map[string]string{"AGENT_KEYS": agentKeys, "AGENT_PRIVATE_KEY": agentPriv, "AGENT_WALLETS": wallets} {
+		if unexpandedRef.MatchString(strings.TrimSpace(v)) {
+			return nil, nil, fmt.Errorf("%s is still an environment reference: the MCP client did not expand it. Export the variable in the shell that starts the client, or use that client's syntax (Claude Code ${VAR}, Cursor ${env:VAR}, Codex env_vars)", name)
+		}
+	}
 	switch backend {
 	case "", "local":
 		if wallets != "" {
