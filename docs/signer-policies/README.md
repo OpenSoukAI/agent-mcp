@@ -15,9 +15,10 @@ Both allow exactly:
 
 - the eight commitment types the signer tools sign, each only in its own EIP-712 domain, on the
   configured chain, with the protocol contract as `verifyingContract`;
-- `AgentWalletSet` on the IdentityRegistry, which `sign_agent_wallet_set` signs so the identity's
-  owner can bind this wallet. It only consents to the binding: the signature recovers to this
-  wallet and is useless for any other;
+- `AgentWalletSet` on the IdentityRegistry, only for the agent ids given with `--agent-id`, which
+  `sign_agent_wallet_set` signs so the identity's owner can bind this wallet. Bound to any other
+  identity, this wallet's payments would count as that identity's receipts. Without `--agent-id`
+  the policy allows no `AgentWalletSet`;
 - `ReceiveWithAuthorization` (ERC-3009) on USDC, only to the SplitRouter, and only up to the
   payment ceiling;
 - transactions with no ETH value, each only to one function a signer tool calls on the
@@ -43,14 +44,16 @@ configuration, which resolves the contract addresses the same way the tools do:
 
 ```bash
 CHAIN_ID=84532 BASE_RPC_URL=… referrer-signer policy --provider privy \
-  --usdc 0x036CbD53842c5426634e7929541eC2318f3dCF7e --max-payment 5000000 > privy-policy.json
+  --usdc 0x036CbD53842c5426634e7929541eC2318f3dCF7e --max-payment 5000000 --agent-id 12 > privy-policy.json
 
 CHAIN_ID=84532 BASE_RPC_URL=… referrer-signer policy --provider turnkey \
   --usdc 0x036CbD53842c5426634e7929541eC2318f3dCF7e --max-payment 5000000 \
-  --turnkey-user-id <signer user id> --wallet <wallet account address> > turnkey-policies.json
+  --turnkey-user-id <signer user id> --wallet <wallet account address> --agent-id 12 \
+  > turnkey-policies.json
 ```
 
-`--max-payment` defaults to `MAX_PAYMENT_PER_TX`. One of them is required.
+`--max-payment` defaults to `MAX_PAYMENT_PER_TX`. One of them is required. `--agent-id` takes a
+comma-separated list.
 
 ## Apply it
 

@@ -290,7 +290,7 @@ func TestPolicyCLI(t *testing.T) {
 	if code, _, e := run("--provider", "turnkey", "--usdc", "0x00000000000000000000000000000000000000B1", "--max-payment", "5000000"); code == 0 || !strings.Contains(e, "turnkey-user-id") {
 		t.Fatalf("a Turnkey policy without the signer user must be refused, got %d %q", code, e)
 	}
-	code, out, e := run("--provider", "privy", "--usdc", "0x00000000000000000000000000000000000000B1", "--max-payment", "5000000")
+	code, out, e := run("--provider", "privy", "--usdc", "0x00000000000000000000000000000000000000B1", "--max-payment", "5000000", "--agent-id", "12")
 	if code != 0 {
 		t.Fatalf("exit %d: %s", code, e)
 	}
@@ -423,5 +423,82 @@ func TestTurnkeyAddressCasing(t *testing.T) {
 	}
 	if !strings.Contains(s, "verifying_contract == '0x5fc8d32690cc91d4c39d9d3abcbd16989f875707'") {
 		t.Fatal("EIP-712 fields stay lowercase (Turnkey's documented form, confirmed live)")
+	}
+}
+
+func awsPolicyInputs(ids ...string) policyInputs {
+	in := templatePolicyInputs()
+	for k := range in.Addrs {
+		in.Addrs[k] = "0x00000000000000000000000000000000000000a1"
+	}
+	in.ChainID, in.USDC, in.MaxValue, in.TurnkeyUserID = "84532", "0x00000000000000000000000000000000000000b1", "5000000", "u1"
+	in.Wallet = "0x2ad0aadd90f07263402c01d378740598073e7375"
+	in.AgentIDs = ids
+	return in
+}
+
+// AgentWalletSet is allowed only for the agent ids the operator names; with none, not at all.
+func TestPoliciesPinAgentWalletSetToAgentIDs(t *testing.T) {
+	for _, p := range []string{"turnkey", "privy"} {
+		none, err := renderPolicy(p, awsPolicyInputs())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(string(none), "AgentWalletSet") {
+			t.Fatalf("%s: without agent ids the policy must not allow AgentWalletSet", p)
+		}
+		two, err := renderPolicy(p, awsPolicyInputs("12", "34"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		s := string(two)
+		if p == "turnkey" {
+			if !strings.Contains(s, "(eth.eip_712.message['agentId'] == 12 || eth.eip_712.message['agentId'] == 34)") {
+				t.Fatalf("turnkey: AgentWalletSet must be pinned to agents 12 and 34:\n%s", s)
+			}
+			continue
+		}
+		pinned := map[string]bool{}
+		for _, r := range decodePolicy(t, "privy", awsPolicyInputs("12", "34"))["rules"].([]any) {
+			rule := r.(map[string]any)
+			if !strings.Contains(rule["name"].(string), "AgentWalletSet") {
+				continue
+			}
+			for _, c := range rule["conditions"].([]any) {
+				cond := c.(map[string]any)
+				if cond["field"] == "agentId" {
+					if cond["operator"] != "eq" {
+						t.Fatalf("privy: agentId must be compared with eq, got %v", cond["operator"])
+					}
+					pinned[cond["value"].(string)] = true
+				}
+			}
+		}
+		if len(pinned) != 2 || !pinned["12"] || !pinned["34"] {
+			t.Fatalf("privy: want one AgentWalletSet rule per agent id, got %v", pinned)
+		}
+	}
+}
+
+func TestPolicyCLIAgentIDs(t *testing.T) {
+	t.Setenv("CHAIN_ID", "84532")
+	for _, k := range []string{"REVIEW_REGISTRY_ADDRESS", "COMMISSION_ESCROW_ADDRESS", "MERCHANT_REGISTRY_ADDRESS", "PRODUCT_REGISTRY_ADDRESS", "SPLIT_ROUTER_ADDRESS", "AGENT_REGISTRY_ADDRESS"} {
+		t.Setenv(k, "0x00000000000000000000000000000000000000A1")
+	}
+	resetAddressCache()
+	t.Cleanup(resetAddressCache)
+	run := func(args ...string) (int, string, string) {
+		var out, errb bytes.Buffer
+		code := runPolicyCLI(context.Background(), append([]string{"--provider", "privy", "--usdc", "0x00000000000000000000000000000000000000B1", "--max-payment", "5"}, args...), &out, &errb)
+		return code, out.String(), errb.String()
+	}
+	if code, _, e := run("--agent-id", "12,x"); code == 0 || !strings.Contains(e, "--agent-id") {
+		t.Fatalf("a non-decimal agent id must be refused, got %d %q", code, e)
+	}
+	if code, out, e := run("--agent-id", "12, 34"); code != 0 || !strings.Contains(out, `"value": "34"`) {
+		t.Fatalf("want agent 34 pinned, got %d %q", code, e)
+	}
+	if code, out, e := run(); code != 0 || strings.Contains(out, "AgentWalletSet") || !strings.Contains(e, "--agent-id") {
+		t.Fatalf("without --agent-id: want no AgentWalletSet and a note on stderr, got %d %q", code, e)
 	}
 }

@@ -211,8 +211,9 @@ Generate the policy with `referrer-signer policy --provider turnkey|privy`. For 
 owner key, which you keep off the agent's machine. See
 [docs/signer-policies](docs/signer-policies/README.md).
 
-To bind a provider wallet to an identity, call `sign_agent_wallet_set` with the agent ID, then
-send `setAgentWallet` from the owner wallet with the returned signature within five minutes.
+To bind a provider wallet to an identity, list the agent ID in `AGENT_WALLETS` and in the policy
+(`--agent-id`), call `sign_agent_wallet_set` with it, then send `setAgentWallet` from the owner
+wallet with the returned signature within five minutes.
 A bound agent wallet is also where payouts go (`SplitRouter._resolveWallet`), so a provider
 wallet bound to an identity receives its earnings until the owner rebinds it. Until the backend
 accepts the bound wallet for signed requests (REF-491), the provider wallet must be the identity's

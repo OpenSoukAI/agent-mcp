@@ -51,7 +51,7 @@ func TestPrivySetup(t *testing.T) {
 	for k := range in.Addrs {
 		in.Addrs[k] = "0x00000000000000000000000000000000000000a1"
 	}
-	in.ChainID, in.USDC, in.MaxValue = "84532", "0x00000000000000000000000000000000000000b1", "5000000"
+	in.ChainID, in.USDC, in.MaxValue, in.AgentIDs = "84532", "0x00000000000000000000000000000000000000b1", "5000000", []string{"12"}
 	policy, _ := renderPolicy("privy", in)
 	template, _ := renderPolicy("privy", templatePolicyInputs())
 	templateFile := t.TempDir() + "/template.json"

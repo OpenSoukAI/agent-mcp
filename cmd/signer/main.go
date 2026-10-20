@@ -1327,7 +1327,8 @@ func main() {
 		Name: "sign_agent_wallet_set",
 		Description: "Sign an EIP-712 AgentWalletSet with this signer's wallet for agent_id, so the identity's owner " +
 			"can bind that wallet as the identity's agent wallet with IdentityRegistry.setAgentWallet. Use it when the " +
-			"signer's wallet (KMS, Turnkey, Privy or a local key) is not the identity's owner. Input: agent_id. Returns " +
+			"signer's wallet (KMS, Turnkey, Privy or a local key) is not the identity's owner. Input: agent_id, which must be " +
+			"listed in AGENT_KEYS or AGENT_WALLETS itself: the fallback key is never used. Returns " +
 			"the signature, the wallet, the owner and a deadline about 5 minutes away. The owner must send " +
 			"setAgentWallet(agent_id, new_wallet, deadline, signature) from the owner wallet before the deadline; this " +
 			"signer cannot send it. A bound wallet receives the identity's payouts.",

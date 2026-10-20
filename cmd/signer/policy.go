@@ -79,7 +79,8 @@ type policyInputs struct {
 	USDC          string
 	MaxValue      string // USDC base units, the ReceiveWithAuthorization ceiling
 	TurnkeyUserID string
-	Wallet        string // Turnkey: the wallet account address every ALLOW is scoped to
+	Wallet        string   // Turnkey: the wallet account address every ALLOW is scoped to
+	AgentIDs      []string // decimal; the only agents AgentWalletSet may name. None: no AgentWalletSet
 }
 
 func templatePolicyInputs() policyInputs {
@@ -87,7 +88,7 @@ func templatePolicyInputs() policyInputs {
 	for _, k := range []protocolKey{keyReviewRegistry, keyEscrow, keyMerchantRegistry, keyProductRegistry, keySplitRouter, keyAgentRegistry} {
 		addrs[k] = "<" + string(k) + ">"
 	}
-	return policyInputs{ChainID: "<CHAIN_ID>", Addrs: addrs, USDC: "<USDC>", MaxValue: "<MAX_PAYMENT>", TurnkeyUserID: "<TURNKEY_SIGNER_USER_ID>", Wallet: "<WALLET>"}
+	return policyInputs{ChainID: "<CHAIN_ID>", Addrs: addrs, USDC: "<USDC>", MaxValue: "<MAX_PAYMENT>", TurnkeyUserID: "<TURNKEY_SIGNER_USER_ID>", Wallet: "<WALLET>", AgentIDs: []string{"<AGENT_ID>"}}
 }
 
 const zero32 = "0x0000000000000000000000000000000000000000000000000000000000000000"
@@ -173,9 +174,22 @@ func turnkeyPolicyDoc(in policyInputs) map[string]any {
 	// that errors makes Turnkey skip its whole policy, so kinds are never mixed.
 	var commitments []string
 	for _, spec := range allSpecs {
+		pin := ""
+		if spec == specAgentWalletSet {
+			// Pinned to the operator's agents: bound to any other identity, this wallet's payments
+			// would count as that identity's receipts. agentId is compared as a JSON number (live).
+			if len(in.AgentIDs) == 0 {
+				continue
+			}
+			var ids []string
+			for _, id := range in.AgentIDs {
+				ids = append(ids, "eth.eip_712.message['agentId'] == "+id)
+			}
+			pin = " && (" + strings.Join(ids, " || ") + ")"
+		}
 		commitments = append(commitments, "(eth.eip_712.primary_type == '"+spec.primary+"'"+
 			" && eth.eip_712.domain.name == '"+spec.name+"' && eth.eip_712.domain.version == '"+spec.version+"'"+
-			" && eth.eip_712.domain.verifying_contract == '"+in.Addrs[spec.contract]+"')")
+			" && eth.eip_712.domain.verifying_contract == '"+in.Addrs[spec.contract]+"'"+pin+")")
 	}
 	ps := []map[string]any{
 		allow("allow commitments", typed+" && eth.eip_712.domain.chain_id == "+in.ChainID+" && ("+strings.Join(commitments, " || ")+")"),
@@ -238,6 +252,13 @@ func privyPolicyDoc(in policyInputs) map[string]any {
 	var rules []any
 	for _, spec := range allSpecs {
 		td := sampleTypedData(spec)
+		if spec == specAgentWalletSet {
+			for _, id := range in.AgentIDs {
+				rules = append(rules, map[string]any{"name": "allow " + spec.primary + " for agent " + id, "method": "eth_signTypedData_v4", "action": "ALLOW",
+					"conditions": append(domainConds(in.Addrs[spec.contract]), msgCond(td, "agentId", "eq", id))})
+			}
+			continue
+		}
 		rules = append(rules, map[string]any{"name": "allow " + spec.primary, "method": "eth_signTypedData_v4", "action": "ALLOW",
 			"conditions": append(domainConds(in.Addrs[spec.contract]), msgCond(td, firstUintField(td), "gte", "0"))})
 	}
@@ -304,6 +325,7 @@ func runPolicyCLI(ctx context.Context, args []string, stdout, stderr io.Writer) 
 	maxPay := fs.String("max-payment", "", "ReceiveWithAuthorization ceiling in USDC base units (default MAX_PAYMENT_PER_TX)")
 	tkUser := fs.String("turnkey-user-id", "", "Turnkey user id of the signer's API user (turnkey only)")
 	wallet := fs.String("wallet", "", "Turnkey wallet account address the policies are scoped to (turnkey only)")
+	agentIDs := fs.String("agent-id", "", "comma-separated agent ids this wallet may be bound to with sign_agent_wallet_set")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
@@ -353,6 +375,22 @@ func runPolicyCLI(ctx context.Context, args []string, stdout, stderr io.Writer) 
 				return fail("--wallet is required: the Turnkey wallet account address the signer signs with")
 			}
 			in.Wallet = strings.ToLower(common.HexToAddress(*wallet).Hex())
+		}
+	}
+	if !*template {
+		in.AgentIDs = nil
+		for _, id := range strings.Split(*agentIDs, ",") {
+			if id = strings.TrimSpace(id); id == "" {
+				continue
+			}
+			n, ok := new(big.Int).SetString(id, 10)
+			if !ok || n.Sign() < 0 {
+				return fail("--agent-id %q is not a decimal agent id", id)
+			}
+			in.AgentIDs = append(in.AgentIDs, n.String())
+		}
+		if len(in.AgentIDs) == 0 {
+			fmt.Fprintln(stderr, "referrer-signer policy: no --agent-id, so the policy allows no AgentWalletSet and sign_agent_wallet_set will be refused")
 		}
 	}
 	b, err := renderPolicy(*provider, in)

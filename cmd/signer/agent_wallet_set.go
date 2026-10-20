@@ -176,7 +176,9 @@ func handleSignAgentWalletSet(
 	if err != nil {
 		return nil, signAgentWalletSetOutput{}, err
 	}
-	keySigner, err := signerKeys.KeyFor(agentID.String())
+	// Not the fallback: bound to an identity it was not set up for, this wallet's payments would
+	// count as that identity's receipts.
+	keySigner, err := signerKeys.ExactKeyFor(agentID.String())
 	if err != nil {
 		return nil, signAgentWalletSetOutput{}, err
 	}

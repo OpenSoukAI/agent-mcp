@@ -176,3 +176,21 @@ func TestSignAgentWalletSet_InvalidAgentID(t *testing.T) {
 		}
 	}
 }
+
+// A prompt-injected agent must not bind this wallet to an identity it was not set up for: the
+// owner of that identity could then claim this wallet's payments as its own receipts.
+func TestHandleSignAgentWalletSet_RefusesTheFallbackKey(t *testing.T) {
+	key, err := crypto.GenerateKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	prev := signerKeys
+	signerKeys = &keystore{keys: map[string]Signer{}, fallback: newLocalSigner(key)}
+	t.Cleanup(func() { signerKeys = prev })
+	t.Setenv("BASE_RPC_URL", "http://127.0.0.1:1") // never dialled: the refusal comes first
+
+	_, _, err = handleSignAgentWalletSet(context.Background(), nil, signAgentWalletSetInput{AgentID: "7"})
+	if err == nil || !strings.Contains(err.Error(), "agent 7") || !strings.Contains(err.Error(), "fallback") {
+		t.Fatalf("want a refusal naming the agent and the fallback, got %v", err)
+	}
+}

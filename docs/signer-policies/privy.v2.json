@@ -560,7 +560,7 @@
         {
           "field": "agentId",
           "field_source": "ethereum_typed_data_message",
-          "operator": "gte",
+          "operator": "eq",
           "typed_data": {
             "primary_type": "AgentWalletSet",
             "types": {
@@ -602,11 +602,11 @@
               ]
             }
           },
-          "value": "0"
+          "value": "<AGENT_ID>"
         }
       ],
       "method": "eth_signTypedData_v4",
-      "name": "allow AgentWalletSet"
+      "name": "allow AgentWalletSet for agent <AGENT_ID>"
     },
     {
       "action": "ALLOW",
