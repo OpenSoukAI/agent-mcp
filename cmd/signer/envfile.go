@@ -61,7 +61,7 @@ func loadEnvFile(lookup func(string) (string, bool), setenv func(string, string)
 
 	var loaded, overridden []string
 	for _, e := range entries {
-		if v, ok := lookup(e[0]); ok && strings.TrimSpace(v) != "" && !unexpandedRef.MatchString(strings.TrimSpace(v)) {
+		if hasValue(lookup(e[0])) {
 			overridden = append(overridden, e[0])
 			continue
 		}
@@ -75,6 +75,13 @@ func loadEnvFile(lookup func(string) (string, bool), setenv func(string, string)
 		report = append(report, fmt.Sprintf("%s is set in both %s and the MCP client's config; using the client's", k, path))
 	}
 	return report, nil
+}
+
+// hasValue reports whether a setting holds a value of its own: one that is not unset, empty, or a
+// reference the MCP client did not expand.
+func hasValue(v string, ok bool) bool {
+	v = strings.TrimSpace(v)
+	return ok && v != "" && !unexpandedRef.MatchString(v)
 }
 
 // parseEnvFile reads KEY=value lines. Blank lines, # comments and a leading "export " are

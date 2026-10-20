@@ -141,6 +141,28 @@ install -m 600 /dev/null ~/.config/opensouk/signer.env
   accepted. Nothing is expanded.
 - A missing default file is skipped; a missing `SIGNER_ENV_FILE` is an error.
 
+### macOS Keychain
+
+On macOS the signer also looks in the login Keychain for the secret settings: `AGENT_PRIVATE_KEY`,
+`AGENT_KEYS`, `TURNKEY_API_PRIVATE_KEY`, `PRIVY_APP_SECRET` and `PRIVY_AUTHORIZATION_KEY`. Each
+is a generic password under the service `opensouk-signer`, with the setting's name as the account.
+Store one in your own terminal; with `-w` last, `security` prompts for the value, which keeps it
+out of your shell history and the process list:
+
+```bash
+security add-generic-password -U -s opensouk-signer -a AGENT_PRIVATE_KEY -w
+```
+
+- The Keychain fills only what the MCP client and `signer.env` leave unset, and the boot log names
+  any setting found in both.
+- The signer reads items through `/usr/bin/security`, so an item that command created is read
+  without a dialog. That also means anything running as you, the agent included, can read it the
+  same way: it keeps the key encrypted at rest, not away from the agent. For that, use a remote
+  backend below.
+- If a read fails (a locked Keychain over SSH, or an access dialog left unanswered for 20 seconds),
+  the signer logs why, stops reading the Keychain and starts from its other settings.
+- Other platforms never touch the Keychain.
+
 ### Keep the key out of the agent's process: `SIGNER_BACKEND=kms`
 
 With the local keys above, the key sits in the signer's environment, so anything the agent can run
