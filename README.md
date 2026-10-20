@@ -28,10 +28,11 @@ The script will:
 1. Build the `referrer-signer` binary (`~/.local/bin/referrer-signer`)
 2. Register both MCP servers for one project only (local scope; `MCP_PROJECT_DIR`, default the
    current directory), so other projects do not get tools that sign and pay
-3. Write `${AGENT_KEYS}` or `${AGENT_PRIVATE_KEY}` into the signer's entry, not the key itself
+3. Create `~/.config/opensouk/signer.env` (mode 600) if it does not exist, with `AGENT_KEYS` or
+   `AGENT_PRIVATE_KEY` from your shell, or a placeholder to replace; an existing file is left as
+   it is. The signer reads it at startup, so the key is not in the client config
 
-Export that variable in the shell that starts Claude Code; Claude Code expands it when it starts
-the signer. Restart Claude Code after setup. Verify with:
+Restart Claude Code after setup. Verify with:
 ```bash
 claude mcp list
 ```
