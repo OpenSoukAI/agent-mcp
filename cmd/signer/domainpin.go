@@ -25,6 +25,8 @@ var (
 	specIntentSkip   = domainSpec{"IntentSkipCommitment", "ReferrerIntentAccess", "1", keyReviewRegistry}
 	specTelegramLink = domainSpec{"TelegramLinkCommitment", "ReferrerTelegramLink", "1", keyReviewRegistry}
 	specCharge       = domainSpec{"ChargeCommitment", "ReferrerMPPCharge", "1", keySplitRouter}
+	// Mirrors the IdentityRegistry contract's own EIP712 constructor, not a backend builder.
+	specAgentWalletSet = domainSpec{"AgentWalletSet", "ERC8004IdentityRegistry", "1", keyAgentRegistry}
 )
 
 // pinDomain refuses a domain that is not this signer's chain, the commitment's fixed

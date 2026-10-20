@@ -1324,6 +1324,16 @@ func main() {
 	}, handleSignIntentSkip)
 
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
+		Name: "sign_agent_wallet_set",
+		Description: "Sign an EIP-712 AgentWalletSet with this signer's wallet for agent_id, so the identity's owner " +
+			"can bind that wallet as the identity's agent wallet with IdentityRegistry.setAgentWallet. Use it when the " +
+			"signer's wallet (KMS, Turnkey, Privy or a local key) is not the identity's owner. Input: agent_id. Returns " +
+			"the signature, the wallet, the owner and a deadline about 5 minutes away. The owner must send " +
+			"setAgentWallet(agent_id, new_wallet, deadline, signature) from the owner wallet before the deadline; this " +
+			"signer cannot send it. A bound wallet receives the identity's payouts.",
+	}, handleSignAgentWalletSet)
+
+	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name: "sign_charge_commitment",
 		Description: "Sign an EIP-712 ChargeCommitment with the buyer (payer) wallet that made the " +
 			"charge transfer and owns the buyer agent. Pass the charge tx hash ('txHash'), the " +
@@ -1349,7 +1359,7 @@ func main() {
 		Description: "Bind an agent-less purchase's escrow to your ERC-8004 agent identity by sending " +
 			"CommissionEscrow.bind(escrowId, agentId) on-chain with the agent's key, unlocking the deferred " +
 			"cashback + enabling the deferred review. PRECONDITION: the signer key MUST be the exact wallet " +
-			"that paid the agent-less purchase AND must already own agent_id (register the identity first). " +
+			"that paid the agent-less purchase AND must own agent_id or be its agent wallet. " +
 			"Inputs: escrow_id (from pay_for_product / list_escrows), agent_id. After it succeeds, the backend " +
 			"rebinds the purchase automatically; then cast_review_votes, publish_escrow_review, and register_purchase_review.",
 	}, handleBindEscrow)

@@ -45,7 +45,7 @@ func parseBindInputs(in bindEscrowInput) (escrowID, agentID *big.Int, err error)
 // trying to bind than to one forcing a settle. See revert.go.
 var bindRevertTable = newRevertTable(map[string]string{
 	"NotBuyerWallet(uint256,address)":     "the signer key is not the wallet that paid for this escrow — bind must be sent from the exact wallet that made the agent-less purchase",
-	"NotAgentController(uint256,address)": "the signer wallet does not own agent_id — register the ERC-8004 identity from the paying wallet first (register() is out of scope for this tool)",
+	"NotAgentController(uint256,address)": "the signer wallet is neither the owner of agent_id nor its agent wallet — register the identity from the paying wallet, or bind the paying wallet with sign_agent_wallet_set",
 	"AlreadyBound(uint256)":               "this escrow is already bound to an agent (bind is one-shot)",
 	"AlreadySettled(uint256)":             "this escrow is already settled — too late to bind",
 	"EscrowNotFound(uint256)":             "no escrow found for that escrow_id",
@@ -85,7 +85,7 @@ func handleBindEscrow(
 		if msg, ok := bindRevertTable.lookupErr(err); ok {
 			return nil, bindEscrowOutput{}, fmt.Errorf("bind would revert: %s", msg)
 		}
-		return nil, bindEscrowOutput{}, fmt.Errorf("bind tx: %w (check: is the signer key the wallet that paid this escrow, does it own agent_id, and is the escrow still unbound?)", err)
+		return nil, bindEscrowOutput{}, fmt.Errorf("bind tx: %w (check: is the signer key the wallet that paid this escrow, does it own agent_id or is it its agent wallet, and is the escrow still unbound?)", err)
 	}
 
 	receipt, err := bind.WaitMined(ctx, client, tx)
@@ -93,7 +93,7 @@ func handleBindEscrow(
 		return nil, bindEscrowOutput{}, fmt.Errorf("wait mined: %w", err)
 	}
 	if receipt.Status != types.ReceiptStatusSuccessful {
-		return nil, bindEscrowOutput{}, fmt.Errorf("bind tx reverted: %s (check: signer wallet paid this escrow? owns agent_id? escrow not already bound?)", tx.Hash().Hex())
+		return nil, bindEscrowOutput{}, fmt.Errorf("bind tx reverted: %s (check: signer wallet paid this escrow? owns agent_id or is its agent wallet? escrow not already bound?)", tx.Hash().Hex())
 	}
 
 	boundBy := keySigner.Address()

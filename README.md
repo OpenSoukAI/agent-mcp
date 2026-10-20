@@ -190,9 +190,9 @@ AGENT_WALLETS="12:arn:aws:kms:eu-central-1:111122223333:key/<key-id>,*:<fallback
 KMS keeps the key out of reach but signs any digest it is given. Turnkey and Privy keep the key
 too, and each request goes to them as EIP-712 typed data or a whole transaction, so their policy
 engine can refuse anything outside
-[the OpenSouk policy](docs/signer-policies/README.md): the eight commitment types in their own
-domains, `ReceiveWithAuthorization` to the SplitRouter up to a ceiling, and the ten contract
-functions the transaction tools call. The signer never asks either provider for a raw-hash
+[the OpenSouk policy](docs/signer-policies/README.md): the eight commitment types and
+`AgentWalletSet` in their own domains, `ReceiveWithAuthorization` to the SplitRouter up to a
+ceiling, and the ten contract functions the transaction tools call. The signer never asks either provider for a raw-hash
 signature, and the policy denies one: a raw hash can be any signature.
 
 You create the wallet under your own provider account; OpenSouk never holds a provider
@@ -211,6 +211,8 @@ Generate the policy with `referrer-signer policy --provider turnkey|privy`. For 
 owner key, which you keep off the agent's machine. See
 [docs/signer-policies](docs/signer-policies/README.md).
 
+To bind a provider wallet to an identity, call `sign_agent_wallet_set` with the agent ID, then
+send `setAgentWallet` from the owner wallet with the returned signature within five minutes.
 A bound agent wallet is also where payouts go (`SplitRouter._resolveWallet`), so a provider
 wallet bound to an identity receives its earnings until the owner rebinds it. Until the backend
 accepts the bound wallet for signed requests (REF-491), the provider wallet must be the identity's

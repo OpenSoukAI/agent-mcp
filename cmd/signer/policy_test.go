@@ -17,7 +17,7 @@ import (
 )
 
 func templatePath(provider string) string {
-	return "../../docs/signer-policies/" + provider + ".v1.json"
+	return "../../docs/signer-policies/" + provider + "." + policyVersion + ".json"
 }
 
 func TestPolicyTemplatesAreGolden(t *testing.T) {
@@ -28,7 +28,7 @@ func TestPolicyTemplatesAreGolden(t *testing.T) {
 		}
 		want, err := os.ReadFile(templatePath(p))
 		if err != nil || !bytes.Equal(got, want) {
-			t.Fatalf("%s template is stale (%v): regenerate with\n  go run ./cmd/signer policy --provider %s --template > docs/signer-policies/%s.v1.json", p, err, p, p)
+			t.Fatalf("%s template is stale (%v): regenerate with\n  go run ./cmd/signer policy --provider %s --template > docs/signer-policies/%s.%s.json", p, err, p, p, policyVersion)
 		}
 	}
 }
@@ -272,7 +272,7 @@ func TestPolicyCLI(t *testing.T) {
 	addrs := map[string]string{
 		"REVIEW_REGISTRY_ADDRESS": "0x00000000000000000000000000000000000000A1", "COMMISSION_ESCROW_ADDRESS": "0x00000000000000000000000000000000000000A2",
 		"MERCHANT_REGISTRY_ADDRESS": "0x00000000000000000000000000000000000000A3", "PRODUCT_REGISTRY_ADDRESS": "0x00000000000000000000000000000000000000A4",
-		"SPLIT_ROUTER_ADDRESS": "0x00000000000000000000000000000000000000A5",
+		"SPLIT_ROUTER_ADDRESS": "0x00000000000000000000000000000000000000A5", "AGENT_REGISTRY_ADDRESS": "0x00000000000000000000000000000000000000A6",
 	}
 	for k, v := range addrs {
 		t.Setenv(k, v)

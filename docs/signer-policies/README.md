@@ -1,17 +1,23 @@
 # Signer policies (Turnkey, Privy)
 
 With `SIGNER_BACKEND=turnkey` or `privy`, the agent's key lives with the provider, and the
-provider's policy decides what it signs. These files are that policy, version 1:
+provider's policy decides what it signs. These files are that policy, version 2:
 
 | File | Provider | Applied as |
 |---|---|---|
-| `turnkey.v1.json` | Turnkey | one policy per entry in `policies` |
-| `privy.v1.json` | Privy | one policy, attached to the wallet |
+| `turnkey.v2.json` | Turnkey | one policy per entry in `policies` |
+| `privy.v2.json` | Privy | one policy, attached to the wallet |
+
+Version 1 (`*.v1.json`) lacks `AgentWalletSet`, so a wallet on it cannot be bound with
+`sign_agent_wallet_set`. Apply v2 in its place.
 
 Both allow exactly:
 
 - the eight commitment types the signer tools sign, each only in its own EIP-712 domain, on the
   configured chain, with the protocol contract as `verifyingContract`;
+- `AgentWalletSet` on the IdentityRegistry, which `sign_agent_wallet_set` signs so the identity's
+  owner can bind this wallet. It only consents to the binding: the signature recovers to this
+  wallet and is useless for any other;
 - `ReceiveWithAuthorization` (ERC-3009) on USDC, only to the SplitRouter, and only up to the
   payment ceiling;
 - transactions with no ETH value, each only to one function a signer tool calls on the
@@ -64,8 +70,8 @@ owner.
 Regenerate the templates after any change to a commitment type, its domain or the contracts:
 
 ```bash
-go run ./cmd/signer policy --provider turnkey --template > docs/signer-policies/turnkey.v1.json
-go run ./cmd/signer policy --provider privy --template > docs/signer-policies/privy.v1.json
+go run ./cmd/signer policy --provider turnkey --template > docs/signer-policies/turnkey.v2.json
+go run ./cmd/signer policy --provider privy --template > docs/signer-policies/privy.v2.json
 ```
 
 `TestPolicyTemplatesAreGolden` fails until you do. A change that existing deployments must
