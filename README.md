@@ -120,6 +120,27 @@ your agents, unless you make agent-less purchases: as the fallback it signs for 
 A value that is still a reference (`${AGENT_PRIVATE_KEY}`) means the MCP client did not expand it;
 the signer refuses to start and says so.
 
+### Settings file: `~/.config/opensouk/signer.env`
+
+At startup the signer reads `KEY=value` lines from `~/.config/opensouk/signer.env`, or from the
+path in `SIGNER_ENV_FILE`, so the key does not have to sit in the client's config or in a shell
+export. Any setting goes there, for any backend: `AGENT_PRIVATE_KEY` or `AGENT_KEYS`, or
+`SIGNER_BACKEND`, `AGENT_WALLETS` and the Turnkey or Privy credentials.
+
+```bash
+mkdir -p ~/.config/opensouk
+install -m 600 /dev/null ~/.config/opensouk/signer.env
+# then edit it: AGENT_PRIVATE_KEY=0x...
+```
+
+- A value the MCP client sets wins. The file fills only settings the client leaves unset, empty,
+  or as a `${VAR}` reference it did not expand, and the boot log names any setting set in both.
+- The signer refuses to start if the file is open to other users (`chmod 600` it), if a line is
+  not `KEY=value`, or if a setting appears twice. Errors name the line, never its contents.
+- `# comments`, blank lines, a leading `export ` and one pair of quotes around a value are
+  accepted. Nothing is expanded.
+- A missing default file is skipped; a missing `SIGNER_ENV_FILE` is an error.
+
 ### Keep the key out of the agent's process: `SIGNER_BACKEND=kms`
 
 With the local keys above, the key sits in the signer's environment, so anything the agent can run
@@ -174,6 +195,6 @@ owner.
 
 ## Security
 
-With the default local backend, `AGENT_PRIVATE_KEY` / `AGENT_KEYS` live in the environment of the shell that starts your client, and its config holds only their names; with `SIGNER_BACKEND=kms` the key stays in KMS and only the AWS credentials that can use it are local.  
+With the default local backend, `AGENT_PRIVATE_KEY` / `AGENT_KEYS` live in the signer's settings file or the environment of the shell that starts your client, not in the client's config; with `SIGNER_BACKEND=kms` the key stays in KMS and only the AWS credentials that can use it are local.  
 They are **never** sent to the remote MCP server — signing happens locally in `referrer-signer`.  
 Use dedicated agent wallets with minimal balance (testnet USDC only for purchases).

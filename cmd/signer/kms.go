@@ -156,7 +156,7 @@ func loadKeystore(ctx context.Context, getenv func(string) string, newKMS func(c
 	agentKeys, agentPriv, wallets := getenv("AGENT_KEYS"), getenv("AGENT_PRIVATE_KEY"), strings.TrimSpace(getenv("AGENT_WALLETS"))
 	for name, v := range map[string]string{"AGENT_KEYS": agentKeys, "AGENT_PRIVATE_KEY": agentPriv, "AGENT_WALLETS": wallets} {
 		if unexpandedRef.MatchString(strings.TrimSpace(v)) {
-			return nil, nil, fmt.Errorf("%s is still an environment reference: the MCP client did not expand it. Export the variable in the shell that starts the client, or use that client's syntax (Claude Code ${VAR}, Cursor ${env:VAR}, Codex env_vars)", name)
+			return nil, nil, fmt.Errorf("%s is still an environment reference: the MCP client did not expand it. Put the value in the signer env file (~/.config/opensouk/signer.env, or the path in SIGNER_ENV_FILE), or use that client's syntax (Claude Code ${VAR}, Cursor ${env:VAR}, Codex env_vars)", name)
 		}
 	}
 	switch backend {

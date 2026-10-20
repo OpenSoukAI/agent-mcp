@@ -130,7 +130,7 @@ func parseKeystore(agentKeys, agentPrivKey string) (*keystore, error) {
 		ks.fallback = newLocalSigner(key)
 	}
 	if len(ks.keys) == 0 && ks.fallback == nil {
-		return nil, errors.New("no signing keys configured: set AGENT_KEYS or AGENT_PRIVATE_KEY")
+		return nil, errors.New("no signing keys configured: set AGENT_KEYS or AGENT_PRIVATE_KEY in ~/.config/opensouk/signer.env or the MCP client's config")
 	}
 	return ks, nil
 }

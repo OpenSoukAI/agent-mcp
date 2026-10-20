@@ -1214,6 +1214,14 @@ func extractEscrowID(receipt *types.Receipt) (*big.Int, error) {
 // ── Main ───────────────────────────────────────────────────────────────────────
 
 func main() {
+	report, err := loadEnvFile(os.LookupEnv, os.Setenv, os.UserHomeDir)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "referrer-signer: env file:", err)
+		os.Exit(1)
+	}
+	for _, line := range report {
+		fmt.Fprintln(os.Stderr, "referrer-signer:", line)
+	}
 	if len(os.Args) > 1 {
 		switch os.Args[1] {
 		case "policy":
