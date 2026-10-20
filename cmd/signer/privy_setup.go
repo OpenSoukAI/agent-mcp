@@ -92,6 +92,34 @@ func runPrivySetup(ctx context.Context, args []string, stdout, stderr io.Writer)
 	}); err != nil {
 		return fail("add the signer to wallet %s (policy %s): %v", walletID, policyID, err)
 	}
-	fmt.Fprintf(stdout, "policy  %s\nwallet  %s\naddress %s\n\nAGENT_WALLETS=*:%s\n", policyID, walletID, addr, walletID)
+	// sign_agent_wallet_set refuses the '*' fallback, so name the agents the policy pins.
+	entries := []string{"*:" + walletID}
+	if ids := pinnedAgentIDs(policy); len(ids) > 0 {
+		entries = entries[:0]
+		for _, id := range ids {
+			entries = append(entries, id+":"+walletID)
+		}
+	}
+	fmt.Fprintf(stdout, "policy  %s\nwallet  %s\naddress %s\n\nAGENT_WALLETS=%s\n", policyID, walletID, addr, strings.Join(entries, ","))
 	return 0
+}
+
+// pinnedAgentIDs are the agent ids a Privy policy allows AgentWalletSet for.
+func pinnedAgentIDs(policy map[string]any) []string {
+	var ids []string
+	rules, _ := policy["rules"].([]any)
+	for _, r := range rules {
+		rule, _ := r.(map[string]any)
+		conds, _ := rule["conditions"].([]any)
+		for _, c := range conds {
+			cond, _ := c.(map[string]any)
+			td, _ := cond["typed_data"].(map[string]any)
+			if td["primary_type"] == specAgentWalletSet.primary && cond["field"] == "agentId" && cond["operator"] == "eq" {
+				if id, ok := cond["value"].(string); ok {
+					ids = append(ids, id)
+				}
+			}
+		}
+	}
+	return ids
 }

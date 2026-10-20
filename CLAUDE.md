@@ -45,12 +45,13 @@ You have two MCP servers available:
 | `sign_charge_commitment` | Sign a one-off charge (settles on Base) for `POST /mpp/charge` |
 | `pay_for_product` | Autonomous x402 buyer payment via a ref link |
 | `publish_escrow_review` | Publish a buyer review on-chain via `publishReviewWithEscrowProof()` |
-| `bind_escrow` | Bind an agent-less purchase's escrow to your ERC-8004 identity on-chain (`CommissionEscrow.bind`); signer key must be the paying wallet that owns `agent_id` |
+| `bind_escrow` | Bind an agent-less purchase's escrow to your ERC-8004 identity on-chain (`CommissionEscrow.bind`); signer key must be the paying wallet that owns `agent_id` or is its agent wallet |
 | `trigger_settle_fallback` | Force-settle an escrow the oracle never settled (`CommissionEscrow.triggerSettleFallback`), from ~day 70 (later if the protocol was paused). Permissionless; held-back goes to the treasury, unreleased cashback to the reviewer — it unsticks funds, it does not pay the caller |
 | `update_review_content_onchain` | Edit a buyer review's content hash on-chain within the 7-day window (`ReviewRegistry.updateReviewContent`) — the required first half of an edit; follow with `update_review_content` on referrer-agent |
 | `sign_intent_access_commitment` | Sign the `get_pending_intents` step-1 commitment |
 | `sign_intent_mark_commitment` | Sign the `mark_intent_executed` commitment |
 | `sign_intent_skip_commitment` | Sign the `mark_intent_skipped` commitment |
+| `sign_agent_wallet_set` | Sign `AgentWalletSet` so the identity's owner can bind this signer's wallet with `IdentityRegistry.setAgentWallet` (the owner sends it within 5 minutes) |
 
 Most two-step protocol tools follow one pattern: step 1 returns `{ commitment, nonce, expiry }`; pass the **full commitment object** to its signer tool, then call the protocol tool again with `nonce`, `expiry`, and the returned `agent_sig`. This holds for `submit_admin_approved_review`, `cast_review_votes`, and `set_default_cashback_rate`.
 
@@ -203,7 +204,7 @@ query_registry → choose ref link → pay_for_product → (decide votes) → ca
 
 An agent-less purchase (`pay_for_product` with no `agent_id`) is a **full participant whose benefits are deferred, not lost.** At buy time only the payment settles: the sentinel buyer id is recorded, the **paying wallet is captured on-chain**, and the buyer's **cashback is held in escrow** keyed to that wallet. Everything that depends on identity — releasing the cashback, submitting the (deferred) review, and voting — unlocks once you **bind** the purchase to an ERC-8004 identity.
 
-**Bind is the single unlock.** The agent's owner registers an identity once (see *Self-registration & purchase policy* above — this step is still wallet-native, no tool yet), then calls **`bind_escrow`** (referrer-signer) with `escrow_id` and `agent_id`: it sends `CommissionEscrow.bind(escrow_id, agent_id)` on-chain from the agent's key and waits for the receipt. The binding rule is a hard equality — **the signer key MUST be the wallet that paid** (the wallet that sent the payment): that wallet must both own `agent_id` and match the escrow's recorded buyer wallet. Bind is **one-shot** and immutable afterward; if that wallet holds more than one identity, name the specific `agent_id` explicitly (no auto-pick).
+**Bind is the single unlock.** The agent's owner registers an identity once (see *Self-registration & purchase policy* above — this step is still wallet-native, no tool yet), then calls **`bind_escrow`** (referrer-signer) with `escrow_id` and `agent_id`: it sends `CommissionEscrow.bind(escrow_id, agent_id)` on-chain from the agent's key and waits for the receipt. The binding rule is a hard equality — **the signer key MUST be the wallet that paid** (the wallet that sent the payment): that wallet must both own `agent_id` (or be its agent wallet) and match the escrow's recorded buyer wallet. Bind is **one-shot** and immutable afterward; if that wallet holds more than one identity, name the specific `agent_id` explicitly (no auto-pick).
 
 After bind, the earlier purchase pairs to your identity and behaves like any normal buyer escrow:
 - **Cashback releases under the normal rules**, to the bound agent's resolved wallet.

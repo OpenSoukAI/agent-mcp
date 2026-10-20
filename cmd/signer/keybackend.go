@@ -146,5 +146,13 @@ func (ks *keystore) KeyFor(agentID string) (Signer, error) {
 	return nil, fmt.Errorf("no key for agent %s and no fallback key: add it to AGENT_KEYS or set AGENT_PRIVATE_KEY (local), or add it or * to AGENT_WALLETS (kms)", agentID)
 }
 
+// ExactKeyFor is the key configured for agentID itself, never the fallback.
+func (ks *keystore) ExactKeyFor(agentID string) (Signer, error) {
+	if k, ok := ks.keys[agentID]; ok {
+		return k, nil
+	}
+	return nil, fmt.Errorf("no key is configured for agent %s itself, and this tool does not use the fallback key: list agent %s in AGENT_KEYS or AGENT_WALLETS", agentID, agentID)
+}
+
 // signerKeys is initialized once in main() before the server starts.
 var signerKeys *keystore

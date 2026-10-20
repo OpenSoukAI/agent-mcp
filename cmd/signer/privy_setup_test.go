@@ -51,7 +51,7 @@ func TestPrivySetup(t *testing.T) {
 	for k := range in.Addrs {
 		in.Addrs[k] = "0x00000000000000000000000000000000000000a1"
 	}
-	in.ChainID, in.USDC, in.MaxValue = "84532", "0x00000000000000000000000000000000000000b1", "5000000"
+	in.ChainID, in.USDC, in.MaxValue, in.AgentIDs = "84532", "0x00000000000000000000000000000000000000b1", "5000000", []string{"12"}
 	policy, _ := renderPolicy("privy", in)
 	template, _ := renderPolicy("privy", templatePolicyInputs())
 	templateFile := t.TempDir() + "/template.json"
@@ -87,7 +87,7 @@ func TestPrivySetup(t *testing.T) {
 		t.Fatalf("additional signer %v must be the signer key with the new policy", s)
 	}
 	o := out.String()
-	if !strings.Contains(o, "AGENT_WALLETS=*:"+f.id) || !strings.Contains(o, f.walletAddr().Hex()) || strings.Contains(o, strings.TrimPrefix(ownerKey, "wallet-auth:")) {
+	if !strings.Contains(o, "AGENT_WALLETS=12:"+f.id+"\n") || !strings.Contains(o, f.walletAddr().Hex()) || strings.Contains(o, strings.TrimPrefix(ownerKey, "wallet-auth:")) {
 		t.Fatalf("output %q must give the wallet id, its address and the AGENT_WALLETS line, and no key", o)
 	}
 	if code := runPrivySetup(context.Background(), []string{"--owner-id", "o", "--signer-id", "s", "--policy", templateFile}, &out, &errb); code == 0 {

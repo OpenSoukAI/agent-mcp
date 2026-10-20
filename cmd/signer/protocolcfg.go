@@ -38,6 +38,7 @@ const (
 	keyMerchantRegistry protocolKey = "MERCHANT_REGISTRY"
 	keyProductRegistry  protocolKey = "PRODUCT_REGISTRY"
 	keySplitRouter      protocolKey = "SPLIT_ROUTER"
+	keyAgentRegistry    protocolKey = "AGENT_REGISTRY" // the ERC-8004 IdentityRegistry
 )
 
 // envVar is the override variable for a key. ESCROW keeps its historical name.
@@ -192,7 +193,7 @@ func warnAddressOverrides(chainID int64, w io.Writer) {
 	if _, known := parByChain[chainID]; !known {
 		return
 	}
-	for _, k := range []protocolKey{keyReviewRegistry, keyEscrow, keyMerchantRegistry, keyProductRegistry, keySplitRouter} {
+	for _, k := range []protocolKey{keyReviewRegistry, keyEscrow, keyMerchantRegistry, keyProductRegistry, keySplitRouter, keyAgentRegistry} {
 		if os.Getenv(k.envVar()) != "" {
 			fmt.Fprintf(w, "referrer-signer: %s overrides the ProtocolAddressRegistry value on chain %d; unset it unless you are testing\n", k.envVar(), chainID)
 		}
