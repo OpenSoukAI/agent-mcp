@@ -3,9 +3,8 @@
 # Run from the repo root: bash scripts/setup-mcp.sh
 #
 # Both servers are registered for ONE project (local scope), MCP_PROJECT_DIR, so other projects
-# do not get tools that sign and pay. The signer's entry names AGENT_KEYS / AGENT_PRIVATE_KEY
-# instead of holding the key: Claude Code expands the reference when it starts the signer, so
-# export the variable in the shell that starts `claude`. The key never lands in ~/.claude.json.
+# do not get tools that sign and pay. The key goes in ~/.config/opensouk/signer.env, which the
+# signer reads at startup, so it never lands in ~/.claude.json and needs no export.
 set -euo pipefail
 
 MCP_PROJECT_DIR="${MCP_PROJECT_DIR:-$PWD}"
@@ -19,7 +18,7 @@ PAR_ADDR="${PROTOCOL_ADDRESS_REGISTRY:-}"
 CHAIN_ID="${CHAIN_ID:-84532}"
 # AGENT_KEYS: comma-separated agentId:0xprivkey pairs to sign as multiple agents in one signer
 #   process, e.g. AGENT_KEYS="12:0xabc...,34:0xdef..." (reviewer 12 + buyer 34). Otherwise
-#   AGENT_PRIVATE_KEY, a single key. Only the variable's name is written to the config.
+#   AGENT_PRIVATE_KEY, a single key. Written to signer.env only if that file does not exist yet.
 AGENT_KEYS="${AGENT_KEYS:-}"
 
 # ── 1. Build the signer binary ─────────────────────────────────────────────────
@@ -28,21 +27,31 @@ mkdir -p "$(dirname "$SIGNER_BIN")"
 go build -trimpath -ldflags="-s -w" -o "$SIGNER_BIN" ./cmd/signer
 echo "  → $SIGNER_BIN"
 
-# ── 2. Which key variable the signer reads ─────────────────────────────────────
-# The signer parses and validates the keys at boot; here we only pick the variable to name.
-if [ -n "$AGENT_KEYS" ]; then
-  KEY_VAR=AGENT_KEYS
-elif [ -n "${AGENT_PRIVATE_KEY:-}" ]; then
-  KEY_VAR=AGENT_PRIVATE_KEY
-  if ! [[ "$AGENT_PRIVATE_KEY" =~ ^0x[0-9a-fA-F]{64}$ ]]; then
-    echo "ERROR: AGENT_PRIVATE_KEY is not 0x + 64 hex chars."
-    exit 1
+# ── 2. The signer's key file ───────────────────────────────────────────────────
+# An existing file is never changed. The signer parses and validates the keys at boot.
+ENV_FILE="$HOME/.config/opensouk/signer.env"
+PLACEHOLDER=""
+if [ -f "$ENV_FILE" ]; then
+  echo "Keeping $ENV_FILE as it is."
+  if [ -n "$AGENT_KEYS" ] || [ -n "${AGENT_PRIVATE_KEY:-}" ]; then
+    echo "  The key in this shell was NOT written; edit that file to change the key."
   fi
 else
-  KEY_VAR=AGENT_PRIVATE_KEY
-  echo ""
-  echo "WARNING: neither AGENT_KEYS nor AGENT_PRIVATE_KEY is set in this shell. The signer will"
-  echo "  refuse to start until you export one in the shell that starts Claude Code."
+  if [ -n "$AGENT_KEYS" ]; then
+    KEY_LINE="AGENT_KEYS=$AGENT_KEYS"
+  elif [ -n "${AGENT_PRIVATE_KEY:-}" ]; then
+    if ! [[ "$AGENT_PRIVATE_KEY" =~ ^0x[0-9a-fA-F]{64}$ ]]; then
+      echo "ERROR: AGENT_PRIVATE_KEY is not 0x + 64 hex chars."
+      exit 1
+    fi
+    KEY_LINE="AGENT_PRIVATE_KEY=$AGENT_PRIVATE_KEY"
+  else
+    KEY_LINE="AGENT_PRIVATE_KEY=REPLACE_WITH_AGENT_KEY"
+    PLACEHOLDER=1
+  fi
+  mkdir -p "$(dirname "$ENV_FILE")"
+  (umask 077 && printf '%s\n' "$KEY_LINE" > "$ENV_FILE")
+  echo "Wrote $ENV_FILE (mode 600)."
 fi
 
 # ── 3. Register MCP servers via claude CLI ─────────────────────────────────────
@@ -64,9 +73,7 @@ SIGNER_ENV=(-e "BASE_RPC_URL=$BASE_RPC_URL" -e "CHAIN_ID=$CHAIN_ID")
 if [ -n "$PAR_ADDR" ]; then
   SIGNER_ENV+=(-e "PROTOCOL_ADDRESS_REGISTRY=$PAR_ADDR")
 fi
-# The \$ is escaped, so the config gets the reference "${VAR}", not the key.
-SIGNER_ENV+=(-e "$KEY_VAR=\${$KEY_VAR}")
-echo "  → referrer-signer ($SIGNER_BIN) [key from \$$KEY_VAR]"
+echo "  → referrer-signer ($SIGNER_BIN) [key from $ENV_FILE]"
 
 claude mcp add --scope local referrer-signer "$SIGNER_BIN" "${SIGNER_ENV[@]}"
 
@@ -77,4 +84,7 @@ echo "  referrer-agent  (remote: $MCP_URL)"
 echo "  referrer-signer (local:  $SIGNER_BIN)"
 echo "    CHAIN_ID=$CHAIN_ID"
 echo ""
-echo "Export $KEY_VAR in the shell that starts Claude Code, then verify with: claude mcp list"
+if [ -n "$PLACEHOLDER" ]; then
+  echo "Edit $ENV_FILE: replace REPLACE_WITH_AGENT_KEY with your key."
+fi
+echo "Verify with: claude mcp list"
