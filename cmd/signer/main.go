@@ -14,6 +14,7 @@ import (
 	"net/url"
 	"os"
 	"os/signal"
+	"runtime"
 	"strconv"
 	"strings"
 	"syscall"
@@ -1217,6 +1218,14 @@ func main() {
 	report, err := loadEnvFile(os.LookupEnv, os.Setenv, os.UserHomeDir)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "referrer-signer: env file:", err)
+		os.Exit(1)
+	}
+	for _, line := range report {
+		fmt.Fprintln(os.Stderr, "referrer-signer:", line)
+	}
+	report, err = loadKeychain(context.Background(), runtime.GOOS, os.LookupEnv, os.Setenv, securityRead)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "referrer-signer: Keychain:", err)
 		os.Exit(1)
 	}
 	for _, line := range report {

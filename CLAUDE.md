@@ -393,7 +393,9 @@ instant settlement. `splitCharge` is permissionless and idempotent per `paymentR
   match wins; otherwise the single-key `AGENT_PRIVATE_KEY` fallback is used. Keys are parsed and
   validated once at startup, so a bad key fails the signer at boot, not mid-flow.
   Any of these settings can live in `~/.config/opensouk/signer.env` (or `SIGNER_ENV_FILE`),
-  mode 600, which fills what the MCP client leaves unset. Never read or print that file.
+  mode 600, which fills what the MCP client leaves unset. On macOS the secret ones can instead be
+  Keychain items (service `opensouk-signer`, account = the setting's name). Never read or print that
+  file or those items.
   To keep the key out of this machine entirely, set `SIGNER_BACKEND=kms` with `AGENT_WALLETS`
   (`agentId:kmsKeyId` pairs, `*` for the fallback); the signer then signs through AWS KMS (see README).
   `SIGNER_BACKEND=turnkey` or `privy` does the same with a provider whose policy also limits what
