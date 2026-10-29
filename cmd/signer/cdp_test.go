@@ -915,6 +915,42 @@ func TestCDPKeystoreRefusesProjectPolicyListingWithNonArrayPoliciesField(t *test
 	}
 }
 
+// A "nextPageToken" present but not a string (e.g. a number) is the same schema-drift risk as a
+// missing "policies" field: naively type-asserting it to string would silently treat it as "" and
+// end pagination as if it were the last page, hiding whatever a later page held.
+func TestCDPKeystoreRefusesProjectPolicyListingWithNonStringNextPageToken(t *testing.T) {
+	f, _ := newFakeCDP(t)
+	f.projectPoliciesRawBody = `{"policies":[],"nextPageToken":5}`
+	env := f.env()
+	env["AGENT_WALLETS"] = "*:" + f.addr().Hex()
+
+	_, _, err := cdpKeystore(context.Background(), envOf(env), env["AGENT_WALLETS"])
+	if err == nil || !strings.Contains(err.Error(), "nextPageToken") {
+		t.Fatalf("want an error mentioning nextPageToken, got %v", err)
+	}
+}
+
+// A null or wholly absent "nextPageToken" must still mean "last page" and boot normally — only a
+// present-but-wrong-type value is a schema-drift refusal.
+func TestCDPKeystoreBootsWithNullOrAbsentNextPageToken(t *testing.T) {
+	for _, body := range []string{
+		`{"policies":[],"nextPageToken":null}`,
+		`{"policies":[]}`,
+	} {
+		t.Run(body, func(t *testing.T) {
+			f, _ := newFakeCDP(t)
+			f.projectPoliciesRawBody = body
+			env := f.env()
+			env["AGENT_WALLETS"] = "*:" + f.addr().Hex()
+
+			_, _, err := cdpKeystore(context.Background(), envOf(env), env["AGENT_WALLETS"])
+			if err != nil {
+				t.Fatalf("cdpKeystore with body %s: %v", body, err)
+			}
+		})
+	}
+}
+
 // The bearer JWT's uris claim must exclude the query string, or CDP would answer 401 to every
 // request that needs one — the project policy listing is the first call that does
 // (?scope=project). The fake's verifyBearer rebuilds the expected uri from the request's path

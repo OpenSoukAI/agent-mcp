@@ -333,9 +333,10 @@ const cdpMaxProjectPolicyPages = 1000
 // docs/signer-policies), so an accept rule there would let CDP sign outside the generated policy
 // no matter what the five probes found; this is what catches a narrowly permissive project
 // policy that selfTest's probes don't happen to exercise. A reject-only project policy, or none
-// at all, is fine. A response with no "policies" array, or a repeating/never-ending
-// nextPageToken, refuses boot rather than silently reporting zero policies checked or hanging.
-// Returns the number of policies checked, for the boot report.
+// at all, is fine. A response with no "policies" array, a "nextPageToken" present but not a
+// string, or a repeating/never-ending nextPageToken, refuses boot rather than silently reporting
+// zero policies checked, ending pagination early, or hanging. An absent or null "nextPageToken"
+// means the last page. Returns the number of policies checked, for the boot report.
 func (c *cdpClient) checkProjectPolicies(ctx context.Context) (int, error) {
 	checked := 0
 	pageToken := ""
@@ -382,7 +383,14 @@ func (c *cdpClient) checkProjectPolicies(ctx context.Context) (int, error) {
 				}
 			}
 		}
-		nextToken, _ := out["nextPageToken"].(string)
+		nextVal, present := out["nextPageToken"]
+		if !present || nextVal == nil {
+			return checked, nil
+		}
+		nextToken, ok := nextVal.(string)
+		if !ok {
+			return checked, errors.New(`list CDP project policies: "nextPageToken" is not a string; refusing to start`)
+		}
 		if nextToken == "" {
 			return checked, nil
 		}
