@@ -299,9 +299,9 @@ func cdpPolicyDoc(in policyInputs) map[string]any {
 	verifyingContract := func(addr string) map[string]any {
 		return map[string]any{"type": "evmTypedDataVerifyingContract", "addresses": []string{addr}, "operator": "in"}
 	}
-	// types nests the EIP-712 type map under its own "types" key, alongside "primaryType": the
-	// same shape providerTypedDataJSON(td, "primaryType", false) sends, so a policy rule can never
-	// drift from the request it is meant to restrict.
+	// typedField nests td's types, via providerTypes — the same types map cdp.go's own request
+	// carries — under "types", alongside "primaryType", so a policy rule can never drift from the
+	// request it is meant to restrict.
 	typedField := func(td apitypes.TypedData, conditions []any) map[string]any {
 		return map[string]any{"type": "evmTypedDataField", "types": map[string]any{"types": providerTypes(td), "primaryType": td.PrimaryType}, "conditions": conditions}
 	}
@@ -339,17 +339,17 @@ func cdpPolicyDoc(in policyInputs) map[string]any {
 		verifyingContract(in.USDC),
 		typedField(rtd, []any{numCond("value", "<=", in.MaxValue), addrCond("to", "in", []string{in.Addrs[keySplitRouter]})}),
 	}))
+	// CDP's EvmDataCriterion requires every condition to be met, so one evmData criterion listing
+	// several functions would require the calldata to match all of them at once and never match
+	// anything: emit one signEvmTransaction rule per (contract, method) pair instead.
 	for _, k := range txContracts {
-		var abiFrags, conds []any
 		for _, m := range txMethods[k] {
-			abiFrags = append(abiFrags, abiFragment(k, m)...)
-			conds = append(conds, map[string]any{"function": m})
+			rules = append(rules, accept("signEvmTransaction", []any{
+				map[string]any{"type": "evmAddress", "addresses": []string{in.Addrs[k]}, "operator": "in"},
+				map[string]any{"type": "ethValue", "ethValue": "0", "operator": "=="},
+				map[string]any{"type": "evmData", "abi": abiFragment(k, m), "conditions": []any{map[string]any{"function": m}}},
+			}))
 		}
-		rules = append(rules, accept("signEvmTransaction", []any{
-			map[string]any{"type": "evmAddress", "addresses": []string{in.Addrs[k]}, "operator": "in"},
-			map[string]any{"type": "ethValue", "ethValue": "0", "operator": "=="},
-			map[string]any{"type": "evmData", "abi": abiFrags, "conditions": conds},
-		}))
 	}
 	for _, op := range []string{"signEvmHash", "signEvmMessage", "sendEvmTransaction", "prepareUserOperation", "sendUserOperation"} {
 		rules = append(rules, map[string]any{"action": "reject", "operation": op, "criteria": []any{}})

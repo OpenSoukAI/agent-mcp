@@ -288,11 +288,17 @@ func TestCDPPolicyRejectsUnrestrictableOps(t *testing.T) {
 	}
 }
 
-// Each transaction contract gets exactly one signEvmTransaction rule, scoped to that contract's
-// address, value 0, and an evmData ABI condition naming exactly the tools' own methods.
+// CDP's EvmDataCriterion requires every condition to be met, so a single rule can never name more
+// than one function — each (contract, method) pair a transaction tool calls gets its own
+// signEvmTransaction rule, scoped to that contract's address, value 0, and an evmData ABI
+// condition naming exactly that one method.
 func TestCDPTxRulesMatchTxMethods(t *testing.T) {
 	in := templatePolicyInputs()
-	seen := map[protocolKey]bool{}
+	type pair struct {
+		k protocolKey
+		m string
+	}
+	seen := map[pair]bool{}
 	for _, r := range cdpRules(t) {
 		if r["operation"] != "signEvmTransaction" {
 			continue
@@ -331,26 +337,37 @@ func TestCDPTxRulesMatchTxMethods(t *testing.T) {
 		if !found {
 			t.Fatalf("tx rule address %s is not a known protocol contract", addr)
 		}
-		if seen[k] {
-			t.Fatalf("contract %s has more than one signEvmTransaction rule", k)
+		conds, _ := dataCrit["conditions"].([]any)
+		if len(conds) != 1 {
+			t.Fatalf("tx rule %v evmData must have exactly one condition (CDP ANDs all of them), got %d", r, len(conds))
 		}
-		seen[k] = true
-		got := map[string]bool{}
-		for _, c := range dataCrit["conditions"].([]any) {
-			got[c.(map[string]any)["function"].(string)] = true
+		m, _ := conds[0].(map[string]any)["function"].(string)
+		p := pair{k, m}
+		if seen[p] {
+			t.Fatalf("contract %s method %s has more than one signEvmTransaction rule", k, m)
 		}
-		want := map[string]bool{}
-		for _, m := range txMethods[k] {
-			want[m] = true
+		seen[p] = true
+		listed := false
+		for _, want := range txMethods[k] {
+			if want == m {
+				listed = true
+			}
 		}
-		if !reflect.DeepEqual(got, want) {
-			t.Fatalf("contract %s: evmData functions %v, want %v", k, got, want)
+		if !listed {
+			t.Fatalf("tx rule names %s.%s, which is not in txMethods", k, m)
 		}
 	}
-	for k := range txMethods {
-		if !seen[k] {
-			t.Fatalf("no signEvmTransaction rule for %s", k)
+	want := 0
+	for k, ms := range txMethods {
+		for _, m := range ms {
+			want++
+			if !seen[pair{k, m}] {
+				t.Fatalf("no signEvmTransaction rule for %s.%s", k, m)
+			}
 		}
+	}
+	if len(seen) != want {
+		t.Fatalf("%d signEvmTransaction rules, want exactly %d (one per contract+method)", len(seen), want)
 	}
 }
 

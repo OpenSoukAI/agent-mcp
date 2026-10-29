@@ -704,7 +704,35 @@
               "outputs": [],
               "stateMutability": "nonpayable",
               "type": "function"
-            },
+            }
+          ],
+          "conditions": [
+            {
+              "function": "publishReviewWithEscrowProof"
+            }
+          ],
+          "type": "evmData"
+        }
+      ],
+      "operation": "signEvmTransaction"
+    },
+    {
+      "action": "accept",
+      "criteria": [
+        {
+          "addresses": [
+            "<REVIEW_REGISTRY>"
+          ],
+          "operator": "in",
+          "type": "evmAddress"
+        },
+        {
+          "ethValue": "0",
+          "operator": "==",
+          "type": "ethValue"
+        },
+        {
+          "abi": [
             {
               "inputs": [
                 {
@@ -723,9 +751,6 @@
             }
           ],
           "conditions": [
-            {
-              "function": "publishReviewWithEscrowProof"
-            },
             {
               "function": "updateReviewContent"
             }
@@ -767,7 +792,35 @@
               "outputs": [],
               "stateMutability": "nonpayable",
               "type": "function"
-            },
+            }
+          ],
+          "conditions": [
+            {
+              "function": "bind"
+            }
+          ],
+          "type": "evmData"
+        }
+      ],
+      "operation": "signEvmTransaction"
+    },
+    {
+      "action": "accept",
+      "criteria": [
+        {
+          "addresses": [
+            "<ESCROW>"
+          ],
+          "operator": "in",
+          "type": "evmAddress"
+        },
+        {
+          "ethValue": "0",
+          "operator": "==",
+          "type": "ethValue"
+        },
+        {
+          "abi": [
             {
               "inputs": [
                 {
@@ -782,9 +835,6 @@
             }
           ],
           "conditions": [
-            {
-              "function": "bind"
-            },
             {
               "function": "triggerSettleFallback"
             }
@@ -826,7 +876,35 @@
               "outputs": [],
               "stateMutability": "nonpayable",
               "type": "function"
-            },
+            }
+          ],
+          "conditions": [
+            {
+              "function": "setActive"
+            }
+          ],
+          "type": "evmData"
+        }
+      ],
+      "operation": "signEvmTransaction"
+    },
+    {
+      "action": "accept",
+      "criteria": [
+        {
+          "addresses": [
+            "<MERCHANT_REGISTRY>"
+          ],
+          "operator": "in",
+          "type": "evmAddress"
+        },
+        {
+          "ethValue": "0",
+          "operator": "==",
+          "type": "ethValue"
+        },
+        {
+          "abi": [
             {
               "inputs": [
                 {
@@ -846,7 +924,35 @@
               "outputs": [],
               "stateMutability": "nonpayable",
               "type": "function"
-            },
+            }
+          ],
+          "conditions": [
+            {
+              "function": "grantRole"
+            }
+          ],
+          "type": "evmData"
+        }
+      ],
+      "operation": "signEvmTransaction"
+    },
+    {
+      "action": "accept",
+      "criteria": [
+        {
+          "addresses": [
+            "<MERCHANT_REGISTRY>"
+          ],
+          "operator": "in",
+          "type": "evmAddress"
+        },
+        {
+          "ethValue": "0",
+          "operator": "==",
+          "type": "ethValue"
+        },
+        {
+          "abi": [
             {
               "inputs": [
                 {
@@ -869,12 +975,6 @@
             }
           ],
           "conditions": [
-            {
-              "function": "setActive"
-            },
-            {
-              "function": "grantRole"
-            },
             {
               "function": "revokeRole"
             }
@@ -928,7 +1028,35 @@
               "outputs": [],
               "stateMutability": "nonpayable",
               "type": "function"
-            },
+            }
+          ],
+          "conditions": [
+            {
+              "function": "addProduct"
+            }
+          ],
+          "type": "evmData"
+        }
+      ],
+      "operation": "signEvmTransaction"
+    },
+    {
+      "action": "accept",
+      "criteria": [
+        {
+          "addresses": [
+            "<PRODUCT_REGISTRY>"
+          ],
+          "operator": "in",
+          "type": "evmAddress"
+        },
+        {
+          "ethValue": "0",
+          "operator": "==",
+          "type": "ethValue"
+        },
+        {
+          "abi": [
             {
               "inputs": [
                 {
@@ -948,7 +1076,35 @@
               "outputs": [],
               "stateMutability": "nonpayable",
               "type": "function"
-            },
+            }
+          ],
+          "conditions": [
+            {
+              "function": "setCommission"
+            }
+          ],
+          "type": "evmData"
+        }
+      ],
+      "operation": "signEvmTransaction"
+    },
+    {
+      "action": "accept",
+      "criteria": [
+        {
+          "addresses": [
+            "<PRODUCT_REGISTRY>"
+          ],
+          "operator": "in",
+          "type": "evmAddress"
+        },
+        {
+          "ethValue": "0",
+          "operator": "==",
+          "type": "ethValue"
+        },
+        {
+          "abi": [
             {
               "inputs": [
                 {
@@ -971,12 +1127,6 @@
             }
           ],
           "conditions": [
-            {
-              "function": "addProduct"
-            },
-            {
-              "function": "setCommission"
-            },
             {
               "function": "setProductActive"
             }
