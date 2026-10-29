@@ -1,0 +1,111 @@
+# Publishes a signer release to npm as @opensouk/signer plus one @opensouk/signer-<platform> package
+# per binary (REF-553). release.yml starts it after each release; run it by hand to retry a failed
+# publish for an existing tag. Tags before v0.1.3 can't be published: their assets carry the old
+# referrer-signer name and their binaries have no --version.
+#
+# It publishes the release's own assets, after checking them against SHA256SUMS and the release
+# workflow's build-provenance attestation. Packages already on npm at that version are skipped, so
+# a rerun finishes a partial publish. npm authenticates the run through trusted publishing (OIDC)
+# and adds provenance. Every package's trusted publisher names this repo, this workflow and the
+# `npm` environment. That environment only deploys from main: the GITHUB_REF check below runs
+# inside the workflow, so a branch carrying an edited copy of this file would skip it; the
+# environment rule it can't skip.
+name: Publish signer to npm
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Released tag to publish, e.g. v0.1.3"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: npm-publish-signer
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment: npm
+    permissions:
+      contents: read # download the release assets
+      id-token: write # npm trusted publishing and provenance
+      attestations: read # gh attestation verify
+    env:
+      VERSION: ${{ inputs.version }}
+    steps:
+      - name: Check inputs
+        run: |
+          if [ "$GITHUB_REF" != "refs/heads/main" ]; then
+            echo "::error::publish from main only (got $GITHUB_REF)"; exit 1
+          fi
+          if ! printf '%s' "$VERSION" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::error::version must look like v1.2.3 (got $VERSION)"; exit 1
+          fi
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24.22.2 # npm 11.19: trusted publishing needs npm >= 11.5.1
+          registry-url: https://registry.npmjs.org
+
+      - name: Test the packaging
+        run: node --test npm/test/*.test.mjs
+
+      - name: Download and verify the release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download "$VERSION" --repo "$GITHUB_REPOSITORY" --dir dist \
+            --pattern 'opensouk-signer_*' --pattern SHA256SUMS
+          (cd dist && sha256sum -c SHA256SUMS)
+          for f in dist/opensouk-signer_*; do
+            gh attestation verify "$f" --repo "$GITHUB_REPOSITORY" \
+              --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/release.yml" \
+              --source-ref refs/heads/main --deny-self-hosted-runners
+          done
+
+      - name: Stage the packages
+        run: node scripts/npm-stage.mjs "$VERSION" dist out
+
+      # Installs the packed main and linux-x64 packages the way npm installs them from the registry,
+      # and checks the shim runs the binary of this release.
+      - name: Smoke-test the packed packages
+        run: |
+          mkdir tgz smoke
+          for d in out/*; do (cd "$d" && npm pack --pack-destination ../../tgz); done
+          cd smoke
+          npm init -y >/dev/null
+          npm install --no-save ../tgz/opensouk-signer-"${VERSION#v}".tgz ../tgz/opensouk-signer-linux-x64-"${VERSION#v}".tgz
+          got=$(./node_modules/.bin/opensouk-signer --version)
+          if [ "$got" != "$VERSION" ]; then
+            echo "::error::opensouk-signer --version printed '$got', want $VERSION"; exit 1
+          fi
+
+      # Platform packages first: the main package pins them, so it must never be on npm without them.
+      - name: Publish
+        run: |
+          v=${VERSION#v}
+          for d in out/signer-* out/signer; do
+            name=$(node -p "require('./$d/package.json').name")
+            if npm view "$name@$v" version >/dev/null 2>&1; then
+              echo "$name@$v is already on npm, skipping"
+              continue
+            fi
+            (cd "$d" && npm publish --access public --provenance)
+          done
+
+      - name: Check npm has every package
+        run: |
+          v=${VERSION#v}
+          for d in out/signer-* out/signer; do
+            name=$(node -p "require('./$d/package.json').name")
+            npm view "$name@$v" version
+          done
