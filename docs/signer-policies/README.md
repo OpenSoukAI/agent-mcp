@@ -130,20 +130,23 @@ signature over 32 raw bytes; CDP signs messages only as text, and raw bytes only
 sign-hash endpoint, which no policy can restrict. Run merchant tools with `SIGNER_BACKEND=privy`,
 `kms` or local.
 
-At boot, the signer asks CDP's policy simulator (`POST /v2/policy-engine/simulate`, which signs
-nothing) to run five probe requests: a raw hash (`signEvmHash`), a text message
+At boot, the signer first lists every project-scoped policy (`GET /v2/policy-engine/policies
+?scope=project`, paginating through `nextPageToken`) and refuses boot if any rule's action is
+"accept", naming the policy id and the operation. A reject-only project policy, or none at all,
+passes. This is what catches a narrowly permissive project policy — one that accepts something
+outside the five probe shapes below, which the simulator alone would miss. A malformed response
+(no `policies` array, or a `nextPageToken` that never terminates or repeats) also refuses boot
+rather than silently passing. A 401 or 403 listing policies refuses with a permission-style
+message (it never tells you to grant a scope); any other error — a transport failure, an
+unexpected status, a response that doesn't decode — refuses boot with that error itself.
+
+It then asks CDP's policy simulator (`POST /v2/policy-engine/simulate`, which signs nothing), once
+per wallet, to run five probe requests: a raw hash (`signEvmHash`), a text message
 (`signEvmMessage`), the self-test transaction as `signEvmTransaction` and again as a pre-built
 `sendEvmTransaction`, and an ERC-2612 Permit as `signEvmTypedData`. Any answer other than "reject"
 refuses boot — this catches a missing account policy, or a project policy that accepts any of
-these probe requests.
-
-It then lists every project-scoped policy (`GET /v2/policy-engine/policies?scope=project`,
-paginating through `nextPageToken`) and refuses boot if any rule's action is "accept", naming the
-policy id and the operation. This is what catches a narrowly permissive project policy — one that
-accepts something outside the five probe shapes, which the simulator alone would miss. A
-401/403 or any other error listing policies also refuses boot (fail closed), with a
-permission-style message rather than telling you to grant a scope. Together, boot checks: the
-five probes, and no accept rule in any project policy.
+these probe requests. Together, boot checks: no accept rule in any project policy, and the five
+probes.
 
 Verified against a live CDP project (2026-10-29): uint fields are sent as decimal strings and CDP
 compares them numerically; CDP accepts `EIP712Domain` in the policy's types; a policy denial is

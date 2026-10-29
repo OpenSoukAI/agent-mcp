@@ -322,17 +322,28 @@ type cdpPolicyRule struct {
 	Operation string `json:"operation"`
 }
 
+// cdpMaxProjectPolicyPages bounds the pagination loop in checkProjectPolicies: a server that kept
+// returning distinct nextPageToken values forever (not just the same one repeated) would never
+// hit the repeated-token guard, so this is the independent backstop.
+const cdpMaxProjectPolicyPages = 1000
+
 // checkProjectPolicies lists every project-scoped CDP policy (GET /v2/policy-engine/policies
 // ?scope=project, paginating through nextPageToken) and refuses boot if any rule's action is
 // "accept". A project-level policy's decision overrides the account policy (see selfTest and
 // docs/signer-policies), so an accept rule there would let CDP sign outside the generated policy
 // no matter what the five probes found; this is what catches a narrowly permissive project
 // policy that selfTest's probes don't happen to exercise. A reject-only project policy, or none
-// at all, is fine. Returns the number of policies checked, for the boot report.
+// at all, is fine. A response with no "policies" array, or a repeating/never-ending
+// nextPageToken, refuses boot rather than silently reporting zero policies checked or hanging.
+// Returns the number of policies checked, for the boot report.
 func (c *cdpClient) checkProjectPolicies(ctx context.Context) (int, error) {
 	checked := 0
 	pageToken := ""
-	for {
+	seenTokens := map[string]bool{}
+	for page := 0; ; page++ {
+		if page >= cdpMaxProjectPolicyPages {
+			return checked, fmt.Errorf("CDP policy listing did not terminate after %d pages; refusing to start", cdpMaxProjectPolicyPages)
+		}
 		path := "/v2/policy-engine/policies?scope=project"
 		if pageToken != "" {
 			path += "&pageToken=" + url.QueryEscape(pageToken)
@@ -347,18 +358,23 @@ func (c *cdpClient) checkProjectPolicies(ctx context.Context) (int, error) {
 			}
 			return checked, fmt.Errorf("list CDP project policies: %w", err)
 		}
-		raw, err := json.Marshal(out)
+		policiesVal, ok := out["policies"]
+		if !ok {
+			return checked, errors.New(`list CDP project policies: response has no "policies" field; refusing to start`)
+		}
+		policiesArr, ok := policiesVal.([]any)
+		if !ok {
+			return checked, errors.New(`list CDP project policies: "policies" field is not a JSON array; refusing to start`)
+		}
+		rawPolicies, err := json.Marshal(policiesArr)
 		if err != nil {
 			return checked, fmt.Errorf("list CDP project policies: %w", err)
 		}
-		var page struct {
-			Policies      []cdpPolicyEntry `json:"policies"`
-			NextPageToken string           `json:"nextPageToken"`
-		}
-		if err := json.Unmarshal(raw, &page); err != nil {
+		var policies []cdpPolicyEntry
+		if err := json.Unmarshal(rawPolicies, &policies); err != nil {
 			return checked, fmt.Errorf("list CDP project policies: decode response: %w", err)
 		}
-		for _, p := range page.Policies {
+		for _, p := range policies {
 			checked++
 			for _, r := range p.Rules {
 				if r.Action == "accept" {
@@ -366,10 +382,15 @@ func (c *cdpClient) checkProjectPolicies(ctx context.Context) (int, error) {
 				}
 			}
 		}
-		if page.NextPageToken == "" {
+		nextToken, _ := out["nextPageToken"].(string)
+		if nextToken == "" {
 			return checked, nil
 		}
-		pageToken = page.NextPageToken
+		if seenTokens[nextToken] {
+			return checked, fmt.Errorf("CDP policy listing repeated page token %q; refusing to start", nextToken)
+		}
+		seenTokens[nextToken] = true
+		pageToken = nextToken
 	}
 }
 

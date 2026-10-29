@@ -57,10 +57,12 @@ type fakeCDP struct {
 	simulateAction     string // non-empty: every simulate call answers with this action, ignoring acceptOps
 	omitSimulateAction bool   // true: the simulate response has no "action" key at all
 
-	projectPolicyPages     [][]cdpPolicyEntry // pages served for GET .../policies?scope=project; nil = one empty page
-	projectPoliciesStatus  int                // forced non-200 status for the policy listing only
-	projectPoliciesErrBody string
-	lastListQuery          string // raw query string the listing endpoint last received
+	projectPolicyPages             [][]cdpPolicyEntry // pages served for GET .../policies?scope=project; nil = one empty page
+	projectPoliciesStatus          int                // forced non-200 status for the policy listing only
+	projectPoliciesErrBody         string
+	projectPoliciesRawBody         string // non-empty: write this literal body instead of encoding projectPolicyPages (malformed-response tests)
+	projectPoliciesAlwaysNextToken string // non-empty: every listing response repeats this exact nextPageToken forever, ignoring projectPolicyPages (non-terminating-pagination tests)
+	lastListQuery                  string // raw query string the listing endpoint last received
 
 	mu   sync.Mutex
 	hits int
@@ -248,6 +250,9 @@ func (f *fakeCDP) serveSimulate(w http.ResponseWriter, body []byte) {
 // request's raw query so a test can confirm the query string reached the server even though the
 // bearer JWT's uris claim must exclude it (see TestCDPDoKeepsQueryOutOfBearerURI).
 // projectPoliciesStatus/ErrBody force a non-200 response just for this endpoint.
+// projectPoliciesRawBody, if set, is written verbatim instead (malformed-response tests).
+// projectPoliciesAlwaysNextToken, if set, makes every response repeat that one nextPageToken
+// forever with no policies, ignoring projectPolicyPages (non-terminating-pagination tests).
 func (f *fakeCDP) serveListPolicies(w http.ResponseWriter, r *http.Request) {
 	f.mu.Lock()
 	f.lastListQuery = r.URL.RawQuery
@@ -259,6 +264,14 @@ func (f *fakeCDP) serveListPolicies(w http.ResponseWriter, r *http.Request) {
 	}
 	if got := r.URL.Query().Get("scope"); got != "project" {
 		f.t.Errorf("policy listing scope = %q, want project", got)
+	}
+	if f.projectPoliciesRawBody != "" {
+		_, _ = w.Write([]byte(f.projectPoliciesRawBody))
+		return
+	}
+	if f.projectPoliciesAlwaysNextToken != "" {
+		_ = json.NewEncoder(w).Encode(map[string]any{"policies": []cdpPolicyEntry{}, "nextPageToken": f.projectPoliciesAlwaysNextToken})
+		return
 	}
 	pages := f.projectPolicyPages
 	if pages == nil {
@@ -845,6 +858,60 @@ func TestCDPKeystoreRefusesProjectPolicyAcceptRuleOnSecondPage(t *testing.T) {
 	_, _, err := cdpKeystore(context.Background(), envOf(env), env["AGENT_WALLETS"])
 	if err == nil || !strings.Contains(err.Error(), "proj-pol-2") || !strings.Contains(err.Error(), "signEvmMessage") {
 		t.Fatalf("want an error naming the second page's policy id and operation, got %v", err)
+	}
+}
+
+// A server that keeps answering the same nextPageToken forever must not hang the pagination
+// loop: the second page's token repeats the first's, so the loop must detect the repeat and
+// refuse rather than looping until the hard page cap (which would still terminate, just much
+// later and after far more requests).
+func TestCDPKeystoreRefusesRepeatedPolicyPageToken(t *testing.T) {
+	f, _ := newFakeCDP(t)
+	f.projectPoliciesAlwaysNextToken = "1"
+	env := f.env()
+	env["AGENT_WALLETS"] = "*:" + f.addr().Hex()
+
+	done := make(chan error, 1)
+	go func() {
+		_, _, err := cdpKeystore(context.Background(), envOf(env), env["AGENT_WALLETS"])
+		done <- err
+	}()
+	select {
+	case err := <-done:
+		if err == nil || !strings.Contains(err.Error(), "repeated page token") {
+			t.Fatalf("want an error naming the repeated page token, got %v", err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("cdpKeystore did not return: a repeating nextPageToken must not hang pagination")
+	}
+}
+
+// A response with no "policies" field at all (e.g. a schema change, or CDP answering with an
+// empty object) must refuse boot rather than silently reporting zero policies checked: that
+// would be fail-open on schema drift.
+func TestCDPKeystoreRefusesProjectPolicyListingWithNoPoliciesField(t *testing.T) {
+	f, _ := newFakeCDP(t)
+	f.projectPoliciesRawBody = `{}`
+	env := f.env()
+	env["AGENT_WALLETS"] = "*:" + f.addr().Hex()
+
+	_, _, err := cdpKeystore(context.Background(), envOf(env), env["AGENT_WALLETS"])
+	if err == nil || !strings.Contains(err.Error(), "policies") {
+		t.Fatalf("want an error mentioning the missing policies field, got %v", err)
+	}
+}
+
+// A "policies" field that isn't a JSON array (e.g. a string or an object) is the same schema-drift
+// risk as a missing field, and must refuse boot the same way.
+func TestCDPKeystoreRefusesProjectPolicyListingWithNonArrayPoliciesField(t *testing.T) {
+	f, _ := newFakeCDP(t)
+	f.projectPoliciesRawBody = `{"policies":"not-an-array"}`
+	env := f.env()
+	env["AGENT_WALLETS"] = "*:" + f.addr().Hex()
+
+	_, _, err := cdpKeystore(context.Background(), envOf(env), env["AGENT_WALLETS"])
+	if err == nil || !strings.Contains(err.Error(), "policies") {
+		t.Fatalf("want an error mentioning the policies field, got %v", err)
 	}
 }
 
