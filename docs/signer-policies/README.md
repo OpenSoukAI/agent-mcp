@@ -117,6 +117,10 @@ The policy cannot cover everything, so set up these yourself:
   policy unchanged; do not trim the reject rules.
 - **Project policy.** A project-level policy's decision is final and overrides the account
   policy — an empty or permissive project policy can undo the account policy above it.
+- **Smart-account upgrade.** CDP's EIP-7702 delegation endpoint, which upgrades the account to
+  CDP's smart-account implementation, is not governed by policies either — another reason to keep
+  the API key and the Wallet Secret on the agent's machine only. The generated policy rejects the
+  user operations (`prepareUserOperation`, `sendUserOperation`) such a smart account would use.
 
 Merchant REST tools are unavailable on CDP, same as Turnkey: `activate_merchant`, `add_product`,
 `update_product`, `set_merchant_profile`, `get_merchant_stats`. They authenticate with a personal
@@ -125,9 +129,12 @@ sign-hash endpoint, which no policy can restrict. Run merchant tools with `SIGNE
 `kms` or local.
 
 At boot, the signer asks CDP's policy simulator (`POST /v2/policy-engine/simulate`, which signs
-nothing) whether each wallet's policy would accept a raw hash, a text message, an off-policy
-transaction and an off-policy typed-data request. Any "accept" refuses boot — this catches a
-missing account policy or a permissive project policy.
+nothing) to run five probe requests: a raw hash (`signEvmHash`), a text message
+(`signEvmMessage`), the self-test transaction as `signEvmTransaction` and again as a pre-built
+`sendEvmTransaction`, and an ERC-2612 Permit as `signEvmTypedData`. Any answer other than "reject"
+refuses boot — this catches a missing account policy, or a project policy that accepts any of
+these probe requests. It does not catch a narrowly permissive project policy: one that accepts
+something outside these five exact shapes passes the self-test undetected.
 
 Not yet verified against a live CDP project: typed-data number encoding, whether CDP accepts
 `EIP712Domain` in the policy's types, and the policy-denial error shape.

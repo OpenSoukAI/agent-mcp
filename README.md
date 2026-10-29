@@ -202,8 +202,8 @@ credential. `AGENT_WALLETS` maps agent IDs to the provider's wallet, `*` for the
 |---|---|---|---|
 | `AGENT_WALLETS` entry | `12:<wallet account address>` | `12:<wallet id>` | `12:<wallet address>` |
 | Credentials | `TURNKEY_ORG_ID`, `TURNKEY_API_PUBLIC_KEY`, `TURNKEY_API_PRIVATE_KEY` (hex P-256) | `PRIVY_APP_ID`, `PRIVY_APP_SECRET`, `PRIVY_AUTHORIZATION_KEY` (`wallet-auth:…`) | `CDP_API_KEY_ID`, `CDP_API_KEY_SECRET` (Ed25519 Secret API key; legacy EC keys refused), `CDP_WALLET_SECRET`, optional `CDP_API_BASE_URL` (default `https://api.cdp.coinbase.com/platform`) |
-| The API key must belong to | a **non-root** user (root bypasses every policy) | an **additional signer**, not the wallet's owner (an owner can replace the policy) | a key with **neither** the Export nor the Manage-policies scope (see docs/signer-policies) |
-| Checked at boot | the API key, with `whoami` | the wallet exists and has an owner | each wallet's policy, via CDP's policy simulator (any accept refuses boot) |
+| The API key must belong to | a **non-root** user (root bypasses every policy) | an **additional signer**, not the wallet's owner (an owner can replace the policy) | a key with **neither** the "Export (export private key)" nor the "Manage (modify policies)" scope (see docs/signer-policies) |
+| Checked at boot | the API key, with `whoami` | the wallet exists and has an owner | each wallet's policy answers "reject" to five probe requests via CDP's policy simulator — any other answer refuses boot (see docs/signer-policies) |
 | Merchant REST tools | unavailable: Turnkey can personal-sign only as a raw payload | work: `personal_sign` of binary messages (any; do not make the wallet a Safe owner) | unavailable: CDP signs messages only as text, and raw bytes only through its unrestrictable sign-hash endpoint |
 
 CDP wallets are EOA server wallets only (no smart accounts). `CDP_API_KEY_SECRET` and

@@ -47,11 +47,13 @@ type fakeCDP struct {
 	errBody    string
 	delay      time.Duration // artificial latency, bounded by the request's own context
 
-	noAccount       bool            // GET /v2/evm/accounts/{addr} answers 404
-	accountAddr     string          // overrides the address the account GET echoes back; "" echoes the request
-	acceptOps       map[string]bool // policy-engine/simulate operations that must answer "accept" instead of "reject"
-	simulateStatus  int             // forced non-200 status for policy-engine/simulate only (status covers every path)
-	simulateErrBody string
+	noAccount          bool            // GET /v2/evm/accounts/{addr} answers 404
+	accountAddr        string          // overrides the address the account GET echoes back; "" echoes the request
+	acceptOps          map[string]bool // policy-engine/simulate operations that must answer "accept" instead of "reject"
+	simulateStatus     int             // forced non-200 status for policy-engine/simulate only (status covers every path)
+	simulateErrBody    string
+	simulateAction     string // non-empty: every simulate call answers with this action, ignoring acceptOps
+	omitSimulateAction bool   // true: the simulate response has no "action" key at all
 
 	mu   sync.Mutex
 	hits int
@@ -181,7 +183,10 @@ func (f *fakeCDP) serveAccount(w http.ResponseWriter, r *http.Request) {
 }
 
 // serveSimulate answers POST /v2/policy-engine/simulate: "accept" for any operation listed in
-// acceptOps, "reject" otherwise. simulateStatus/simulateErrBody force a non-200 response just for
+// acceptOps, "reject" otherwise (simulateAction/omitSimulateAction override this for an
+// unexpected-response test). It also checks that a signEvmTypedData or sendEvmTransaction probe
+// body carries the keys the real request would, so a selfTest regression that drops one fails
+// here rather than silently. simulateStatus/simulateErrBody force a non-200 response just for
 // this endpoint, independent of the global status field, so a test can let the account GET
 // succeed while only the simulate call fails.
 func (f *fakeCDP) serveSimulate(w http.ResponseWriter, body []byte) {
@@ -190,19 +195,42 @@ func (f *fakeCDP) serveSimulate(w http.ResponseWriter, body []byte) {
 		_, _ = w.Write([]byte(f.simulateErrBody))
 		return
 	}
-	var req struct {
-		Operation string `json:"operation"`
-	}
-	if err := json.Unmarshal(body, &req); err != nil {
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(body, &raw); err != nil {
 		f.t.Errorf("simulate body is not JSON: %v", err)
 		http.Error(w, `{"errorType":"bad_request","errorMessage":"not json"}`, http.StatusBadRequest)
 		return
 	}
-	action := "reject"
-	if f.acceptOps[req.Operation] {
-		action = "accept"
+	var operation string
+	_ = json.Unmarshal(raw["operation"], &operation)
+	switch operation {
+	case "signEvmTypedData":
+		for _, k := range []string{"operation", "address", "domain", "types", "primaryType", "message"} {
+			if _, ok := raw[k]; !ok {
+				f.t.Errorf("simulate signEvmTypedData body %s missing key %q", body, k)
+			}
+		}
+	case "sendEvmTransaction":
+		for _, k := range []string{"operation", "address", "transaction", "network"} {
+			if _, ok := raw[k]; !ok {
+				f.t.Errorf("simulate sendEvmTransaction body %s missing key %q", body, k)
+			}
+		}
 	}
-	_ = json.NewEncoder(w).Encode(map[string]any{"action": action})
+	resp := map[string]any{}
+	switch {
+	case f.omitSimulateAction:
+		// no "action" key
+	case f.simulateAction != "":
+		resp["action"] = f.simulateAction
+	default:
+		action := "reject"
+		if f.acceptOps[operation] {
+			action = "accept"
+		}
+		resp["action"] = action
+	}
+	_ = json.NewEncoder(w).Encode(resp)
 }
 
 func (f *fakeCDP) verifyBearer(r *http.Request, uri string) bool {
@@ -303,7 +331,9 @@ func (f *fakeCDP) signTypedData(w http.ResponseWriter, body []byte) {
 	}
 	sig, err := crypto.Sign(hash, f.signKey())
 	if err != nil {
-		f.t.Fatal(err)
+		f.t.Errorf("sign typed data: %v", err)
+		w.WriteHeader(http.StatusInternalServerError)
+		return
 	}
 	_ = json.NewEncoder(w).Encode(map[string]any{"signature": hexutil.Encode(sig)})
 }
@@ -326,11 +356,15 @@ func (f *fakeCDP) signTransaction(w http.ResponseWriter, body []byte) {
 	tx, chainID := decodeUnsignedForTest(f.t, raw)
 	signed, err := types.SignTx(tx, types.LatestSignerForChainID(chainID), f.signKey())
 	if err != nil {
-		f.t.Fatal(err)
+		f.t.Errorf("sign transaction: %v", err)
+		w.WriteHeader(http.StatusInternalServerError)
+		return
 	}
 	b, err := signed.MarshalBinary()
 	if err != nil {
-		f.t.Fatal(err)
+		f.t.Errorf("marshal signed transaction: %v", err)
+		w.WriteHeader(http.StatusInternalServerError)
+		return
 	}
 	_ = json.NewEncoder(w).Encode(map[string]any{"signedTransaction": hexutil.Encode(b)})
 }
@@ -505,6 +539,9 @@ func TestCDPKeystoreBoots(t *testing.T) {
 		t.Fatalf("the fallback key must resolve to %s: %v", f.addr().Hex(), err)
 	}
 	joined := strings.Join(report, "\n")
+	if !strings.Contains(joined, "agent * signs as "+f.addr().Hex()) {
+		t.Fatalf("report %v must contain walletKeystore's agent->address line", report)
+	}
 	if !strings.Contains(joined, "self-test passed") {
 		t.Fatalf("report %v must mention self-test passed", report)
 	}
@@ -514,7 +551,7 @@ func TestCDPKeystoreBoots(t *testing.T) {
 }
 
 func TestCDPKeystoreRefusesPermissivePolicy(t *testing.T) {
-	for _, op := range []string{"signEvmHash", "signEvmMessage", "signEvmTransaction"} {
+	for _, op := range []string{"signEvmHash", "signEvmMessage", "signEvmTransaction", "signEvmTypedData", "sendEvmTransaction"} {
 		t.Run(op, func(t *testing.T) {
 			f, _ := newFakeCDP(t)
 			f.acceptOps = map[string]bool{op: true}
@@ -546,6 +583,61 @@ func TestCDPKeystoreRefusesForbiddenSimulate(t *testing.T) {
 	}
 	if strings.Contains(err.Error(), "Manage") {
 		t.Fatalf("a self-test scope refusal must never mention Manage: %v", err)
+	}
+}
+
+// An action that is neither "accept" nor "reject" (including a missing one) is not the policy
+// working as intended, so it must refuse boot without claiming the policy accepts anything.
+func TestCDPKeystoreRefusesUnexpectedSimulateAction(t *testing.T) {
+	cases := []struct {
+		name   string
+		action string
+		omit   bool
+	}{
+		{name: "unknown action", action: "pending"},
+		{name: "missing action", omit: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			f, _ := newFakeCDP(t)
+			f.simulateAction = tc.action
+			f.omitSimulateAction = tc.omit
+			env := f.env()
+			env["AGENT_WALLETS"] = "*:" + f.addr().Hex()
+
+			_, _, err := cdpKeystore(context.Background(), envOf(env), env["AGENT_WALLETS"])
+			if err == nil {
+				t.Fatal("want an error")
+			}
+			if strings.Contains(err.Error(), "the policy accepts") {
+				t.Fatalf("an unexpected action must not say the policy accepts: %v", err)
+			}
+			if !strings.Contains(err.Error(), "unexpected policy simulate response") {
+				t.Fatalf("want an error naming the unexpected simulate response, got %v", err)
+			}
+		})
+	}
+}
+
+// A non-200 body with neither errorType nor errorMessage (e.g. an upstream proxy's HTML page)
+// must not collapse to an empty "HTTP 502: : "; the signer falls back to a capped snippet of the
+// body so the operator sees something recognizable.
+func TestCDPNon200BodyWithoutJSONFields(t *testing.T) {
+	f, c := newFakeCDP(t)
+	f.status = http.StatusBadGateway
+	f.errBody = "<html><body>502 Bad Gateway</body></html>"
+	s := &cdpSigner{c: c, addr: f.addr()}
+
+	td := reviewTDFixture(s.addr)
+	_, err := s.SignTypedData(context.Background(), td)
+	if err == nil {
+		t.Fatal("want an error")
+	}
+	if !strings.Contains(err.Error(), "Bad Gateway") {
+		t.Fatalf("want the error to contain a recognizable piece of the body, got %v", err)
+	}
+	if strings.Contains(err.Error(), ": : ") {
+		t.Fatalf("want no empty errorType/errorMessage placeholder, got %v", err)
 	}
 }
 

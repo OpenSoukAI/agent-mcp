@@ -19,13 +19,10 @@ import (
 	"github.com/ethereum/go-ethereum/signer/core/apitypes"
 )
 
-// CDP backend (SIGNER_BACKEND=cdp). The wallet key stays in a Coinbase CDP Server Wallet and every
-// request is authenticated two ways: the bearer JWT (cdpAPIKey) identifies the API caller, and for
-// any write under /accounts the wallet JWT (p256Credential) binds the request to its exact body via
-// reqHash, which is what CDP's policy engine evaluates. Typed data is sent as domain/types/
-// primaryType/message so the policy sees the structure; transactions go as the unsigned RLP CDP
-// parses and signs itself. Raw hashes and personal messages are never sent: CDP's only raw-hash
-// endpoint (sign/hash) is unrestrictable by policy.
+// CDP backend (SIGNER_BACKEND=cdp). The wallet key stays in a Coinbase CDP Server Wallet. For any
+// write under /accounts, the wallet JWT binds reqHash to the exact body sent, which is what CDP's
+// policy engine evaluates. CDP's sign-hash endpoint is unrestrictable by policy, so the signer
+// never calls it.
 
 // cdpClient talks to one CDP Server Wallet project. host is the base URL's host plus any path
 // prefix (e.g. "api.cdp.coinbase.com/platform"), which the JWTs' uris claim is built from.
@@ -95,7 +92,13 @@ func (c *cdpClient) do(ctx context.Context, method, path string, body any) (map[
 			ErrorMessage string `json:"errorMessage"`
 		}
 		_ = json.Unmarshal(respRaw, &e)
-		httpErr := &cdpHTTPError{status: resp.StatusCode, detail: fmt.Sprintf("%s: %s", e.ErrorType, e.ErrorMessage)}
+		detail := fmt.Sprintf("%s: %s", e.ErrorType, e.ErrorMessage)
+		if e.ErrorType == "" && e.ErrorMessage == "" {
+			// Not CDP's own error shape (e.g. an upstream proxy's HTML page): fall back to a capped
+			// snippet of the body rather than an empty "status: : ".
+			detail = providerMessage(respRaw)
+		}
+		httpErr := &cdpHTTPError{status: resp.StatusCode, detail: detail}
 		return nil, fmt.Errorf("CDP %s %s: %w", method, path, httpErr)
 	}
 	var out map[string]any
@@ -176,6 +179,13 @@ func (s *cdpSigner) SignTx(ctx context.Context, tx *types.Transaction, chainID *
 
 const cdpDefaultBase = "https://api.cdp.coinbase.com/platform"
 
+// CDP portal scope labels, as the portal itself names them, kept consistent between the boot
+// report and both READMEs.
+const (
+	cdpExportScope = "Export (export private key)"
+	cdpManageScope = "Manage (modify policies)"
+)
+
 // cdpDeadAddress is the self-test transaction's destination: a well-known burn address, so a
 // policy misconfigured enough to let the simulated send through would still be harmless.
 var cdpDeadAddress = common.HexToAddress("0x000000000000000000000000000000000000dEaD")
@@ -210,11 +220,36 @@ func (c *cdpClient) account(ctx context.Context, addr common.Address) error {
 	return nil
 }
 
+// cdpPermitProbeBody is the self-test's signEvmTypedData probe: an ERC-2612 Permit, built with
+// apitypes and providerTypedDataJSON the same way a real typed-data request is, so CDP's policy
+// evaluates the same shape the signer actually sends.
+func cdpPermitProbeBody(addr common.Address) (map[string]any, error) {
+	td := typedData("Permit", "Permit Probe", "1", big.NewInt(1), cdpDeadAddress.Hex(), []tdField{
+		{"owner", "address", addr.Hex()},
+		{"spender", "address", cdpDeadAddress.Hex()},
+		{"value", "uint256", "1"},
+		{"nonce", "uint256", "0"},
+		{"deadline", "uint256", "1"},
+	})
+	body, err := providerTypedDataJSON(td, "primaryType", false)
+	if err != nil {
+		return nil, err
+	}
+	body["operation"] = "signEvmTypedData"
+	body["address"] = addr.Hex()
+	return body, nil
+}
+
 // selfTest proves addr's CDP policy is not permissive enough to let the signer bypass it: CDP's
-// policy engine must reject signEvmHash, signEvmMessage and signEvmTransaction alike. The signer
-// itself never calls the first two (see the package comment) — this additionally checks that the
-// project policy would refuse them too, so a gap in the generated template can't be exploited by
-// calling CDP directly with the same account.
+// policy engine must reject five probe requests covering every operation shape the signer or an
+// attacker with the same credentials could send — a raw hash, a text message, the self-test
+// transaction both as signEvmTransaction and as a pre-built sendEvmTransaction, and an ERC-2612
+// Permit as signEvmTypedData. The signer itself never calls signEvmHash or signEvmMessage (see
+// the package comment); this additionally checks that the project policy would refuse them too,
+// so a gap in the generated template can't be exploited by calling CDP directly with the same
+// account. An "accept" for any probe catches a missing account policy, or a project policy that
+// accepts any of these probe requests — it does not prove a narrowly permissive project policy
+// safe, since that policy may allow something these five probes don't exercise.
 func (c *cdpClient) selfTest(ctx context.Context, addr common.Address) error {
 	tx := types.NewTx(&types.DynamicFeeTx{
 		ChainID:   big.NewInt(1),
@@ -228,6 +263,10 @@ func (c *cdpClient) selfTest(ctx context.Context, addr common.Address) error {
 	if err != nil {
 		return fmt.Errorf("CDP account %s: build the self-test transaction: %w", addr.Hex(), err)
 	}
+	permit, err := cdpPermitProbeBody(addr)
+	if err != nil {
+		return fmt.Errorf("CDP account %s: build the self-test typed-data probe: %w", addr.Hex(), err)
+	}
 	checks := []struct {
 		operation string
 		body      map[string]any
@@ -235,6 +274,8 @@ func (c *cdpClient) selfTest(ctx context.Context, addr common.Address) error {
 		{"signEvmHash", map[string]any{"operation": "signEvmHash", "address": addr.Hex(), "hash": "0x" + strings.Repeat("00", 31) + "01"}},
 		{"signEvmMessage", map[string]any{"operation": "signEvmMessage", "address": addr.Hex(), "message": "opensouk self-test"}},
 		{"signEvmTransaction", map[string]any{"operation": "signEvmTransaction", "address": addr.Hex(), "transaction": hexutil.Encode(raw)}},
+		{"signEvmTypedData", permit},
+		{"sendEvmTransaction", map[string]any{"operation": "sendEvmTransaction", "address": addr.Hex(), "transaction": hexutil.Encode(raw), "network": "base"}},
 	}
 	for _, chk := range checks {
 		callCtx, cancel := context.WithTimeout(ctx, providerCallTimeout)
@@ -247,8 +288,14 @@ func (c *cdpClient) selfTest(ctx context.Context, addr common.Address) error {
 			}
 			return fmt.Errorf("CDP account %s: policy self-test: %w", addr.Hex(), err)
 		}
-		if action, _ := out["action"].(string); action != "reject" {
+		action, _ := out["action"].(string)
+		switch action {
+		case "reject":
+			// ok
+		case "accept":
 			return fmt.Errorf("CDP account %s: the policy accepts %s, so the signer would sign outside the generated policy; apply docs/signer-policies/cdp.%s.json as the account policy and keep the project policy from accepting it (see docs/signer-policies)", addr.Hex(), chk.operation, policyVersion)
+		default:
+			return fmt.Errorf("CDP account %s: unexpected policy simulate response for %s (action %q); refusing to start", addr.Hex(), chk.operation, action)
 		}
 	}
 	return nil
@@ -283,8 +330,8 @@ func cdpKeystore(ctx context.Context, getenv func(string) string, wallets string
 	}
 	c := &cdpClient{base: base, host: host, key: key, wallet: wallet, http: &http.Client{}}
 
-	var report []string
-	ks, _, err := walletKeystore(ctx, wallets, "CDP account", func(ctx context.Context, ref string) (Signer, error) {
+	var selfTestReport []string
+	ks, report, err := walletKeystore(ctx, wallets, "CDP account", func(ctx context.Context, ref string) (Signer, error) {
 		if !common.IsHexAddress(ref) {
 			return nil, fmt.Errorf("AGENT_WALLETS CDP entry %q is not an EVM address", ref)
 		}
@@ -295,11 +342,12 @@ func cdpKeystore(ctx context.Context, getenv func(string) string, wallets string
 		if err := c.selfTest(ctx, addr); err != nil {
 			return nil, err
 		}
-		report = append(report, fmt.Sprintf("CDP account %s (policy self-test passed)", addr.Hex()))
+		selfTestReport = append(selfTestReport, fmt.Sprintf("CDP account %s (policy self-test passed)", addr.Hex()))
 		return &cdpSigner{c: c, addr: addr}, nil
 	})
 	if err != nil {
 		return nil, nil, err
 	}
-	return ks, append(report, fmt.Sprintf("CDP API key %s: make sure it has neither the Export nor the Manage scope (see docs/signer-policies)", key.id)), nil
+	report = append(report, selfTestReport...)
+	return ks, append(report, fmt.Sprintf("CDP API key %s: make sure it has neither the %q nor the %q scope (see docs/signer-policies)", key.id, cdpExportScope, cdpManageScope)), nil
 }
