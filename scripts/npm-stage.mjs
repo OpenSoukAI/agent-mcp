@@ -12,7 +12,8 @@ import { chmodSync, cpSync, mkdirSync, readFileSync, rmSync, writeFileSync } fro
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-const srcDir = join(dirname(fileURLToPath(import.meta.url)), "..", "npm", "signer");
+const repoDir = join(dirname(fileURLToPath(import.meta.url)), "..");
+const srcDir = join(repoDir, "npm", "signer");
 
 function fail(msg) {
   process.stderr.write(`npm-stage: ${msg}\n`);
@@ -61,13 +62,14 @@ for (const [key, p] of Object.entries(platforms)) {
         repository: main.repository,
         os: [p.os],
         cpu: [p.cpu],
-        files: [`bin/${p.exe}`],
+        files: [`bin/${p.exe}`, "LICENSE"],
         preferUnplugged: true,
       },
       null,
       2,
     ) + "\n",
   );
+  cpSync(join(repoDir, "LICENSE"), join(dir, "LICENSE"));
   writeFileSync(join(dir, "README.md"), `# ${name}\n\nThe ${key} binary of [@opensouk/signer](https://www.npmjs.com/package/@opensouk/signer) ${tag}. Install that package, not this one.\n`);
   main.optionalDependencies[name] = version;
 }
@@ -78,6 +80,7 @@ cpSync(join(srcDir, "bin", "opensouk-signer.js"), join(mainDir, "bin", "opensouk
 chmodSync(join(mainDir, "bin", "opensouk-signer.js"), 0o755);
 cpSync(join(srcDir, "platforms.json"), join(mainDir, "platforms.json"));
 cpSync(join(srcDir, "README.md"), join(mainDir, "README.md"));
+cpSync(join(repoDir, "LICENSE"), join(mainDir, "LICENSE"));
 writeFileSync(join(mainDir, "package.json"), JSON.stringify(main, null, 2) + "\n");
 
 process.stdout.write(`staged @opensouk/signer ${version} + ${Object.keys(platforms).length} platform packages in ${out}\n`);
