@@ -102,10 +102,16 @@ jobs:
             (cd "$d" && npm publish --access public --provenance)
           done
 
+      # npm processes a new version for a few minutes before the registry serves it.
       - name: Check npm has every package
         run: |
           v=${VERSION#v}
           for d in out/signer-* out/signer; do
             name=$(node -p "require('./$d/package.json').name")
-            npm view "$name@$v" version
+            for i in $(seq 1 30); do
+              npm view "$name@$v" version >/dev/null 2>&1 && break
+              if [ "$i" = 30 ]; then echo "::error::$name@$v not on npm after 30 minutes"; exit 1; fi
+              sleep 60
+            done
+            echo "$name@$v is on npm"
           done
