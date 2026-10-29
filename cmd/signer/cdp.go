@@ -248,7 +248,7 @@ func (c *cdpClient) selfTest(ctx context.Context, addr common.Address) error {
 			return fmt.Errorf("CDP account %s: policy self-test: %w", addr.Hex(), err)
 		}
 		if action, _ := out["action"].(string); action != "reject" {
-			return fmt.Errorf("CDP account %s: the policy accepts %s, so the signer would sign outside the generated policy; apply docs/signer-policies/cdp.<v>.json as the account policy and keep the project policy from accepting it (see docs/signer-policies)", addr.Hex(), chk.operation)
+			return fmt.Errorf("CDP account %s: the policy accepts %s, so the signer would sign outside the generated policy; apply docs/signer-policies/cdp.%s.json as the account policy and keep the project policy from accepting it (see docs/signer-policies)", addr.Hex(), chk.operation, policyVersion)
 		}
 	}
 	return nil

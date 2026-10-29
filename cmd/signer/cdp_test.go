@@ -525,6 +525,10 @@ func TestCDPKeystoreRefusesPermissivePolicy(t *testing.T) {
 			if err == nil || !strings.Contains(err.Error(), op) {
 				t.Fatalf("want an error naming %s, got %v", op, err)
 			}
+			wantFile := "docs/signer-policies/cdp." + policyVersion + ".json"
+			if err == nil || !strings.Contains(err.Error(), wantFile) {
+				t.Fatalf("want an error naming the real policy template %s, got %v", wantFile, err)
+			}
 		})
 	}
 }
