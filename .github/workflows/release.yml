@@ -1,5 +1,6 @@
 # Cuts a signer release (REF-494): tags main, builds opensouk-signer for each platform, and
-# publishes the binaries with a SHA256SUMS file and a GitHub build-provenance attestation.
+# publishes the binaries with a SHA256SUMS file and a GitHub build-provenance attestation. It then
+# starts npm-publish.yml, which publishes those same binaries to npm (REF-553).
 #
 # Manual only. Nothing else triggers it: a release is a decision, and the tag it creates is what
 # the docs pin `go install …/cmd/signer@<version>` to.
@@ -27,6 +28,7 @@ jobs:
       contents: write # create the tag and the release
       id-token: write # sign the provenance attestation
       attestations: write
+      actions: write # start npm-publish.yml
     env:
       VERSION: ${{ inputs.version }}
     steps:
@@ -55,8 +57,14 @@ jobs:
           go-version-file: go.mod
           cache: false # a release builds from a clean module cache
 
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24.22.2
+
       - name: Test
-        run: go test ./...
+        run: |
+          go test ./...
+          node --test npm/test/*.test.mjs
 
       - name: Build
         run: |
@@ -65,7 +73,7 @@ jobs:
             os=${target%/*}; arch=${target#*/}
             out="dist/opensouk-signer_${VERSION}_${os}_${arch}"
             [ "$os" = windows ] && out="$out.exe"
-            CGO_ENABLED=0 GOOS=$os GOARCH=$arch go build -trimpath -ldflags="-s -w" -o "$out" ./cmd/signer
+            CGO_ENABLED=0 GOOS=$os GOARCH=$arch go build -trimpath -ldflags="-s -w -X main.version=$VERSION" -o "$out" ./cmd/signer
           done
           (cd dist && sha256sum opensouk-signer_* > SHA256SUMS)
           cat dist/SHA256SUMS
@@ -82,6 +90,12 @@ jobs:
             --repo "$GITHUB_REPOSITORY" \
             --target "$GITHUB_SHA" \
             --title "opensouk-signer $VERSION" \
-            --notes "Install: \`go install github.com/OpenSoukAI/agent-mcp/cmd/signer@$VERSION\`, or download a binary below.
+            --notes "Install: \`npx -y @opensouk/signer@${VERSION#v}\` (published by npm-publish.yml once this run ends), \`go install github.com/OpenSoukAI/agent-mcp/cmd/signer@$VERSION\`, or download a binary below.
 
           Verify a download: \`sha256sum -c SHA256SUMS --ignore-missing\` and \`gh attestation verify <file> --repo $GITHUB_REPOSITORY\`."
+
+      # A separate run, so a failed npm publish can be retried for this tag on its own.
+      - name: Start the npm publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run npm-publish.yml --repo "$GITHUB_REPOSITORY" --ref main -f version="$VERSION"

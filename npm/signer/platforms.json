@@ -1,0 +1,7 @@
+{
+  "linux-x64": { "goos": "linux", "goarch": "amd64", "os": "linux", "cpu": "x64", "exe": "opensouk-signer" },
+  "linux-arm64": { "goos": "linux", "goarch": "arm64", "os": "linux", "cpu": "arm64", "exe": "opensouk-signer" },
+  "darwin-x64": { "goos": "darwin", "goarch": "amd64", "os": "darwin", "cpu": "x64", "exe": "opensouk-signer" },
+  "darwin-arm64": { "goos": "darwin", "goarch": "arm64", "os": "darwin", "cpu": "arm64", "exe": "opensouk-signer" },
+  "win32-x64": { "goos": "windows", "goarch": "amd64", "os": "win32", "cpu": "x64", "exe": "opensouk-signer.exe" }
+}
