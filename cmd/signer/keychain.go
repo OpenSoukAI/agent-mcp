@@ -15,7 +15,7 @@ import (
 const keychainService = "opensouk-signer"
 
 // keychainSettings are the settings looked up in the Keychain: the secret ones.
-var keychainSettings = []string{"AGENT_PRIVATE_KEY", "AGENT_KEYS", "TURNKEY_API_PRIVATE_KEY", "PRIVY_APP_SECRET", "PRIVY_AUTHORIZATION_KEY"}
+var keychainSettings = []string{"AGENT_PRIVATE_KEY", "AGENT_KEYS", "TURNKEY_API_PRIVATE_KEY", "PRIVY_APP_SECRET", "PRIVY_AUTHORIZATION_KEY", "CDP_API_KEY_SECRET", "CDP_WALLET_SECRET"}
 
 var (
 	securityPath = "/usr/bin/security"

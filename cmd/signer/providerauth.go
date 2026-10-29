@@ -1,7 +1,9 @@
 package main
 
 import (
+	"bytes"
 	"crypto/ecdsa"
+	"crypto/ed25519"
 	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/sha256"
@@ -12,6 +14,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/gowebpki/jcs"
 )
@@ -113,4 +116,120 @@ func (c *p256Credential) spkiB64() (string, error) {
 		return "", err
 	}
 	return base64.StdEncoding.EncodeToString(der), nil
+}
+
+// cdpAPIKey is a Coinbase CDP Ed25519 API key, used to mint the bearer JWT on every CDP request.
+type cdpAPIKey struct {
+	id   string
+	priv ed25519.PrivateKey
+}
+
+// cdpAPIKeyFromEnv parses CDP_API_KEY_ID / CDP_API_KEY_SECRET. The secret is base64 of the raw
+// 64-byte Ed25519 private key (seed||public), the form the CDP Portal exports for an Ed25519 API
+// key. CDP also offers ECDSA (P-256) API keys exported as PEM, which this adapter does not
+// support, so a PEM-looking secret gets a pointed error.
+func cdpAPIKeyFromEnv(id, secret string) (*cdpAPIKey, error) {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return nil, errors.New("CDP_API_KEY_ID is empty")
+	}
+	secret = strings.TrimSpace(secret)
+	if strings.Contains(secret, "-----BEGIN") {
+		return nil, errors.New("CDP_API_KEY_SECRET is a PEM key; create an Ed25519 API key in the CDP Portal instead")
+	}
+	raw, err := base64.StdEncoding.DecodeString(secret)
+	if err != nil {
+		return nil, errors.New("CDP_API_KEY_SECRET is not valid base64")
+	}
+	if len(raw) != ed25519.PrivateKeySize {
+		return nil, fmt.Errorf("CDP_API_KEY_SECRET must decode to %d bytes (an Ed25519 seed||public key), got %d", ed25519.PrivateKeySize, len(raw))
+	}
+	return &cdpAPIKey{id: id, priv: ed25519.PrivateKey(raw)}, nil
+}
+
+// bearer mints the CDP "Bearer JWT" for one request: header carries the key id and a fresh
+// nonce, claims bind the token to this exact URI for 120 seconds.
+func (k *cdpAPIKey) bearer(uri string, now time.Time) (string, error) {
+	nonce := make([]byte, 16)
+	if _, err := rand.Read(nonce); err != nil {
+		return "", fmt.Errorf("generate CDP bearer nonce: %w", err)
+	}
+	header, err := json.Marshal(map[string]any{
+		"alg": "EdDSA", "typ": "JWT", "kid": k.id, "nonce": hex.EncodeToString(nonce),
+	})
+	if err != nil {
+		return "", err
+	}
+	claims, err := json.Marshal(map[string]any{
+		"sub": k.id, "iss": "cdp", "aud": []string{"cdp_service"},
+		"nbf": now.Unix(), "exp": now.Unix() + 120, "uris": []string{uri},
+	})
+	if err != nil {
+		return "", err
+	}
+	signingInput := base64.RawURLEncoding.EncodeToString(header) + "." + base64.RawURLEncoding.EncodeToString(claims)
+	sig := ed25519.Sign(k.priv, []byte(signingInput))
+	return signingInput + "." + base64.RawURLEncoding.EncodeToString(sig), nil
+}
+
+// cdpWalletSecret parses CDP_WALLET_SECRET: base64 of a PKCS#8 DER P-256 key, the credential that
+// authorizes a CDP Server Wallet to act (reuses the Turnkey/Privy p256Credential type).
+func cdpWalletSecret(b64 string) (*p256Credential, error) {
+	der, err := base64.StdEncoding.DecodeString(strings.TrimSpace(b64))
+	if err != nil {
+		return nil, errors.New("CDP_WALLET_SECRET is not valid base64")
+	}
+	parsed, err := x509.ParsePKCS8PrivateKey(der)
+	if err != nil {
+		return nil, errors.New("CDP_WALLET_SECRET is not a PKCS#8 private key")
+	}
+	priv, ok := parsed.(*ecdsa.PrivateKey)
+	if !ok || priv.Curve != elliptic.P256() {
+		return nil, errors.New("CDP_WALLET_SECRET is not a P-256 key")
+	}
+	return &p256Credential{priv: priv, pubHex: hex.EncodeToString(elliptic.MarshalCompressed(elliptic.P256(), priv.X, priv.Y))}, nil
+}
+
+// cdpWalletJWT mints the CDP "Wallet JWT" that authorizes one request body: claims bind the
+// token to this URI and to reqHash, the sha256 of the exact body bytes, so it cannot be replayed
+// against a different request. The ES256 signature is raw r||s (JWS form), not DER.
+func (c *p256Credential) cdpWalletJWT(uri string, body []byte, now time.Time) (string, error) {
+	jti := make([]byte, 16)
+	if _, err := rand.Read(jti); err != nil {
+		return "", fmt.Errorf("generate CDP wallet JWT jti: %w", err)
+	}
+	reqHash := sha256.Sum256(body)
+	header, err := json.Marshal(map[string]any{"alg": "ES256", "typ": "JWT"})
+	if err != nil {
+		return "", err
+	}
+	claims, err := json.Marshal(map[string]any{
+		"iat": now.Unix(), "nbf": now.Unix(), "jti": hex.EncodeToString(jti),
+		"uris": []string{uri}, "reqHash": hex.EncodeToString(reqHash[:]),
+	})
+	if err != nil {
+		return "", err
+	}
+	signingInput := base64.RawURLEncoding.EncodeToString(header) + "." + base64.RawURLEncoding.EncodeToString(claims)
+	h := sha256.Sum256([]byte(signingInput))
+	r, s, err := ecdsa.Sign(rand.Reader, c.priv, h[:])
+	if err != nil {
+		return "", fmt.Errorf("sign CDP wallet JWT: %w", err)
+	}
+	sig := make([]byte, 64)
+	r.FillBytes(sig[:32])
+	s.FillBytes(sig[32:])
+	return signingInput + "." + base64.RawURLEncoding.EncodeToString(sig), nil
+}
+
+// cdpBody encodes v the way CDP's reqHash expects: compact JSON, map keys sorted (encoding/json's
+// default), HTML characters left unescaped, no trailing newline.
+func cdpBody(v any) ([]byte, error) {
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode(v); err != nil {
+		return nil, err
+	}
+	return bytes.TrimRight(buf.Bytes(), "\n"), nil
 }

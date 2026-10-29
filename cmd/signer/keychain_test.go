@@ -90,7 +90,7 @@ func TestLoadKeychain_AsksOnlyForSecretSettings(t *testing.T) {
 		t.Fatal(err)
 	}
 	slices.Sort(kc.asked)
-	want := []string{"AGENT_KEYS", "AGENT_PRIVATE_KEY", "PRIVY_APP_SECRET", "PRIVY_AUTHORIZATION_KEY", "TURNKEY_API_PRIVATE_KEY"}
+	want := []string{"AGENT_KEYS", "AGENT_PRIVATE_KEY", "CDP_API_KEY_SECRET", "CDP_WALLET_SECRET", "PRIVY_APP_SECRET", "PRIVY_AUTHORIZATION_KEY", "TURNKEY_API_PRIVATE_KEY"}
 	if !slices.Equal(kc.asked, want) {
 		t.Fatalf("asked for %v, want exactly %v", kc.asked, want)
 	}

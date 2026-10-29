@@ -292,6 +292,80 @@ func privyPolicyDoc(in policyInputs) map[string]any {
 	return map[string]any{"version": "1.0", "name": "opensouk-signer-" + policyVersion, "chain_type": "ethereum", "rules": rules}
 }
 
+// cdpPolicyDoc is a CDP Server Wallet v2 account policy: one rule per criterion-restrictable
+// operation, and an outright reject for the five CDP cannot evaluate criteria on (a raw digest,
+// an arbitrary message, an already-built send/user-operation).
+func cdpPolicyDoc(in policyInputs) map[string]any {
+	verifyingContract := func(addr string) map[string]any {
+		return map[string]any{"type": "evmTypedDataVerifyingContract", "addresses": []string{addr}, "operator": "in"}
+	}
+	// typedField nests td's types, via providerTypes — the same types map cdp.go's own request
+	// carries — under "types", alongside "primaryType", so a policy rule can never drift from the
+	// request it is meant to restrict.
+	typedField := func(td apitypes.TypedData, conditions []any) map[string]any {
+		return map[string]any{"type": "evmTypedDataField", "types": map[string]any{"types": providerTypes(td), "primaryType": td.PrimaryType}, "conditions": conditions}
+	}
+	numCond := func(path, op, value string) map[string]any {
+		return map[string]any{"path": path, "operator": op, "value": value}
+	}
+	addrCond := func(path, op string, addrs []string) map[string]any {
+		return map[string]any{"path": path, "operator": op, "addresses": addrs}
+	}
+	accept := func(operation string, criteria []any) map[string]any {
+		return map[string]any{"action": "accept", "operation": operation, "criteria": criteria}
+	}
+
+	var rules []any
+	for _, spec := range allSpecs {
+		if spec == specAgentWalletSet {
+			continue
+		}
+		td := sampleTypedData(spec)
+		rules = append(rules, accept("signEvmTypedData", []any{
+			verifyingContract(in.Addrs[spec.contract]),
+			typedField(td, []any{numCond(firstUintField(td), ">=", "0")}),
+		}))
+	}
+	// AgentWalletSet: one rule per operator-named agent, pinned by agentId; none named, no rule.
+	awsTD := sampleTypedData(specAgentWalletSet)
+	for _, id := range in.AgentIDs {
+		rules = append(rules, accept("signEvmTypedData", []any{
+			verifyingContract(in.Addrs[specAgentWalletSet.contract]),
+			typedField(awsTD, []any{numCond("agentId", "==", id)}),
+		}))
+	}
+	rtd := sampleReceiveTypedData()
+	rules = append(rules, accept("signEvmTypedData", []any{
+		verifyingContract(in.USDC),
+		typedField(rtd, []any{numCond("value", "<=", in.MaxValue), addrCond("to", "in", []string{in.Addrs[keySplitRouter]})}),
+	}))
+	// CDP's EvmDataCriterion requires every condition to be met, so one evmData criterion listing
+	// several functions would require the calldata to match all of them at once and never match
+	// anything: emit one signEvmTransaction rule per (contract, method) pair instead.
+	for _, k := range txContracts {
+		for _, m := range txMethods[k] {
+			rules = append(rules, accept("signEvmTransaction", []any{
+				map[string]any{"type": "evmAddress", "addresses": []string{in.Addrs[k]}, "operator": "in"},
+				map[string]any{"type": "ethValue", "ethValue": "0", "operator": "=="},
+				map[string]any{"type": "evmData", "abi": abiFragment(k, m), "conditions": []any{map[string]any{"function": m}}},
+			}))
+		}
+	}
+	// The CDP SDK's CreatePolicyBodySchema requires at least one criterion for every operation
+	// except signEvmHash; the other four reject rules carry an always-matching criterion purely to
+	// satisfy that shape (CDP's own ANY/ALL matcher still rejects outright with just one rule here).
+	rules = append(rules, map[string]any{"action": "reject", "operation": "signEvmHash", "criteria": []any{}})
+	rules = append(rules, map[string]any{"action": "reject", "operation": "signEvmMessage", "criteria": []any{
+		map[string]any{"type": "evmMessage", "match": "(?s).*"},
+	}})
+	for _, op := range []string{"sendEvmTransaction", "prepareUserOperation", "sendUserOperation"} {
+		rules = append(rules, map[string]any{"action": "reject", "operation": op, "criteria": []any{
+			map[string]any{"type": "ethValue", "ethValue": "0", "operator": ">="},
+		}})
+	}
+	return map[string]any{"scope": "account", "description": "OpenSouk signer " + policyVersion, "rules": rules}
+}
+
 // renderPolicy is the provider's policy document as indented JSON with a trailing newline.
 func renderPolicy(provider string, in policyInputs) ([]byte, error) {
 	var doc map[string]any
@@ -300,8 +374,10 @@ func renderPolicy(provider string, in policyInputs) ([]byte, error) {
 		doc = turnkeyPolicyDoc(in)
 	case "privy":
 		doc = privyPolicyDoc(in)
+	case "cdp":
+		doc = cdpPolicyDoc(in)
 	default:
-		return nil, fmt.Errorf("unknown provider %q: use turnkey or privy", provider)
+		return nil, fmt.Errorf("unknown provider %q: use turnkey, privy, or cdp", provider)
 	}
 	// No HTML escaping: a Turnkey condition is pasted as written, and "\u0026\u0026" is not "&&".
 	var buf bytes.Buffer
@@ -319,7 +395,7 @@ func renderPolicy(provider string, in policyInputs) ([]byte, error) {
 func runPolicyCLI(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("policy", flag.ContinueOnError)
 	fs.SetOutput(stderr)
-	provider := fs.String("provider", "", "turnkey or privy")
+	provider := fs.String("provider", "", "turnkey, privy, or cdp")
 	template := fs.Bool("template", false, "print the committed template, with placeholders")
 	usdc := fs.String("usdc", "", "USDC contract on this chain (default USDC_ADDRESS)")
 	maxPay := fs.String("max-payment", "", "ReceiveWithAuthorization ceiling in USDC base units (default MAX_PAYMENT_PER_TX)")
@@ -333,8 +409,8 @@ func runPolicyCLI(ctx context.Context, args []string, stdout, stderr io.Writer) 
 		fmt.Fprintf(stderr, "referrer-signer policy: "+format+"\n", a...)
 		return 1
 	}
-	if *provider != "turnkey" && *provider != "privy" {
-		return fail("--provider must be turnkey or privy")
+	if *provider != "turnkey" && *provider != "privy" && *provider != "cdp" {
+		return fail("--provider must be turnkey, privy, or cdp")
 	}
 	in := templatePolicyInputs()
 	if !*template {

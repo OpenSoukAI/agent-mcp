@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math/big"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -13,6 +14,7 @@ import (
 	"testing"
 
 	"github.com/ethereum/go-ethereum/accounts/abi"
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 )
 
@@ -21,7 +23,7 @@ func templatePath(provider string) string {
 }
 
 func TestPolicyTemplatesAreGolden(t *testing.T) {
-	for _, p := range []string{"turnkey", "privy"} {
+	for _, p := range []string{"turnkey", "privy", "cdp"} {
 		got, err := renderPolicy(p, templatePolicyInputs())
 		if err != nil {
 			t.Fatal(err)
@@ -189,6 +191,33 @@ func TestPoliciesCoverEveryPrimaryType(t *testing.T) {
 			t.Fatalf("%s policy must carry the USDC address and the payment ceiling", provider)
 		}
 	}
+	// cdp: one signEvmTypedData accept rule per primary type, keyed by the typed-data field's own
+	// primaryType (not string-counted, since CDP's JSON nests it under criteria).
+	cdpDoc := decodePolicy(t, "cdp", in)
+	counts := map[string]int{}
+	for _, r := range cdpDoc["rules"].([]any) {
+		rule := r.(map[string]any)
+		if rule["operation"] != "signEvmTypedData" || rule["action"] != "accept" {
+			continue
+		}
+		for _, c := range rule["criteria"].([]any) {
+			cond := c.(map[string]any)
+			if cond["type"] != "evmTypedDataField" {
+				continue
+			}
+			types := cond["types"].(map[string]any)
+			counts[types["primaryType"].(string)]++
+		}
+	}
+	for _, spec := range append(allSpecs, domainSpec{primary: erc3009ReceiveAuthorizationType}) {
+		want := 1
+		if spec == specAgentWalletSet {
+			want = len(in.AgentIDs)
+		}
+		if counts[spec.primary] != want {
+			t.Fatalf("cdp: %s counted %d signEvmTypedData accept rules, want %d", spec.primary, counts[spec.primary], want)
+		}
+	}
 	// Transactions: exactly one policy per (contract, function) a transaction tool calls, value 0.
 	want := map[string]bool{}
 	for k, methods := range txMethods {
@@ -218,6 +247,159 @@ func TestPoliciesCoverEveryPrimaryType(t *testing.T) {
 	}
 	if strings.Contains(fmt.Sprint(got), in.Addrs[keySplitRouter]) {
 		t.Fatal("no transaction tool calls the SplitRouter")
+	}
+}
+
+func cdpRules(t *testing.T) []map[string]any {
+	var out []map[string]any
+	for _, r := range decodePolicy(t, "cdp", templatePolicyInputs())["rules"].([]any) {
+		out = append(out, r.(map[string]any))
+	}
+	return out
+}
+
+// CDP cannot restrict signEvmHash, signEvmMessage, sendEvmTransaction, prepareUserOperation or
+// sendUserOperation by a criterion that would distinguish the signer's own traffic from an
+// attacker's (a policy can't inspect a raw digest, free text, or an already-built op), so each is
+// rejected outright. CDP's CreatePolicyBodySchema still requires at least one criterion for every
+// operation except signEvmHash, so the other four carry a criterion that always matches rather
+// than one that restricts anything. Every accept rule must instead carry at least one criterion
+// that actually restricts something.
+func TestCDPPolicyRejectsUnrestrictableOps(t *testing.T) {
+	alwaysMatchMessage := []any{map[string]any{"type": "evmMessage", "match": "(?s).*"}}
+	alwaysMatchEthValue := []any{map[string]any{"type": "ethValue", "ethValue": "0", "operator": ">="}}
+	wantCriteria := map[string][]any{
+		"signEvmHash":          {},
+		"signEvmMessage":       alwaysMatchMessage,
+		"sendEvmTransaction":   alwaysMatchEthValue,
+		"prepareUserOperation": alwaysMatchEthValue,
+		"sendUserOperation":    alwaysMatchEthValue,
+	}
+	seen := map[string]int{}
+	for _, r := range cdpRules(t) {
+		criteria, _ := r["criteria"].([]any)
+		op, _ := r["operation"].(string)
+		switch r["action"] {
+		case "reject":
+			want, ok := wantCriteria[op]
+			if !ok {
+				t.Fatalf("unexpected reject rule for operation %s", op)
+			}
+			seen[op]++
+			if !reflect.DeepEqual(criteria, want) {
+				t.Fatalf("reject rule for %s has criteria %v, want %v", op, criteria, want)
+			}
+		case "accept":
+			if len(criteria) == 0 {
+				t.Fatalf("accept rule for %s has empty criteria", op)
+			}
+		default:
+			t.Fatalf("rule %v has action %v", r, r["action"])
+		}
+	}
+	for op := range wantCriteria {
+		if seen[op] != 1 {
+			t.Fatalf("want exactly one reject rule for %s, saw %d", op, seen[op])
+		}
+	}
+}
+
+// CDP's EvmDataCriterion requires every condition to be met, so a single rule can never name more
+// than one function — each (contract, method) pair a transaction tool calls gets its own
+// signEvmTransaction rule, scoped to that contract's address, value 0, and an evmData ABI
+// condition naming exactly that one method.
+func TestCDPTxRulesMatchTxMethods(t *testing.T) {
+	in := templatePolicyInputs()
+	type pair struct {
+		k protocolKey
+		m string
+	}
+	seen := map[pair]bool{}
+	for _, r := range cdpRules(t) {
+		if r["operation"] != "signEvmTransaction" {
+			continue
+		}
+		var addrCrit, valueCrit, dataCrit map[string]any
+		for _, c := range r["criteria"].([]any) {
+			cond := c.(map[string]any)
+			switch cond["type"] {
+			case "evmAddress":
+				addrCrit = cond
+			case "ethValue":
+				valueCrit = cond
+			case "evmData":
+				dataCrit = cond
+			}
+		}
+		if addrCrit == nil || valueCrit == nil || dataCrit == nil {
+			t.Fatalf("tx rule %v is missing an evmAddress, ethValue, or evmData criterion", r)
+		}
+		if valueCrit["ethValue"] != "0" || valueCrit["operator"] != "==" {
+			t.Fatalf("tx rule %v must require ethValue == \"0\"", r)
+		}
+		addrs, _ := addrCrit["addresses"].([]any)
+		if len(addrs) != 1 {
+			t.Fatalf("tx rule %v must name exactly one address", r)
+		}
+		addr, _ := addrs[0].(string)
+		var k protocolKey
+		found := false
+		for kk, a := range in.Addrs {
+			if a == addr {
+				k, found = kk, true
+				break
+			}
+		}
+		if !found {
+			t.Fatalf("tx rule address %s is not a known protocol contract", addr)
+		}
+		conds, _ := dataCrit["conditions"].([]any)
+		if len(conds) != 1 {
+			t.Fatalf("tx rule %v evmData must have exactly one condition (CDP ANDs all of them), got %d", r, len(conds))
+		}
+		m, _ := conds[0].(map[string]any)["function"].(string)
+		p := pair{k, m}
+		if seen[p] {
+			t.Fatalf("contract %s method %s has more than one signEvmTransaction rule", k, m)
+		}
+		seen[p] = true
+		listed := false
+		for _, want := range txMethods[k] {
+			if want == m {
+				listed = true
+			}
+		}
+		if !listed {
+			t.Fatalf("tx rule names %s.%s, which is not in txMethods", k, m)
+		}
+	}
+	want := 0
+	for k, ms := range txMethods {
+		for _, m := range ms {
+			want++
+			if !seen[pair{k, m}] {
+				t.Fatalf("no signEvmTransaction rule for %s.%s", k, m)
+			}
+		}
+	}
+	if len(seen) != want {
+		t.Fatalf("%d signEvmTransaction rules, want exactly %d (one per contract+method)", len(seen), want)
+	}
+}
+
+// CDP's own description/rules-count limits: a description it will accept, and at most 100 rules.
+func TestCDPPolicyShape(t *testing.T) {
+	doc := decodePolicy(t, "cdp", templatePolicyInputs())
+	if doc["scope"] != "account" {
+		t.Fatalf("scope = %v, want account", doc["scope"])
+	}
+	desc, _ := doc["description"].(string)
+	if !regexp.MustCompile(`^[A-Za-z0-9 ,.]{1,50}$`).MatchString(desc) {
+		t.Fatalf("description %q does not match CDP's allowed pattern", desc)
+	}
+	rules, _ := doc["rules"].([]any)
+	if len(rules) == 0 || len(rules) > 100 {
+		t.Fatalf("%d rules, want 1-100", len(rules))
 	}
 }
 
@@ -266,6 +448,83 @@ func TestTxMethodsMatchTheTools(t *testing.T) {
 	}
 }
 
+// zeroABIValue is the harmless zero argument for ABI type t. The ten transaction methods take
+// only flat types (abiFragment's own comment), so only those need handling; a uint/int wider than
+// 64 bits needs an actual *big.Int (reflect.Zero of that Go type is a nil pointer, which the ABI
+// packer cannot encode).
+func zeroABIValue(t abi.Type) (any, error) {
+	switch t.T {
+	case abi.UintTy, abi.IntTy:
+		if t.Size > 64 {
+			return big.NewInt(0), nil
+		}
+		return reflect.Zero(t.GetType()).Interface(), nil
+	case abi.AddressTy:
+		return common.Address{}, nil
+	case abi.BoolTy:
+		return false, nil
+	case abi.StringTy:
+		return "", nil
+	case abi.FixedBytesTy:
+		return reflect.Zero(t.GetType()).Interface(), nil
+	case abi.BytesTy:
+		return []byte{}, nil
+	default:
+		return nil, fmt.Errorf("zeroABIValue: unsupported ABI type %s", t.String())
+	}
+}
+
+// zeroArgsCalldata packs method m on contract k's ABI with every argument at its zero value: real,
+// ABI-decodable calldata for a call to m that happens to mean nothing, for building a self-test or
+// live-test transaction without caring what the method does with the values. Used by
+// TestZeroArgsCalldataUnpacks here and by provider_live_test.go's CDP "allowed" leg, which needs
+// real calldata per (contract, method) because CDP's policy ABI-decodes it.
+func zeroArgsCalldata(k protocolKey, m string) ([]byte, error) {
+	a, ok := txABIs[k]
+	if !ok {
+		return nil, fmt.Errorf("zeroArgsCalldata: no ABI for %s", k)
+	}
+	method, ok := a.Methods[m]
+	if !ok {
+		return nil, fmt.Errorf("zeroArgsCalldata: %s has no method %s", k, m)
+	}
+	args := make([]any, len(method.Inputs))
+	for i, in := range method.Inputs {
+		v, err := zeroABIValue(in.Type)
+		if err != nil {
+			return nil, fmt.Errorf("zeroArgsCalldata: %s.%s arg %s: %w", k, m, in.Name, err)
+		}
+		args[i] = v
+	}
+	return a.Pack(m, args...)
+}
+
+// Every (contract, method) txMethods lists must pack with zero arguments and ABI-decode back
+// against its own method. This runs without live env, unlike the real target (CDP's policy
+// engine): it would have caught the bug where the "allowed" live-test leg built calldata as a
+// selector padded with 64 arbitrary zero bytes, which cannot decode for a method with more than
+// one word of arguments (publishReviewWithEscrowProof, grantRole, revokeRole, setCommission,
+// setProductActive: 3 words each) or a dynamic type (addProduct's trailing string).
+func TestZeroArgsCalldataUnpacks(t *testing.T) {
+	for k, ms := range txMethods {
+		for _, m := range ms {
+			t.Run(string(k)+"."+m, func(t *testing.T) {
+				data, err := zeroArgsCalldata(k, m)
+				if err != nil {
+					t.Fatalf("zeroArgsCalldata(%s, %s): %v", k, m, err)
+				}
+				method := txABIs[k].Methods[m]
+				if len(data) < 4 || !bytes.Equal(data[:4], method.ID) {
+					t.Fatalf("%s.%s: calldata selector %x, want %x", k, m, data, method.ID)
+				}
+				if _, err := method.Inputs.Unpack(data[4:]); err != nil {
+					t.Fatalf("%s.%s: calldata does not ABI-decode against its own method: %v", k, m, err)
+				}
+			})
+		}
+	}
+}
+
 func TestPolicyCLI(t *testing.T) {
 	t.Setenv("CHAIN_ID", "84532")
 	t.Setenv("MAX_PAYMENT_PER_TX", "")
@@ -304,6 +563,14 @@ func TestPolicyCLI(t *testing.T) {
 	}
 	if code, _, e := run("--provider", "vault", "--template"); code == 0 || !strings.Contains(e, "provider") {
 		t.Fatalf("unknown provider must be refused, got %d %q", code, e)
+	}
+	cdpCode, cdpOut, cdpErr := run("--provider", "cdp", "--template")
+	if cdpCode != 0 {
+		t.Fatalf("cdp template exit %d: %s", cdpCode, cdpErr)
+	}
+	want, err := os.ReadFile(templatePath("cdp"))
+	if err != nil || cdpOut != string(want) {
+		t.Fatalf("cdp template output does not match docs/signer-policies/cdp.%s.json (%v)", policyVersion, err)
 	}
 }
 
@@ -439,7 +706,7 @@ func awsPolicyInputs(ids ...string) policyInputs {
 
 // AgentWalletSet is allowed only for the agent ids the operator names; with none, not at all.
 func TestPoliciesPinAgentWalletSetToAgentIDs(t *testing.T) {
-	for _, p := range []string{"turnkey", "privy"} {
+	for _, p := range []string{"turnkey", "privy", "cdp"} {
 		none, err := renderPolicy(p, awsPolicyInputs())
 		if err != nil {
 			t.Fatal(err)
@@ -455,6 +722,38 @@ func TestPoliciesPinAgentWalletSetToAgentIDs(t *testing.T) {
 		if p == "turnkey" {
 			if !strings.Contains(s, "(eth.eip_712.message['agentId'] == 12 || eth.eip_712.message['agentId'] == 34)") {
 				t.Fatalf("turnkey: AgentWalletSet must be pinned to agents 12 and 34:\n%s", s)
+			}
+			continue
+		}
+		if p == "cdp" {
+			pinned := map[string]bool{}
+			for _, r := range decodePolicy(t, "cdp", awsPolicyInputs("12", "34"))["rules"].([]any) {
+				rule := r.(map[string]any)
+				if rule["operation"] != "signEvmTypedData" {
+					continue
+				}
+				for _, c := range rule["criteria"].([]any) {
+					cond := c.(map[string]any)
+					if cond["type"] != "evmTypedDataField" {
+						continue
+					}
+					types := cond["types"].(map[string]any)
+					if types["primaryType"] != "AgentWalletSet" {
+						continue
+					}
+					for _, cc := range cond["conditions"].([]any) {
+						ccond := cc.(map[string]any)
+						if ccond["path"] == "agentId" {
+							if ccond["operator"] != "==" {
+								t.Fatalf("cdp: agentId must be compared with ==, got %v", ccond["operator"])
+							}
+							pinned[ccond["value"].(string)] = true
+						}
+					}
+				}
+			}
+			if len(pinned) != 2 || !pinned["12"] || !pinned["34"] {
+				t.Fatalf("cdp: want one AgentWalletSet rule per agent id, got %v", pinned)
 			}
 			continue
 		}

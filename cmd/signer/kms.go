@@ -147,7 +147,7 @@ func defaultKMSClient(ctx context.Context) (kmsAPI, error) {
 }
 
 // walletRefName is what an AGENT_WALLETS entry names, per backend, for error messages.
-var walletRefName = map[string]string{"kms": "kmsKeyId", "turnkey": "walletAddress", "privy": "privyWalletId"}
+var walletRefName = map[string]string{"kms": "kmsKeyId", "turnkey": "walletAddress", "privy": "privyWalletId", "cdp": "walletAddress"}
 
 // loadKeystore builds the keystore SIGNER_BACKEND selects. It returns, for a remote backend, one
 // line per key naming the address it signs as, for the boot log.
@@ -166,7 +166,7 @@ func loadKeystore(ctx context.Context, getenv func(string) string, newKMS func(c
 		}
 		ks, err := parseKeystore(agentKeys, agentPriv)
 		return ks, nil, err
-	case "kms", "turnkey", "privy":
+	case "kms", "turnkey", "privy", "cdp":
 		if agentKeys != "" || agentPriv != "" {
 			return nil, nil, fmt.Errorf("SIGNER_BACKEND=%s takes keys from AGENT_WALLETS only: unset AGENT_KEYS and AGENT_PRIVATE_KEY so no raw key sits in this process", backend)
 		}
@@ -178,6 +178,8 @@ func loadKeystore(ctx context.Context, getenv func(string) string, newKMS func(c
 			return turnkeyKeystore(ctx, getenv, wallets)
 		case "privy":
 			return privyKeystore(ctx, getenv, wallets)
+		case "cdp":
+			return cdpKeystore(ctx, getenv, wallets)
 		}
 		api, err := newKMS(ctx)
 		if err != nil {
@@ -185,7 +187,7 @@ func loadKeystore(ctx context.Context, getenv func(string) string, newKMS func(c
 		}
 		return kmsKeystore(ctx, api, wallets)
 	default:
-		return nil, nil, fmt.Errorf("SIGNER_BACKEND %q is not supported: use local (default), kms, turnkey or privy", backend)
+		return nil, nil, fmt.Errorf("SIGNER_BACKEND %q is not supported: use local (default), kms, turnkey, privy or cdp", backend)
 	}
 }
 

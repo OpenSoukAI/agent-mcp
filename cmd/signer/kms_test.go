@@ -292,6 +292,8 @@ func TestLoadKeystore_Refusals(t *testing.T) {
 		{"kms with AGENT_PRIVATE_KEY", map[string]string{"SIGNER_BACKEND": "kms", "AGENT_WALLETS": "7:" + arnA, "AGENT_PRIVATE_KEY": "0x" + testLocalKeyHex}, "AGENT_PRIVATE_KEY"},
 		{"local with AGENT_WALLETS", map[string]string{"AGENT_KEYS": "7:0x" + testLocalKeyHex, "AGENT_WALLETS": "7:" + arnA}, "AGENT_WALLETS"},
 		{"kms without wallets", map[string]string{"SIGNER_BACKEND": "kms"}, "AGENT_WALLETS"},
+		{"cdp with AGENT_KEYS", map[string]string{"SIGNER_BACKEND": "cdp", "AGENT_WALLETS": "7:0x1111111111111111111111111111111111111111", "AGENT_KEYS": "7:0x" + testLocalKeyHex}, "AGENT_KEYS"},
+		{"cdp without wallets", map[string]string{"SIGNER_BACKEND": "cdp"}, "walletAddress"},
 		{"duplicate id", map[string]string{"SIGNER_BACKEND": "kms", "AGENT_WALLETS": "7:" + arnA + ",7:" + arnA}, "duplicate"},
 		{"bad id", map[string]string{"SIGNER_BACKEND": "kms", "AGENT_WALLETS": "seven:" + arnA}, "agent id"},
 		{"leading zero id", map[string]string{"SIGNER_BACKEND": "kms", "AGENT_WALLETS": "007:" + arnA}, "agent id"},
