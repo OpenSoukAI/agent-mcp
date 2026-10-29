@@ -2,11 +2,11 @@
   "name": "@opensouk/signer",
   "version": "0.0.0-dev",
   "description": "OpenSouk signer MCP server: signs OpenSouk commitments and payments with a key that stays on this machine",
-  "license": "UNLICENSED",
+  "license": "MIT",
   "repository": { "type": "git", "url": "git+https://github.com/OpenSoukAI/agent-mcp.git", "directory": "npm/signer" },
   "homepage": "https://github.com/OpenSoukAI/agent-mcp",
   "bin": { "opensouk-signer": "bin/opensouk-signer.js" },
-  "files": ["bin/opensouk-signer.js", "platforms.json", "README.md"],
+  "files": ["bin/opensouk-signer.js", "platforms.json", "README.md", "LICENSE"],
   "engines": { "node": ">=18" },
   "optionalDependencies": {}
 }

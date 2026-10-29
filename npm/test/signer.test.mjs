@@ -40,6 +40,11 @@ test("stage pins every package to the tag and copies the release bytes", () => {
 
   const main = JSON.parse(readFileSync(join(out, "signer", "package.json"), "utf8"));
   assert.equal(main.version, "1.2.3");
+  const license = readFileSync(join(repo, "LICENSE"), "utf8");
+  for (const dir of ["signer", ...Object.keys(platforms).map((k) => `signer-${k}`)]) {
+    assert.equal(JSON.parse(readFileSync(join(out, dir, "package.json"), "utf8")).license, "MIT", dir);
+    assert.equal(readFileSync(join(out, dir, "LICENSE"), "utf8"), license, dir);
+  }
   assert.deepEqual(
     main.optionalDependencies,
     Object.fromEntries(Object.keys(platforms).map((k) => [`@opensouk/signer-${k}`, "1.2.3"])),
