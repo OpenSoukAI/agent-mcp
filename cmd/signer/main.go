@@ -15,6 +15,7 @@ import (
 	"os"
 	"os/signal"
 	"runtime"
+	"runtime/debug"
 	"strconv"
 	"strings"
 	"syscall"
@@ -1214,7 +1215,25 @@ func extractEscrowID(receipt *types.Receipt) (*big.Int, error) {
 
 // ── Main ───────────────────────────────────────────────────────────────────────
 
+// version is the release tag, set by release.yml with -ldflags "-X main.version=vX.Y.Z".
+var version = "dev"
+
+// signerVersion is version, or for `go install …/cmd/signer@vX.Y.Z` (no ldflags) the module version.
+func signerVersion() string {
+	if version != "dev" {
+		return version
+	}
+	if bi, ok := debug.ReadBuildInfo(); ok && bi.Main.Version != "" && bi.Main.Version != "(devel)" {
+		return bi.Main.Version
+	}
+	return version
+}
+
 func main() {
+	if len(os.Args) == 2 && os.Args[1] == "--version" {
+		fmt.Println(signerVersion())
+		return
+	}
 	report, err := loadEnvFile(os.LookupEnv, os.Setenv, os.UserHomeDir)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "opensouk-signer: env file:", err)
@@ -1240,7 +1259,7 @@ func main() {
 		}
 	}
 	srv := sdkmcp.NewServer(
-		&sdkmcp.Implementation{Name: "opensouk-signer", Version: "1"},
+		&sdkmcp.Implementation{Name: "opensouk-signer", Version: signerVersion()},
 		nil,
 	)
 
