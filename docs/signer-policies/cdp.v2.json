@@ -1,0 +1,1016 @@
+{
+  "description": "OpenSouk signer v2",
+  "rules": [
+    {
+      "action": "accept",
+      "criteria": [
+        {
+          "addresses": [
+            "<REVIEW_REGISTRY>"
+          ],
+          "operator": "in",
+          "type": "evmTypedDataVerifyingContract"
+        },
+        {
+          "conditions": [
+            {
+              "operator": ">=",
+              "path": "agentId",
+              "value": "0"
+            }
+          ],
+          "type": "evmTypedDataField",
+          "types": {
+            "primaryType": "ReviewCommitment",
+            "types": {
+              "EIP712Domain": [
+                {
+                  "name": "name",
+                  "type": "string"
+                },
+                {
+                  "name": "version",
+                  "type": "string"
+                },
+                {
+                  "name": "chainId",
+                  "type": "uint256"
+                },
+                {
+                  "name": "verifyingContract",
+                  "type": "address"
+                }
+              ],
+              "ReviewCommitment": [
+                {
+                  "name": "agentId",
+                  "type": "uint256"
+                },
+                {
+                  "name": "merchantId",
+                  "type": "uint256"
+                },
+                {
+                  "name": "productId",
+                  "type": "bytes32"
+                },
+                {
+                  "name": "contentHash",
+                  "type": "bytes32"
+                },
+                {
+                  "name": "nonce",
+                  "type": "uint256"
+                },
+                {
+                  "name": "expiry",
+                  "type": "uint256"
+                }
+              ]
+            }
+          }
+        }
+      ],
+      "operation": "signEvmTypedData"
+    },
+    {
+      "action": "accept",
+      "criteria": [
+        {
+          "addresses": [
+            "<REVIEW_REGISTRY>"
+          ],
+          "operator": "in",
+          "type": "evmTypedDataVerifyingContract"
+        },
+        {
+          "conditions": [
+            {
+              "operator": ">=",
+              "path": "agentId",
+              "value": "0"
+            }
+          ],
+          "type": "evmTypedDataField",
+          "types": {
+            "primaryType": "VoteCommitment",
+            "types": {
+              "EIP712Domain": [
+                {
+                  "name": "name",
+                  "type": "string"
+                },
+                {
+                  "name": "version",
+                  "type": "string"
+                },
+                {
+                  "name": "chainId",
+                  "type": "uint256"
+                },
+                {
+                  "name": "verifyingContract",
+                  "type": "address"
+                }
+              ],
+              "VoteCommitment": [
+                {
+                  "name": "agentId",
+                  "type": "uint256"
+                },
+                {
+                  "name": "escrowId",
+                  "type": "uint256"
+                },
+                {
+                  "name": "votesHash",
+                  "type": "bytes32"
+                },
+                {
+                  "name": "nonce",
+                  "type": "uint256"
+                },
+                {
+                  "name": "expiry",
+                  "type": "uint256"
+                }
+              ]
+            }
+          }
+        }
+      ],
+      "operation": "signEvmTypedData"
+    },
+    {
+      "action": "accept",
+      "criteria": [
+        {
+          "addresses": [
+            "<REVIEW_REGISTRY>"
+          ],
+          "operator": "in",
+          "type": "evmTypedDataVerifyingContract"
+        },
+        {
+          "conditions": [
+            {
+              "operator": ">=",
+              "path": "agentId",
+              "value": "0"
+            }
+          ],
+          "type": "evmTypedDataField",
+          "types": {
+            "primaryType": "CashbackRateCommitment",
+            "types": {
+              "CashbackRateCommitment": [
+                {
+                  "name": "agentId",
+                  "type": "uint256"
+                },
+                {
+                  "name": "cashbackOfCommissionBps",
+                  "type": "uint16"
+                },
+                {
+                  "name": "nonce",
+                  "type": "bytes32"
+                },
+                {
+                  "name": "expiry",
+                  "type": "uint256"
+                }
+              ],
+              "EIP712Domain": [
+                {
+                  "name": "name",
+                  "type": "string"
+                },
+                {
+                  "name": "version",
+                  "type": "string"
+                },
+                {
+                  "name": "chainId",
+                  "type": "uint256"
+                },
+                {
+                  "name": "verifyingContract",
+                  "type": "address"
+                }
+              ]
+            }
+          }
+        }
+      ],
+      "operation": "signEvmTypedData"
+    },
+    {
+      "action": "accept",
+      "criteria": [
+        {
+          "addresses": [
+            "<REVIEW_REGISTRY>"
+          ],
+          "operator": "in",
+          "type": "evmTypedDataVerifyingContract"
+        },
+        {
+          "conditions": [
+            {
+              "operator": ">=",
+              "path": "agentId",
+              "value": "0"
+            }
+          ],
+          "type": "evmTypedDataField",
+          "types": {
+            "primaryType": "IntentAccessCommitment",
+            "types": {
+              "EIP712Domain": [
+                {
+                  "name": "name",
+                  "type": "string"
+                },
+                {
+                  "name": "version",
+                  "type": "string"
+                },
+                {
+                  "name": "chainId",
+                  "type": "uint256"
+                },
+                {
+                  "name": "verifyingContract",
+                  "type": "address"
+                }
+              ],
+              "IntentAccessCommitment": [
+                {
+                  "name": "agentId",
+                  "type": "uint256"
+                },
+                {
+                  "name": "nonce",
+                  "type": "bytes32"
+                },
+                {
+                  "name": "expiry",
+                  "type": "uint256"
+                }
+              ]
+            }
+          }
+        }
+      ],
+      "operation": "signEvmTypedData"
+    },
+    {
+      "action": "accept",
+      "criteria": [
+        {
+          "addresses": [
+            "<REVIEW_REGISTRY>"
+          ],
+          "operator": "in",
+          "type": "evmTypedDataVerifyingContract"
+        },
+        {
+          "conditions": [
+            {
+              "operator": ">=",
+              "path": "agentId",
+              "value": "0"
+            }
+          ],
+          "type": "evmTypedDataField",
+          "types": {
+            "primaryType": "IntentMarkCommitment",
+            "types": {
+              "EIP712Domain": [
+                {
+                  "name": "name",
+                  "type": "string"
+                },
+                {
+                  "name": "version",
+                  "type": "string"
+                },
+                {
+                  "name": "chainId",
+                  "type": "uint256"
+                },
+                {
+                  "name": "verifyingContract",
+                  "type": "address"
+                }
+              ],
+              "IntentMarkCommitment": [
+                {
+                  "name": "agentId",
+                  "type": "uint256"
+                },
+                {
+                  "name": "intentId",
+                  "type": "string"
+                },
+                {
+                  "name": "result",
+                  "type": "string"
+                },
+                {
+                  "name": "nonce",
+                  "type": "bytes32"
+                },
+                {
+                  "name": "expiry",
+                  "type": "uint256"
+                }
+              ]
+            }
+          }
+        }
+      ],
+      "operation": "signEvmTypedData"
+    },
+    {
+      "action": "accept",
+      "criteria": [
+        {
+          "addresses": [
+            "<REVIEW_REGISTRY>"
+          ],
+          "operator": "in",
+          "type": "evmTypedDataVerifyingContract"
+        },
+        {
+          "conditions": [
+            {
+              "operator": ">=",
+              "path": "agentId",
+              "value": "0"
+            }
+          ],
+          "type": "evmTypedDataField",
+          "types": {
+            "primaryType": "IntentSkipCommitment",
+            "types": {
+              "EIP712Domain": [
+                {
+                  "name": "name",
+                  "type": "string"
+                },
+                {
+                  "name": "version",
+                  "type": "string"
+                },
+                {
+                  "name": "chainId",
+                  "type": "uint256"
+                },
+                {
+                  "name": "verifyingContract",
+                  "type": "address"
+                }
+              ],
+              "IntentSkipCommitment": [
+                {
+                  "name": "agentId",
+                  "type": "uint256"
+                },
+                {
+                  "name": "intentId",
+                  "type": "string"
+                },
+                {
+                  "name": "reason",
+                  "type": "string"
+                },
+                {
+                  "name": "nonce",
+                  "type": "bytes32"
+                },
+                {
+                  "name": "expiry",
+                  "type": "uint256"
+                }
+              ]
+            }
+          }
+        }
+      ],
+      "operation": "signEvmTypedData"
+    },
+    {
+      "action": "accept",
+      "criteria": [
+        {
+          "addresses": [
+            "<REVIEW_REGISTRY>"
+          ],
+          "operator": "in",
+          "type": "evmTypedDataVerifyingContract"
+        },
+        {
+          "conditions": [
+            {
+              "operator": ">=",
+              "path": "agentId",
+              "value": "0"
+            }
+          ],
+          "type": "evmTypedDataField",
+          "types": {
+            "primaryType": "TelegramLinkCommitment",
+            "types": {
+              "EIP712Domain": [
+                {
+                  "name": "name",
+                  "type": "string"
+                },
+                {
+                  "name": "version",
+                  "type": "string"
+                },
+                {
+                  "name": "chainId",
+                  "type": "uint256"
+                },
+                {
+                  "name": "verifyingContract",
+                  "type": "address"
+                }
+              ],
+              "TelegramLinkCommitment": [
+                {
+                  "name": "agentId",
+                  "type": "uint256"
+                },
+                {
+                  "name": "nonce",
+                  "type": "bytes32"
+                },
+                {
+                  "name": "expiry",
+                  "type": "uint256"
+                }
+              ]
+            }
+          }
+        }
+      ],
+      "operation": "signEvmTypedData"
+    },
+    {
+      "action": "accept",
+      "criteria": [
+        {
+          "addresses": [
+            "<SPLIT_ROUTER>"
+          ],
+          "operator": "in",
+          "type": "evmTypedDataVerifyingContract"
+        },
+        {
+          "conditions": [
+            {
+              "operator": ">=",
+              "path": "buyerAgentId",
+              "value": "0"
+            }
+          ],
+          "type": "evmTypedDataField",
+          "types": {
+            "primaryType": "ChargeCommitment",
+            "types": {
+              "ChargeCommitment": [
+                {
+                  "name": "payer",
+                  "type": "address"
+                },
+                {
+                  "name": "paymentRef",
+                  "type": "bytes32"
+                },
+                {
+                  "name": "buyerAgentId",
+                  "type": "uint256"
+                },
+                {
+                  "name": "attributionTokenHash",
+                  "type": "bytes32"
+                }
+              ],
+              "EIP712Domain": [
+                {
+                  "name": "name",
+                  "type": "string"
+                },
+                {
+                  "name": "version",
+                  "type": "string"
+                },
+                {
+                  "name": "chainId",
+                  "type": "uint256"
+                },
+                {
+                  "name": "verifyingContract",
+                  "type": "address"
+                }
+              ]
+            }
+          }
+        }
+      ],
+      "operation": "signEvmTypedData"
+    },
+    {
+      "action": "accept",
+      "criteria": [
+        {
+          "addresses": [
+            "<AGENT_REGISTRY>"
+          ],
+          "operator": "in",
+          "type": "evmTypedDataVerifyingContract"
+        },
+        {
+          "conditions": [
+            {
+              "operator": "==",
+              "path": "agentId",
+              "value": "<AGENT_ID>"
+            }
+          ],
+          "type": "evmTypedDataField",
+          "types": {
+            "primaryType": "AgentWalletSet",
+            "types": {
+              "AgentWalletSet": [
+                {
+                  "name": "agentId",
+                  "type": "uint256"
+                },
+                {
+                  "name": "newWallet",
+                  "type": "address"
+                },
+                {
+                  "name": "owner",
+                  "type": "address"
+                },
+                {
+                  "name": "deadline",
+                  "type": "uint256"
+                }
+              ],
+              "EIP712Domain": [
+                {
+                  "name": "name",
+                  "type": "string"
+                },
+                {
+                  "name": "version",
+                  "type": "string"
+                },
+                {
+                  "name": "chainId",
+                  "type": "uint256"
+                },
+                {
+                  "name": "verifyingContract",
+                  "type": "address"
+                }
+              ]
+            }
+          }
+        }
+      ],
+      "operation": "signEvmTypedData"
+    },
+    {
+      "action": "accept",
+      "criteria": [
+        {
+          "addresses": [
+            "<USDC>"
+          ],
+          "operator": "in",
+          "type": "evmTypedDataVerifyingContract"
+        },
+        {
+          "conditions": [
+            {
+              "operator": "<=",
+              "path": "value",
+              "value": "<MAX_PAYMENT>"
+            },
+            {
+              "addresses": [
+                "<SPLIT_ROUTER>"
+              ],
+              "operator": "in",
+              "path": "to"
+            }
+          ],
+          "type": "evmTypedDataField",
+          "types": {
+            "primaryType": "ReceiveWithAuthorization",
+            "types": {
+              "EIP712Domain": [
+                {
+                  "name": "name",
+                  "type": "string"
+                },
+                {
+                  "name": "version",
+                  "type": "string"
+                },
+                {
+                  "name": "chainId",
+                  "type": "uint256"
+                },
+                {
+                  "name": "verifyingContract",
+                  "type": "address"
+                }
+              ],
+              "ReceiveWithAuthorization": [
+                {
+                  "name": "from",
+                  "type": "address"
+                },
+                {
+                  "name": "to",
+                  "type": "address"
+                },
+                {
+                  "name": "value",
+                  "type": "uint256"
+                },
+                {
+                  "name": "validAfter",
+                  "type": "uint256"
+                },
+                {
+                  "name": "validBefore",
+                  "type": "uint256"
+                },
+                {
+                  "name": "nonce",
+                  "type": "bytes32"
+                }
+              ]
+            }
+          }
+        }
+      ],
+      "operation": "signEvmTypedData"
+    },
+    {
+      "action": "accept",
+      "criteria": [
+        {
+          "addresses": [
+            "<REVIEW_REGISTRY>"
+          ],
+          "operator": "in",
+          "type": "evmAddress"
+        },
+        {
+          "ethValue": "0",
+          "operator": "==",
+          "type": "ethValue"
+        },
+        {
+          "abi": [
+            {
+              "inputs": [
+                {
+                  "name": "agentId",
+                  "type": "uint256"
+                },
+                {
+                  "name": "contentHash",
+                  "type": "bytes32"
+                },
+                {
+                  "name": "escrowId",
+                  "type": "uint256"
+                }
+              ],
+              "name": "publishReviewWithEscrowProof",
+              "outputs": [],
+              "stateMutability": "nonpayable",
+              "type": "function"
+            },
+            {
+              "inputs": [
+                {
+                  "name": "reviewId",
+                  "type": "uint256"
+                },
+                {
+                  "name": "newContentHash",
+                  "type": "bytes32"
+                }
+              ],
+              "name": "updateReviewContent",
+              "outputs": [],
+              "stateMutability": "nonpayable",
+              "type": "function"
+            }
+          ],
+          "conditions": [
+            {
+              "function": "publishReviewWithEscrowProof"
+            },
+            {
+              "function": "updateReviewContent"
+            }
+          ],
+          "type": "evmData"
+        }
+      ],
+      "operation": "signEvmTransaction"
+    },
+    {
+      "action": "accept",
+      "criteria": [
+        {
+          "addresses": [
+            "<ESCROW>"
+          ],
+          "operator": "in",
+          "type": "evmAddress"
+        },
+        {
+          "ethValue": "0",
+          "operator": "==",
+          "type": "ethValue"
+        },
+        {
+          "abi": [
+            {
+              "inputs": [
+                {
+                  "name": "escrowId",
+                  "type": "uint256"
+                },
+                {
+                  "name": "agentId",
+                  "type": "uint256"
+                }
+              ],
+              "name": "bind",
+              "outputs": [],
+              "stateMutability": "nonpayable",
+              "type": "function"
+            },
+            {
+              "inputs": [
+                {
+                  "name": "escrowId",
+                  "type": "uint256"
+                }
+              ],
+              "name": "triggerSettleFallback",
+              "outputs": [],
+              "stateMutability": "nonpayable",
+              "type": "function"
+            }
+          ],
+          "conditions": [
+            {
+              "function": "bind"
+            },
+            {
+              "function": "triggerSettleFallback"
+            }
+          ],
+          "type": "evmData"
+        }
+      ],
+      "operation": "signEvmTransaction"
+    },
+    {
+      "action": "accept",
+      "criteria": [
+        {
+          "addresses": [
+            "<MERCHANT_REGISTRY>"
+          ],
+          "operator": "in",
+          "type": "evmAddress"
+        },
+        {
+          "ethValue": "0",
+          "operator": "==",
+          "type": "ethValue"
+        },
+        {
+          "abi": [
+            {
+              "inputs": [
+                {
+                  "name": "merchantId",
+                  "type": "uint256"
+                },
+                {
+                  "name": "active",
+                  "type": "bool"
+                }
+              ],
+              "name": "setActive",
+              "outputs": [],
+              "stateMutability": "nonpayable",
+              "type": "function"
+            },
+            {
+              "inputs": [
+                {
+                  "name": "merchantId",
+                  "type": "uint256"
+                },
+                {
+                  "name": "role",
+                  "type": "bytes32"
+                },
+                {
+                  "name": "account",
+                  "type": "address"
+                }
+              ],
+              "name": "grantRole",
+              "outputs": [],
+              "stateMutability": "nonpayable",
+              "type": "function"
+            },
+            {
+              "inputs": [
+                {
+                  "name": "merchantId",
+                  "type": "uint256"
+                },
+                {
+                  "name": "role",
+                  "type": "bytes32"
+                },
+                {
+                  "name": "account",
+                  "type": "address"
+                }
+              ],
+              "name": "revokeRole",
+              "outputs": [],
+              "stateMutability": "nonpayable",
+              "type": "function"
+            }
+          ],
+          "conditions": [
+            {
+              "function": "setActive"
+            },
+            {
+              "function": "grantRole"
+            },
+            {
+              "function": "revokeRole"
+            }
+          ],
+          "type": "evmData"
+        }
+      ],
+      "operation": "signEvmTransaction"
+    },
+    {
+      "action": "accept",
+      "criteria": [
+        {
+          "addresses": [
+            "<PRODUCT_REGISTRY>"
+          ],
+          "operator": "in",
+          "type": "evmAddress"
+        },
+        {
+          "ethValue": "0",
+          "operator": "==",
+          "type": "ethValue"
+        },
+        {
+          "abi": [
+            {
+              "inputs": [
+                {
+                  "name": "merchantId",
+                  "type": "uint256"
+                },
+                {
+                  "name": "productId",
+                  "type": "bytes32"
+                },
+                {
+                  "name": "commissionBps",
+                  "type": "uint16"
+                },
+                {
+                  "name": "productType",
+                  "type": "uint8"
+                },
+                {
+                  "name": "productCardURI",
+                  "type": "string"
+                }
+              ],
+              "name": "addProduct",
+              "outputs": [],
+              "stateMutability": "nonpayable",
+              "type": "function"
+            },
+            {
+              "inputs": [
+                {
+                  "name": "merchantId",
+                  "type": "uint256"
+                },
+                {
+                  "name": "productId",
+                  "type": "bytes32"
+                },
+                {
+                  "name": "commissionBps",
+                  "type": "uint16"
+                }
+              ],
+              "name": "setCommission",
+              "outputs": [],
+              "stateMutability": "nonpayable",
+              "type": "function"
+            },
+            {
+              "inputs": [
+                {
+                  "name": "merchantId",
+                  "type": "uint256"
+                },
+                {
+                  "name": "productId",
+                  "type": "bytes32"
+                },
+                {
+                  "name": "active",
+                  "type": "bool"
+                }
+              ],
+              "name": "setProductActive",
+              "outputs": [],
+              "stateMutability": "nonpayable",
+              "type": "function"
+            }
+          ],
+          "conditions": [
+            {
+              "function": "addProduct"
+            },
+            {
+              "function": "setCommission"
+            },
+            {
+              "function": "setProductActive"
+            }
+          ],
+          "type": "evmData"
+        }
+      ],
+      "operation": "signEvmTransaction"
+    },
+    {
+      "action": "reject",
+      "criteria": [],
+      "operation": "signEvmHash"
+    },
+    {
+      "action": "reject",
+      "criteria": [],
+      "operation": "signEvmMessage"
+    },
+    {
+      "action": "reject",
+      "criteria": [],
+      "operation": "sendEvmTransaction"
+    },
+    {
+      "action": "reject",
+      "criteria": [],
+      "operation": "prepareUserOperation"
+    },
+    {
+      "action": "reject",
+      "criteria": [],
+      "operation": "sendUserOperation"
+    }
+  ],
+  "scope": "account"
+}
