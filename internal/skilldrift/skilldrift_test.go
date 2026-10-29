@@ -158,9 +158,9 @@ func TestDocumented_AttributesRowsToTheHeadingAbove(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "mcp-tools.md")
 	md := "# Inventory\n\n" +
-		"## `referrer-agent` — protocol calls\n\n" +
+		"## `opensouk-agent` — protocol calls\n\n" +
 		"| Tool | What it does |\n|---|---|\n| `query_registry` | search |\n" +
-		"## `referrer-signer` — local key custody\n\n" +
+		"## `opensouk-signer` — local key custody\n\n" +
 		"| Tool | What it does |\n|---|---|\n| `bind_escrow` | bind |\n" +
 		"Prose naming `pay_for_product` outside any table must not count as documented.\n"
 	if err := os.WriteFile(path, []byte(md), 0o600); err != nil {

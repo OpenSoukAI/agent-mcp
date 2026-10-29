@@ -60,7 +60,7 @@ type fakeVoteOut struct {
 // TestComputeVoteDigestRoundTrip for that).
 func startFakeVoteBackend(t *testing.T, notIndexedFirst int) {
 	t.Helper()
-	srv := sdkmcp.NewServer(&sdkmcp.Implementation{Name: "fake-referrer-agent", Version: "0"}, nil)
+	srv := sdkmcp.NewServer(&sdkmcp.Implementation{Name: "fake-opensouk-agent", Version: "0"}, nil)
 	calls := 0
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{Name: "cast_review_votes"},
 		func(_ context.Context, _ *sdkmcp.CallToolRequest, in fakeVoteStep) (*sdkmcp.CallToolResult, fakeVoteOut, error) {

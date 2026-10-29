@@ -9,7 +9,7 @@ set -euo pipefail
 
 MCP_PROJECT_DIR="${MCP_PROJECT_DIR:-$PWD}"
 
-SIGNER_BIN="${SIGNER_INSTALL_PATH:-$HOME/.local/bin/referrer-signer}"
+SIGNER_BIN="${SIGNER_INSTALL_PATH:-$HOME/.local/bin/opensouk-signer}"
 MCP_URL="${REFERRER_MCP_URL:-http://localhost:8081/mcp}"
 BASE_RPC_URL="${BASE_RPC_URL:-https://sepolia.base.org}"
 # PROTOCOL_ADDRESS_REGISTRY (optional): overrides the signer's built-in registry for CHAIN_ID.
@@ -22,7 +22,7 @@ CHAIN_ID="${CHAIN_ID:-84532}"
 AGENT_KEYS="${AGENT_KEYS:-}"
 
 # ── 1. Build the signer binary ─────────────────────────────────────────────────
-echo "Building referrer-signer..."
+echo "Building opensouk-signer..."
 mkdir -p "$(dirname "$SIGNER_BIN")"
 go build -trimpath -ldflags="-s -w" -o "$SIGNER_BIN" ./cmd/signer
 echo "  → $SIGNER_BIN"
@@ -62,26 +62,26 @@ cd "$MCP_PROJECT_DIR"
 # Remove first so re-runs are idempotent. The user-scope removals clean up what earlier versions
 # of this script registered: a user-scope entry is in every project and held the key itself.
 for scope in user local; do
-  claude mcp remove --scope "$scope" referrer-agent 2>/dev/null || true
-  claude mcp remove --scope "$scope" referrer-signer 2>/dev/null || true
+  claude mcp remove --scope "$scope" opensouk-agent 2>/dev/null || true
+  claude mcp remove --scope "$scope" opensouk-signer 2>/dev/null || true
 done
 
-claude mcp add --scope local --transport http referrer-agent "$MCP_URL"
-echo "  → referrer-agent ($MCP_URL)"
+claude mcp add --scope local --transport http opensouk-agent "$MCP_URL"
+echo "  → opensouk-agent ($MCP_URL)"
 
 SIGNER_ENV=(-e "BASE_RPC_URL=$BASE_RPC_URL" -e "CHAIN_ID=$CHAIN_ID")
 if [ -n "$PAR_ADDR" ]; then
   SIGNER_ENV+=(-e "PROTOCOL_ADDRESS_REGISTRY=$PAR_ADDR")
 fi
-echo "  → referrer-signer ($SIGNER_BIN) [key from $ENV_FILE]"
+echo "  → opensouk-signer ($SIGNER_BIN) [key from $ENV_FILE]"
 
-claude mcp add --scope local referrer-signer "$SIGNER_BIN" "${SIGNER_ENV[@]}"
+claude mcp add --scope local opensouk-signer "$SIGNER_BIN" "${SIGNER_ENV[@]}"
 
 # ── Done ───────────────────────────────────────────────────────────────────────
 echo ""
 echo "Done. Two MCP servers registered for $MCP_PROJECT_DIR only (local scope):"
-echo "  referrer-agent  (remote: $MCP_URL)"
-echo "  referrer-signer (local:  $SIGNER_BIN)"
+echo "  opensouk-agent  (remote: $MCP_URL)"
+echo "  opensouk-signer (local:  $SIGNER_BIN)"
 echo "    CHAIN_ID=$CHAIN_ID"
 echo ""
 if [ -n "$PLACEHOLDER" ]; then

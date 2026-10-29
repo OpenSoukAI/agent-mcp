@@ -195,7 +195,7 @@ func warnAddressOverrides(chainID int64, w io.Writer) {
 	}
 	for _, k := range []protocolKey{keyReviewRegistry, keyEscrow, keyMerchantRegistry, keyProductRegistry, keySplitRouter, keyAgentRegistry} {
 		if os.Getenv(k.envVar()) != "" {
-			fmt.Fprintf(w, "referrer-signer: %s overrides the ProtocolAddressRegistry value on chain %d; unset it unless you are testing\n", k.envVar(), chainID)
+			fmt.Fprintf(w, "opensouk-signer: %s overrides the ProtocolAddressRegistry value on chain %d; unset it unless you are testing\n", k.envVar(), chainID)
 		}
 	}
 }

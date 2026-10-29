@@ -47,15 +47,15 @@ The committed files carry placeholders (`<CHAIN_ID>`, `<REVIEW_REGISTRY>`, `<USD
 configuration, which resolves the contract addresses the same way the tools do:
 
 ```bash
-CHAIN_ID=84532 BASE_RPC_URL=… referrer-signer policy --provider privy \
+CHAIN_ID=84532 BASE_RPC_URL=… opensouk-signer policy --provider privy \
   --usdc 0x036CbD53842c5426634e7929541eC2318f3dCF7e --max-payment 5000000 --agent-id 12 > privy-policy.json
 
-CHAIN_ID=84532 BASE_RPC_URL=… referrer-signer policy --provider turnkey \
+CHAIN_ID=84532 BASE_RPC_URL=… opensouk-signer policy --provider turnkey \
   --usdc 0x036CbD53842c5426634e7929541eC2318f3dCF7e --max-payment 5000000 \
   --turnkey-user-id <signer user id> --wallet <wallet account address> --agent-id 12 \
   > turnkey-policies.json
 
-CHAIN_ID=84532 BASE_RPC_URL=… referrer-signer policy --provider cdp \
+CHAIN_ID=84532 BASE_RPC_URL=… opensouk-signer policy --provider cdp \
   --usdc 0x036CbD53842c5426634e7929541eC2318f3dCF7e --max-payment 5000000 --agent-id 12 \
   > cdp-policy.json
 ```
@@ -72,7 +72,7 @@ bypass every policy.
 
 **Privy.** The wallet needs an owner (a key quorum you keep off the agent's machine), and the
 signer's authorization key must be an **additional signer** with this policy, not the owner: an
-owner can replace the policy. `referrer-signer privy-setup` creates the policy, the wallet and the
+owner can replace the policy. `opensouk-signer privy-setup` creates the policy, the wallet and the
 signer entry from your owner key in one go. The signer refuses to start against a wallet with no
 owner.
 

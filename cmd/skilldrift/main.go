@@ -41,7 +41,7 @@ func main() {
 	agentDir := filepath.Join(*backend, "internal", "mcp")
 	agent, err := skilldrift.Registered(agentDir)
 	if err != nil {
-		fail("reading referrer-agent registrations: %v", err)
+		fail("reading opensouk-agent registrations: %v", err)
 	}
 	if len(agent) == 0 {
 		// Notably reachable: backend's default branch is main, where internal/ does not exist —
@@ -53,7 +53,7 @@ func main() {
 	signerDir := filepath.Join(*signer, "cmd", "signer")
 	signerTools, err := skilldrift.Registered(signerDir)
 	if err != nil {
-		fail("reading referrer-signer registrations: %v", err)
+		fail("reading opensouk-signer registrations: %v", err)
 	}
 	if len(signerTools) == 0 {
 		fail("no tools found in %s — wrong ref checked out, or the registration pattern changed", signerDir)
@@ -68,8 +68,8 @@ func main() {
 	d := skilldrift.Compare(documented, agent, signerTools)
 	out, err := json.MarshalIndent(struct {
 		skilldrift.Diff
-		RegisteredAgent  int `json:"registered_referrer_agent"`
-		RegisteredSigner int `json:"registered_referrer_signer"`
+		RegisteredAgent  int `json:"registered_opensouk_agent"`
+		RegisteredSigner int `json:"registered_opensouk_signer"`
 		Documented       int `json:"documented"`
 	}{d, len(agent), len(signerTools), len(documented)}, "", "  ")
 	if err != nil {

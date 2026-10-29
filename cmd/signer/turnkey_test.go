@@ -117,7 +117,7 @@ func (f *fakeTurnkey) serve(w http.ResponseWriter, r *http.Request) {
 		}
 		_ = json.NewEncoder(w).Encode(map[string]any{"configs": map[string]any{"quorum": map[string]any{"threshold": 1, "userIds": users}}})
 	case "/public/v1/query/whoami":
-		_ = json.NewEncoder(w).Encode(map[string]any{"organizationId": f.org, "userId": "user-signer", "username": "referrer-signer"})
+		_ = json.NewEncoder(w).Encode(map[string]any{"organizationId": f.org, "userId": "user-signer", "username": "opensouk-signer"})
 	case "/public/v1/submit/sign_raw_payload":
 		f.activity(w, "sign-raw", f.signRaw(req))
 	case "/public/v1/submit/sign_transaction":

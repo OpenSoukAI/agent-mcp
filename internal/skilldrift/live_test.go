@@ -43,7 +43,7 @@ func TestSkillDocumentsEveryRegisteredTool(t *testing.T) {
 	agentDir := filepath.Join(backend, "internal", "mcp")
 	agent, err := Registered(agentDir)
 	if err != nil {
-		t.Fatalf("reading referrer-agent registrations: %v", err)
+		t.Fatalf("reading opensouk-agent registrations: %v", err)
 	}
 	if len(agent) == 0 {
 		t.Fatalf("no tools found in %s — the registration pattern or layout changed", agentDir)
@@ -51,7 +51,7 @@ func TestSkillDocumentsEveryRegisteredTool(t *testing.T) {
 
 	signer, err := Registered(filepath.Join("..", "..", "cmd", "signer"))
 	if err != nil {
-		t.Fatalf("reading referrer-signer registrations: %v", err)
+		t.Fatalf("reading opensouk-signer registrations: %v", err)
 	}
 	if len(signer) == 0 {
 		t.Fatal("no tools found in cmd/signer — the registration pattern changed")

@@ -1,6 +1,6 @@
 {
   "mcpServers": {
-    "referrer-agent": {
+    "opensouk-agent": {
       "type": "http",
       "url": "http://localhost:8081/mcp"
     }

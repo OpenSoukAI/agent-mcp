@@ -44,7 +44,7 @@ jobs:
   drift:
     runs-on: ubuntu-latest
     steps:
-      - name: Check out agent-mcp (referrer-signer tools + the checker)
+      - name: Check out agent-mcp (opensouk-signer tools + the checker)
         uses: actions/checkout@v4
         with:
           repository: OpenSoukAI/agent-mcp
@@ -56,7 +56,7 @@ jobs:
       # would compare the skill against a backend that no longer exists; the checker exits 1 on
       # "no tools found" rather than reporting every tool as undocumented, but the right ref is
       # cheaper than the right error message.
-      - name: Check out backend@dev (referrer-agent tools)
+      - name: Check out backend@dev (opensouk-agent tools)
         uses: actions/checkout@v4
         with:
           repository: OpenSoukAI/backend
