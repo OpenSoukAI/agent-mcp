@@ -6,7 +6,10 @@
 # It publishes the release's own assets, after checking them against SHA256SUMS and the release
 # workflow's build-provenance attestation. Packages already on npm at that version are skipped, so
 # a rerun finishes a partial publish. npm authenticates the run through trusted publishing (OIDC)
-# and adds provenance; every package must name this repo and this workflow as a trusted publisher.
+# and adds provenance. Every package's trusted publisher names this repo, this workflow and the
+# `npm` environment. That environment only deploys from main: the GITHUB_REF check below runs
+# inside the workflow, so a branch carrying an edited copy of this file would skip it; the
+# environment rule it can't skip.
 name: Publish signer to npm
 
 on:
@@ -27,6 +30,7 @@ concurrency:
 jobs:
   publish:
     runs-on: ubuntu-latest
+    environment: npm
     permissions:
       contents: read # download the release assets
       id-token: write # npm trusted publishing and provenance
@@ -64,7 +68,8 @@ jobs:
           (cd dist && sha256sum -c SHA256SUMS)
           for f in dist/opensouk-signer_*; do
             gh attestation verify "$f" --repo "$GITHUB_REPOSITORY" \
-              --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/release.yml"
+              --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/release.yml" \
+              --source-ref refs/heads/main --deny-self-hosted-runners
           done
 
       - name: Stage the packages
