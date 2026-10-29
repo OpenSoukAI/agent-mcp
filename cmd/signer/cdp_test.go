@@ -7,6 +7,7 @@ import (
 	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/sha256"
+	"crypto/x509"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
@@ -35,13 +36,22 @@ import (
 type fakeCDP struct {
 	t          *testing.T
 	srv        *httptest.Server
+	apiKeyID   string
 	apiPub     ed25519.PublicKey
+	apiPriv    ed25519.PrivateKey
 	walletPub  *ecdsa.PublicKey
+	walletPriv *ecdsa.PrivateKey
 	evmKey     *ecdsa.PrivateKey // the account CDP signs as
 	foreignKey *ecdsa.PrivateKey // set to make the fake sign with a different key than evmKey
 	status     int               // forced non-200 status
 	errBody    string
 	delay      time.Duration // artificial latency, bounded by the request's own context
+
+	noAccount       bool            // GET /v2/evm/accounts/{addr} answers 404
+	accountAddr     string          // overrides the address the account GET echoes back; "" echoes the request
+	acceptOps       map[string]bool // policy-engine/simulate operations that must answer "accept" instead of "reject"
+	simulateStatus  int             // forced non-200 status for policy-engine/simulate only (status covers every path)
+	simulateErrBody string
 
 	mu   sync.Mutex
 	hits int
@@ -61,7 +71,12 @@ func newFakeCDP(t *testing.T) (*fakeCDP, *cdpClient) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	f := &fakeCDP{t: t, apiPub: apiPub, walletPub: &walletCred.PublicKey, evmKey: evmKey}
+	f := &fakeCDP{
+		t: t, apiKeyID: "organizations/org/apiKeys/key-1",
+		apiPub: apiPub, apiPriv: apiPriv,
+		walletPub: &walletCred.PublicKey, walletPriv: walletCred,
+		evmKey: evmKey,
+	}
 	f.srv = httptest.NewServer(http.HandlerFunc(f.serve))
 	t.Cleanup(f.srv.Close)
 	u, err := url.Parse(f.srv.URL)
@@ -71,7 +86,7 @@ func newFakeCDP(t *testing.T) (*fakeCDP, *cdpClient) {
 	c := &cdpClient{
 		base: f.srv.URL,
 		host: u.Host,
-		key:  &cdpAPIKey{id: "organizations/org/apiKeys/key-1", priv: apiPriv},
+		key:  &cdpAPIKey{id: f.apiKeyID, priv: apiPriv},
 		wallet: &p256Credential{priv: walletCred, pubHex: hex.EncodeToString(
 			elliptic.MarshalCompressed(elliptic.P256(), walletCred.X, walletCred.Y))},
 		http: &http.Client{},
@@ -80,6 +95,21 @@ func newFakeCDP(t *testing.T) (*fakeCDP, *cdpClient) {
 }
 
 func (f *fakeCDP) addr() common.Address { return crypto.PubkeyToAddress(f.evmKey.PublicKey) }
+
+// env returns the settings cdpKeystore needs to authenticate against this fake, keyed as the
+// signer reads them.
+func (f *fakeCDP) env() map[string]string {
+	walletDER, err := x509.MarshalPKCS8PrivateKey(f.walletPriv)
+	if err != nil {
+		f.t.Fatal(err)
+	}
+	return map[string]string{
+		"CDP_API_KEY_ID":     f.apiKeyID,
+		"CDP_API_KEY_SECRET": base64.StdEncoding.EncodeToString(f.apiPriv),
+		"CDP_WALLET_SECRET":  base64.StdEncoding.EncodeToString(walletDER),
+		"CDP_API_BASE_URL":   f.srv.URL,
+	}
+}
 
 func (f *fakeCDP) signKey() *ecdsa.PrivateKey {
 	if f.foreignKey != nil {
@@ -122,13 +152,57 @@ func (f *fakeCDP) serve(w http.ResponseWriter, r *http.Request) {
 	}
 
 	switch {
+	case r.Method == http.MethodGet && strings.Contains(r.URL.Path, "/v2/evm/accounts/"):
+		f.serveAccount(w, r)
 	case strings.HasSuffix(r.URL.Path, "/sign/typed-data"):
 		f.signTypedData(w, body)
 	case strings.HasSuffix(r.URL.Path, "/sign/transaction"):
 		f.signTransaction(w, body)
+	case strings.HasSuffix(r.URL.Path, "/v2/policy-engine/simulate"):
+		f.serveSimulate(w, body)
 	default:
 		http.NotFound(w, r)
 	}
+}
+
+// serveAccount answers GET /v2/evm/accounts/{addr}: not-found if noAccount is set, else echoes
+// the requested address (or accountAddr, to simulate CDP answering for a different one).
+func (f *fakeCDP) serveAccount(w http.ResponseWriter, r *http.Request) {
+	if f.noAccount {
+		http.Error(w, `{"errorType":"not_found","errorMessage":"no such account"}`, http.StatusNotFound)
+		return
+	}
+	addr := f.accountAddr
+	if addr == "" {
+		parts := strings.Split(strings.TrimSuffix(r.URL.Path, "/"), "/")
+		addr = parts[len(parts)-1]
+	}
+	_ = json.NewEncoder(w).Encode(map[string]any{"address": addr})
+}
+
+// serveSimulate answers POST /v2/policy-engine/simulate: "accept" for any operation listed in
+// acceptOps, "reject" otherwise. simulateStatus/simulateErrBody force a non-200 response just for
+// this endpoint, independent of the global status field, so a test can let the account GET
+// succeed while only the simulate call fails.
+func (f *fakeCDP) serveSimulate(w http.ResponseWriter, body []byte) {
+	if f.simulateStatus != 0 {
+		w.WriteHeader(f.simulateStatus)
+		_, _ = w.Write([]byte(f.simulateErrBody))
+		return
+	}
+	var req struct {
+		Operation string `json:"operation"`
+	}
+	if err := json.Unmarshal(body, &req); err != nil {
+		f.t.Errorf("simulate body is not JSON: %v", err)
+		http.Error(w, `{"errorType":"bad_request","errorMessage":"not json"}`, http.StatusBadRequest)
+		return
+	}
+	action := "reject"
+	if f.acceptOps[req.Operation] {
+		action = "accept"
+	}
+	_ = json.NewEncoder(w).Encode(map[string]any{"action": action})
 }
 
 func (f *fakeCDP) verifyBearer(r *http.Request, uri string) bool {
@@ -412,5 +486,111 @@ func TestCDPBodyWithHTMLCharsHashes(t *testing.T) {
 	}
 	if _, err := s.SignTypedData(context.Background(), td); err != nil {
 		t.Fatalf("SignTypedData with HTML characters in the reason: %v", err)
+	}
+}
+
+// ── cdpKeystore (boot: account lookup + policy self-test) ──
+
+func TestCDPKeystoreBoots(t *testing.T) {
+	f, _ := newFakeCDP(t)
+	env := f.env()
+	env["AGENT_WALLETS"] = "*:" + f.addr().Hex()
+
+	ks, report, err := cdpKeystore(context.Background(), envOf(env), env["AGENT_WALLETS"])
+	if err != nil {
+		t.Fatalf("cdpKeystore: %v", err)
+	}
+	s, err := ks.KeyFor("42")
+	if err != nil || s.Address() != f.addr() {
+		t.Fatalf("the fallback key must resolve to %s: %v", f.addr().Hex(), err)
+	}
+	joined := strings.Join(report, "\n")
+	if !strings.Contains(joined, "self-test passed") {
+		t.Fatalf("report %v must mention self-test passed", report)
+	}
+	if !strings.Contains(joined, f.apiKeyID) || !strings.Contains(joined, "Export") || !strings.Contains(joined, "Manage") {
+		t.Fatalf("report %v must warn about the Export/Manage scopes, naming the key id", report)
+	}
+}
+
+func TestCDPKeystoreRefusesPermissivePolicy(t *testing.T) {
+	for _, op := range []string{"signEvmHash", "signEvmMessage", "signEvmTransaction"} {
+		t.Run(op, func(t *testing.T) {
+			f, _ := newFakeCDP(t)
+			f.acceptOps = map[string]bool{op: true}
+			env := f.env()
+			env["AGENT_WALLETS"] = "*:" + f.addr().Hex()
+
+			_, _, err := cdpKeystore(context.Background(), envOf(env), env["AGENT_WALLETS"])
+			if err == nil || !strings.Contains(err.Error(), op) {
+				t.Fatalf("want an error naming %s, got %v", op, err)
+			}
+		})
+	}
+}
+
+func TestCDPKeystoreRefusesForbiddenSimulate(t *testing.T) {
+	f, _ := newFakeCDP(t)
+	f.simulateStatus = http.StatusForbidden
+	f.simulateErrBody = `{"errorType":"forbidden","errorMessage":"no scope"}`
+	env := f.env()
+	env["AGENT_WALLETS"] = "*:" + f.addr().Hex()
+
+	_, _, err := cdpKeystore(context.Background(), envOf(env), env["AGENT_WALLETS"])
+	if err == nil || !strings.Contains(err.Error(), "self-test") {
+		t.Fatalf("want an error mentioning self-test, got %v", err)
+	}
+	if strings.Contains(err.Error(), "Manage") {
+		t.Fatalf("a self-test scope refusal must never mention Manage: %v", err)
+	}
+}
+
+func TestCDPKeystoreRefusesMissingAccount(t *testing.T) {
+	f, _ := newFakeCDP(t)
+	f.noAccount = true
+	env := f.env()
+	env["AGENT_WALLETS"] = "*:" + f.addr().Hex()
+
+	_, _, err := cdpKeystore(context.Background(), envOf(env), env["AGENT_WALLETS"])
+	if err == nil || !strings.Contains(err.Error(), "no CDP account") {
+		t.Fatalf("want an error containing \"no CDP account\", got %v", err)
+	}
+}
+
+func TestCDPKeystoreNeedsSettings(t *testing.T) {
+	f, _ := newFakeCDP(t)
+	full := f.env()
+	full["AGENT_WALLETS"] = "*:" + f.addr().Hex()
+
+	for _, k := range []string{"CDP_API_KEY_ID", "CDP_API_KEY_SECRET", "CDP_WALLET_SECRET"} {
+		t.Run(k, func(t *testing.T) {
+			env := make(map[string]string, len(full))
+			for kk, vv := range full {
+				env[kk] = vv
+			}
+			env[k] = ""
+			_, _, err := cdpKeystore(context.Background(), envOf(env), env["AGENT_WALLETS"])
+			if err == nil || !strings.Contains(err.Error(), k) {
+				t.Fatalf("want an error naming %s, got %v", k, err)
+			}
+		})
+	}
+}
+
+// The JWT uris claim must carry the base URL's path prefix, not just its host, or CDP would
+// reject every request against a base URL like ".../platform" with a uris mismatch.
+func TestCDPKeystoreBaseURLWithPathPrefix(t *testing.T) {
+	f, _ := newFakeCDP(t)
+	env := f.env()
+	env["CDP_API_BASE_URL"] = f.srv.URL + "/platform"
+	env["AGENT_WALLETS"] = "*:" + f.addr().Hex()
+
+	ks, _, err := cdpKeystore(context.Background(), envOf(env), env["AGENT_WALLETS"])
+	if err != nil {
+		t.Fatalf("cdpKeystore with a base URL path prefix: %v", err)
+	}
+	s, err := ks.KeyFor("1")
+	if err != nil || s.Address() != f.addr() {
+		t.Fatalf("the fallback key must resolve to %s: %v", f.addr().Hex(), err)
 	}
 }
