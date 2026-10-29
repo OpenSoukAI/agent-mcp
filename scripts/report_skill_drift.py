@@ -51,8 +51,8 @@ def body(diff: dict, source: str | None) -> str:
         "Fix `reference/mcp-tools.md` in the **skills** repo, then this issue closes itself on the "
         "next run.",
         "",
-        f"- registered on `referrer-agent`: **{diff.get('registered_referrer_agent', '?')}**",
-        f"- registered on `referrer-signer`: **{diff.get('registered_referrer_signer', '?')}**",
+        f"- registered on `opensouk-agent`: **{diff.get('registered_opensouk_agent', '?')}**",
+        f"- registered on `opensouk-signer`: **{diff.get('registered_opensouk_signer', '?')}**",
         f"- listed in the inventory: **{diff.get('documented', '?')}**",
     ]
     if source:

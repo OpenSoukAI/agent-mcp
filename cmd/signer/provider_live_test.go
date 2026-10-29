@@ -23,7 +23,7 @@ import (
 // Gated: REF492_LIVE=turnkey|privy|cdp, the provider's credentials as the signer reads them,
 // REF492_WALLET (the AGENT_WALLETS ref), CHAIN_ID + the contract addresses (BASE_RPC_URL, or the
 // *_ADDRESS overrides), USDC_ADDRESS and MAX_PAYMENT_PER_TX, i.e. what the policy was generated
-// with. The policy must be generated with --agent-id 0 (referrer-signer policy --provider ...
+// with. The policy must be generated with --agent-id 0 (opensouk-signer policy --provider ...
 // --agent-id 0): specTypedData builds AgentWalletSet with agentId 0, so the "allowed" leg signs
 // that agent id regardless of which real agent the account will later be bound to.
 //

@@ -782,11 +782,11 @@ func validateVoteArgs(v []voteArg) error {
 
 // payVoteReminder is the advisory next-step returned alongside a successful payment.
 // Voting is deliberate, judgment-based, and a separate two-step signed flow on the
-// referrer-agent server, so this only nudges — it never auto-calls cast_review_votes.
+// opensouk-agent server, so this only nudges — it never auto-calls cast_review_votes.
 // The nudge deliberately states no obligation level: whether a vote is mandatory (the
 // ≥5-reviews-returned case) lives in the agent runbook, not in a single tool's output.
 const payVoteReminder = "If any reviews materially influenced this purchase, cast votes via " +
-	"cast_review_votes (referrer-agent) using this escrow_id — allow a few seconds first for " +
+	"cast_review_votes (opensouk-agent) using this escrow_id — allow a few seconds first for " +
 	"the purchase to be indexed. Vote deliberately, only for the reviews that shaped your " +
 	"decision; votes feed the platform's Review Rank."
 
@@ -1112,7 +1112,7 @@ func handlePayForProduct(
 		if voteErr != nil {
 			out.VotesError = voteErr.Error()
 			out.NextSteps = "Payment succeeded but inline voting failed: " + voteErr.Error() +
-				" — retry cast_review_votes (referrer-agent) with this escrow_id."
+				" — retry cast_review_votes (opensouk-agent) with this escrow_id."
 		} else {
 			out.VotesRecorded = recorded
 			out.NextSteps = fmt.Sprintf("Purchase settled and %d vote(s) recorded.", recorded)
@@ -1217,19 +1217,19 @@ func extractEscrowID(receipt *types.Receipt) (*big.Int, error) {
 func main() {
 	report, err := loadEnvFile(os.LookupEnv, os.Setenv, os.UserHomeDir)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "referrer-signer: env file:", err)
+		fmt.Fprintln(os.Stderr, "opensouk-signer: env file:", err)
 		os.Exit(1)
 	}
 	for _, line := range report {
-		fmt.Fprintln(os.Stderr, "referrer-signer:", line)
+		fmt.Fprintln(os.Stderr, "opensouk-signer:", line)
 	}
 	report, err = loadKeychain(context.Background(), runtime.GOOS, os.LookupEnv, os.Setenv, securityRead)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "referrer-signer: Keychain:", err)
+		fmt.Fprintln(os.Stderr, "opensouk-signer: Keychain:", err)
 		os.Exit(1)
 	}
 	for _, line := range report {
-		fmt.Fprintln(os.Stderr, "referrer-signer:", line)
+		fmt.Fprintln(os.Stderr, "opensouk-signer:", line)
 	}
 	if len(os.Args) > 1 {
 		switch os.Args[1] {
@@ -1240,23 +1240,23 @@ func main() {
 		}
 	}
 	srv := sdkmcp.NewServer(
-		&sdkmcp.Implementation{Name: "referrer-signer", Version: "1"},
+		&sdkmcp.Implementation{Name: "opensouk-signer", Version: "1"},
 		nil,
 	)
 
 	ks, report, err := loadKeystore(context.Background(), os.Getenv, defaultKMSClient)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "referrer-signer: key config:", err)
+		fmt.Fprintln(os.Stderr, "opensouk-signer: key config:", err)
 		os.Exit(1)
 	}
 	for _, line := range report {
-		fmt.Fprintln(os.Stderr, "referrer-signer:", line)
+		fmt.Fprintln(os.Stderr, "opensouk-signer:", line)
 	}
 	signerKeys = ks
 
 	policy, err := spendPolicyFromEnv()
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "referrer-signer: spend policy:", err)
+		fmt.Fprintln(os.Stderr, "opensouk-signer: spend policy:", err)
 		os.Exit(1)
 	}
 	signerSpendPolicy = policy
@@ -1350,9 +1350,9 @@ func main() {
 			"Calls ReviewRegistry.publishReviewWithEscrowProof() with the agent's private key. " +
 			"Use this after a purchase is confirmed (escrow deposited). " +
 			"content_json must be an x402-review/1 review for the product's category (get_review_schema on " +
-			"referrer-agent): the tool checks it with the backend's POST /v1/review/validate before hashing and " +
+			"opensouk-agent): the tool checks it with the backend's POST /v1/review/validate before hashing and " +
 			"refuses, sending nothing, if the backend would reject it. " +
-			"After this succeeds, call register_purchase_review on referrer-agent with the returned review_id.",
+			"After this succeeds, call register_purchase_review on opensouk-agent with the returned review_id.",
 	}, handlePublishEscrowReview)
 
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
@@ -1370,7 +1370,7 @@ func main() {
 		Description: "Force-settle an escrow the oracle never settled (CommissionEscrow.triggerSettleFallback). " +
 			"Permissionless — any agent may call it — and it opens 10 days after the escrow's windowEnd PLUS any " +
 			"protocol-pause time accrued since the escrow's deposit (~day 70, later if the protocol was paused). " +
-			"Check fallback_available via get_escrow_status (referrer-agent) first — it reads this contract's " +
+			"Check fallback_available via get_escrow_status (opensouk-agent) first — it reads this contract's " +
 			"windowEnd and applies the same pause shift, so it should normally agree; this tool still re-reads " +
 			"windowEnd and the pause shift itself and refuses with the real date, so calling it and reading a " +
 			"refusal costs only the RPC call. list_escrows always reports fallback_available false. This is NOT a claim and it does not pay " +
@@ -1386,14 +1386,14 @@ func main() {
 		Name: "update_review_content_onchain",
 		Description: "Edit a buyer review's content on-chain within its 7-day window " +
 			"(ReviewRegistry.updateReviewContent). This is the FIRST of two calls: it updates only the " +
-			"on-chain content hash. Afterwards you MUST call update_review_content (referrer-agent) with " +
+			"on-chain content hash. Afterwards you MUST call update_review_content (opensouk-agent) with " +
 			"the same review_id and the SAME content_json to sync the stored text and re-run the alignment " +
 			"oracle — that tool verifies your content against the hash this one stored and rejects any " +
 			"difference. Pass review_id (the ON-CHAIN id) and the full replacement content_json; the tool " +
 			"reads the review from the chain to build the hash and to pick the signing key, so do not pass " +
 			"agent/merchant/product ids. Only a buyer review published with an escrow proof is editable, " +
 			"and only by the reviewer agent's owner or its registered agent wallet. content_json must be an " +
-			"x402-review/1 review for the product's category (get_review_schema on referrer-agent): the tool " +
+			"x402-review/1 review for the product's category (get_review_schema on opensouk-agent): the tool " +
 			"checks it with the backend's POST /v1/review/validate before hashing and refuses, sending " +
 			"nothing, if update_review_content would reject it.",
 	}, handleUpdateReviewContentOnchain)
@@ -1513,7 +1513,7 @@ func main() {
 		Description: "Read a merchant's own performance figures (GET /v1/merchant/{id}/stats): " +
 			"conversions, gross revenue, how many escrows are still holding vs settled, and product counts. " +
 			"Authenticated — a merchant's revenue is shown only to the merchant's side, which is why this " +
-			"lives on referrer-signer rather than the keyless server. merchant_id is the merchant's ERC-8004 " +
+			"lives on opensouk-signer rather than the keyless server. merchant_id is the merchant's ERC-8004 " +
 			"agent id, and the signing key must own it or hold PRODUCT_MANAGER or COMMISSION_MANAGER for it " +
 			"(a SETTLEMENT_SIGNER key cannot read it). revenue_gross is USDC base units (6 decimals); " +
 			"escrow_holding and escrow_settled are counts. " +
@@ -1576,7 +1576,7 @@ func main() {
 			"same call: after settlement the tool signs and submits them via the backend's cast_review_votes " +
 			"two-step (retrying past indexer lag), returning votes_recorded. Omit submit_votes to skip voting. " +
 			"A vote failure never voids the payment — votes_error is set and the purchase still stands. " +
-			"Inline voting requires REFERRER_AGENT_MCP_URL to point at the referrer-agent MCP endpoint. " +
+			"Inline voting requires REFERRER_AGENT_MCP_URL to point at the opensouk-agent MCP endpoint. " +
 			"The next_steps field is advisory and depends on the path: cast_review_votes for an " +
 			"agent-bound purchase, bind_escrow for an agent-less one (which cannot vote until bound). " +
 			"A retry whose idempotency_key was already used fails with an error prefixed " +
@@ -1588,7 +1588,7 @@ func main() {
 	defer stop()
 
 	if err := srv.Run(ctx, &sdkmcp.StdioTransport{}); err != nil {
-		fmt.Fprintln(os.Stderr, "referrer-signer:", err)
+		fmt.Fprintln(os.Stderr, "opensouk-signer:", err)
 		os.Exit(1)
 	}
 }

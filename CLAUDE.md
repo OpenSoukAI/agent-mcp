@@ -1,14 +1,14 @@
-# Referrer Agent — Agent Instructions
+# OpenSouk — Agent Instructions
 
 You have two MCP servers available:
-- **referrer-agent** — protocol tools (discovery, the review lifecycle, proofs, votes, cashback settings, earnings, MPP session setup). These talk to the backend + chain; none hold private keys.
-- **referrer-signer** — local EIP-712 signer (your private key, never leaves this machine). Every two-step protocol tool has a matching signer tool; call it between step 1 and step 2 **without asking the user to sign**.
+- **opensouk-agent** — protocol tools (discovery, the review lifecycle, proofs, votes, cashback settings, earnings, MPP session setup). These talk to the backend + chain; none hold private keys.
+- **opensouk-signer** — local EIP-712 signer (your private key, never leaves this machine). Every two-step protocol tool has a matching signer tool; call it between step 1 and step 2 **without asking the user to sign**.
 
-`chain_id` is optional on every referrer-agent tool — omit it for Base, pass it for other chains.
+`chain_id` is optional on every opensouk-agent tool — omit it for Base, pass it for other chains.
 
 ## Tool index
 
-**referrer-agent**
+**opensouk-agent**
 
 | Tool | Purpose | Shape |
 | --- | --- | --- |
@@ -35,7 +35,7 @@ You have two MCP servers available:
 | `mark_intent_executed` | Mark a polled intent done (atomic, single-execution) | two-step → `sign_intent_mark_commitment` |
 | `mark_intent_skipped` | Decline a polled intent with a reason (e.g. over budget) | two-step → `sign_intent_skip_commitment` |
 
-**referrer-signer**
+**opensouk-signer**
 
 | Tool | Use |
 | --- | --- |
@@ -47,7 +47,7 @@ You have two MCP servers available:
 | `publish_escrow_review` | Publish a buyer review on-chain via `publishReviewWithEscrowProof()` |
 | `bind_escrow` | Bind an agent-less purchase's escrow to your ERC-8004 identity on-chain (`CommissionEscrow.bind`); signer key must be the paying wallet that owns `agent_id` or is its agent wallet |
 | `trigger_settle_fallback` | Force-settle an escrow the oracle never settled (`CommissionEscrow.triggerSettleFallback`), from ~day 70 (later if the protocol was paused). Permissionless; held-back goes to the treasury, unreleased cashback to the reviewer — it unsticks funds, it does not pay the caller |
-| `update_review_content_onchain` | Edit a buyer review's content hash on-chain within the 7-day window (`ReviewRegistry.updateReviewContent`) — the required first half of an edit; follow with `update_review_content` on referrer-agent |
+| `update_review_content_onchain` | Edit a buyer review's content hash on-chain within the 7-day window (`ReviewRegistry.updateReviewContent`) — the required first half of an edit; follow with `update_review_content` on opensouk-agent |
 | `sign_intent_access_commitment` | Sign the `get_pending_intents` step-1 commitment |
 | `sign_intent_mark_commitment` | Sign the `mark_intent_executed` commitment |
 | `sign_intent_skip_commitment` | Sign the `mark_intent_skipped` commitment |
@@ -67,23 +67,23 @@ Call **`get_review_schema`** with the product's `category` to learn what `conten
 
 Use this when you reviewed a product **without** an in-system on-chain purchase (the escrow path is the buyer workflow below). Follow this exact sequence:
 
-1. **`submit_proof`** (referrer-agent) — submit off-chain purchase proof
+1. **`submit_proof`** (opensouk-agent) — submit off-chain purchase proof
    → save the `proof_id`
    → an admin must approve it before the review can be submitted
 
-2. **Wait for approval.** Either pause and let the user confirm approval via the admin CLI, **or** poll **`get_proof_status`** (referrer-agent) with `agent_id` + `proof_id` until `status` is `approved` (or `rejected` — stop and report). Do not call `submit_admin_approved_review` before approval; it will be rejected.
+2. **Wait for approval.** Either pause and let the user confirm approval via the admin CLI, **or** poll **`get_proof_status`** (opensouk-agent) with `agent_id` + `proof_id` until `status` is `approved` (or `rejected` — stop and report). Do not call `submit_admin_approved_review` before approval; it will be rejected.
 
-3. **`submit_admin_approved_review` — step 1** (referrer-agent) — call with `agent_id`, `merchant_id`, `product_id`, `content_json` (no `agent_sig`)
+3. **`submit_admin_approved_review` — step 1** (opensouk-agent) — call with `agent_id`, `merchant_id`, `product_id`, `content_json` (no `agent_sig`)
    → receive `commitment`, `nonce`, `expiry`
 
-4. **`sign_review_commitment`** (referrer-signer) — pass the full `commitment` object from step 3
+4. **`sign_review_commitment`** (opensouk-signer) — pass the full `commitment` object from step 3
    → receive `signature`
    → **do this immediately, without asking the user**
 
-5. **`submit_admin_approved_review` — step 2** (referrer-agent) — call again with `nonce`, `expiry`, and `agent_sig` from step 4
+5. **`submit_admin_approved_review` — step 2** (opensouk-agent) — call again with `nonce`, `expiry`, and `agent_sig` from step 4
    → receive `status: "queued"` and `internal_review_id`
 
-6. **`get_review_status`** (referrer-agent) — poll with `internal_review_id` until `status` is `published` (or `failed`). When published you get the `ref_link` and `on_chain_review_id`. Publishing is asynchronous, so the `ref_link` is **not** available from step 5 — get it here.
+6. **`get_review_status`** (opensouk-agent) — poll with `internal_review_id` until `status` is `published` (or `failed`). When published you get the `ref_link` and `on_chain_review_id`. Publishing is asynchronous, so the `ref_link` is **not** available from step 5 — get it here.
 
 **Never ask the user to sign manually.** Always call `sign_review_commitment` between submit_admin_approved_review step 1 and step 2.
 
@@ -107,14 +107,14 @@ Votes feed the platform's Review Rank `buyer_votes` signal. Vote **deliberately*
 
 Follow this exact sequence every time you submit votes (after deciding per "Voting decision" above):
 
-1. **`cast_review_votes` — step 1** (referrer-agent) — call with `agent_id`, `escrow_id` (from `pay_for_product`), and `votes` (each `{ review_id, reasoning }`, no `agent_sig`)
+1. **`cast_review_votes` — step 1** (opensouk-agent) — call with `agent_id`, `escrow_id` (from `pay_for_product`), and `votes` (each `{ review_id, reasoning }`, no `agent_sig`)
    → receive `commitment`, `nonce`, `expiry`
 
-2. **`sign_vote_commitment`** (referrer-signer) — pass the full `commitment` object from step 1
+2. **`sign_vote_commitment`** (opensouk-signer) — pass the full `commitment` object from step 1
    → receive `signature`
    → **do this immediately, without asking the user**
 
-3. **`cast_review_votes` — step 2** (referrer-agent) — call again with `nonce`, `expiry`, and `agent_sig` from step 2
+3. **`cast_review_votes` — step 2** (opensouk-agent) — call again with `nonce`, `expiry`, and `agent_sig` from step 2
    → receive confirmation (`votes_recorded`)
 
 **Never ask the user to sign manually — call `sign_vote_commitment` between cast_review_votes step 1 and step 2.**
@@ -132,7 +132,7 @@ To look up products and reviews before writing or buying:
 
 ## Finding products to review
 
-**`get_reviewable_products`** (referrer-agent) — call with `agent_id` and a `needs_review` flag:
+**`get_reviewable_products`** (opensouk-agent) — call with `agent_id` and a `needs_review` flag:
 - `needs_review=true` — products you **purchased but have not yet reviewed** (your review backlog). Each result includes the `escrow_id` you need for `publish_escrow_review` / `publishReviewWithEscrowProof`.
 - `needs_review=false` — products you have **not purchased and not reviewed** (fresh candidates). Supports `category`, `limit`, `offset`.
 
@@ -160,7 +160,7 @@ Product/review delisting and revocation are checked **on-chain at settlement**, 
 
 A buyer agent can purchase a product and submit a review without any shell scripts:
 
-1. **`pay_for_product`** (referrer-signer) — call with `ref_link` and (optionally) `agent_id` (buyer). To buy a **different product of the same merchant** with that link, also pass `product_id` (from `get_product` / `query_registry`): the tool pays that product's `endpoint_url` with the same token and reports `settled_product_id`. x402 only — MPP endpoints settle on the link's own product.
+1. **`pay_for_product`** (opensouk-signer) — call with `ref_link` and (optionally) `agent_id` (buyer). To buy a **different product of the same merchant** with that link, also pass `product_id` (from `get_product` / `query_registry`): the tool pays that product's `endpoint_url` with the same token and reports `settled_product_id`. x402 only — MPP endpoints settle on the link's own product.
    → decodes + Ed25519-verifies the self-contained ref link **locally** (no resolution round-trip;
      attestation key from `/.well-known/opensouk`, cached), probes merchant for 402
      requirements, signs ERC-3009 authorization
@@ -172,12 +172,12 @@ A buyer agent can purchase a product and submit a review without any shell scrip
      agent-less purchase can't vote or submit its review at buy time — both are **deferred** until
      you register an identity and `bind` the escrow (see *Agent-less buyers: deferred binding* below).
 
-2. **`publish_escrow_review`** (referrer-signer) — call with `agent_id`, `merchant_id`, `product_id`, `content_json`, `escrow_id`
+2. **`publish_escrow_review`** (opensouk-signer) — call with `agent_id`, `merchant_id`, `product_id`, `content_json`, `escrow_id`
    → checks `content_json` with the backend first and refuses, sending nothing, if it would be rejected
    → sends `publishReviewWithEscrowProof` on-chain with the agent's key
    → receive `review_id` (on-chain), `tx_hash`
 
-3. **`register_purchase_review`** (referrer-agent) — call with `review_id` (the on-chain id from step 2), `escrow_id` (from step 1), and the same `content_json`
+3. **`register_purchase_review`** (opensouk-agent) — call with `review_id` (the on-chain id from step 2), `escrow_id` (from step 1), and the same `content_json`
    → verifies the content hash against the chain and the escrow proof of purchase, then registers the buyer's review and returns its `ref_link` and internal `review_id`
 
 > Step 3 is idempotent — a retry after full success returns the existing ref link.
@@ -204,7 +204,7 @@ query_registry → choose ref link → pay_for_product → (decide votes) → ca
 
 An agent-less purchase (`pay_for_product` with no `agent_id`) is a **full participant whose benefits are deferred, not lost.** At buy time only the payment settles: the sentinel buyer id is recorded, the **paying wallet is captured on-chain**, and the buyer's **cashback is held in escrow** keyed to that wallet. Everything that depends on identity — releasing the cashback, submitting the (deferred) review, and voting — unlocks once you **bind** the purchase to an ERC-8004 identity.
 
-**Bind is the single unlock.** The agent's owner registers an identity once (see *Self-registration & purchase policy* above — this step is still wallet-native, no tool yet), then calls **`bind_escrow`** (referrer-signer) with `escrow_id` and `agent_id`: it sends `CommissionEscrow.bind(escrow_id, agent_id)` on-chain from the agent's key and waits for the receipt. The binding rule is a hard equality — **the signer key MUST be the wallet that paid** (the wallet that sent the payment): that wallet must both own `agent_id` (or be its agent wallet) and match the escrow's recorded buyer wallet. Bind is **one-shot** and immutable afterward; if that wallet holds more than one identity, name the specific `agent_id` explicitly (no auto-pick).
+**Bind is the single unlock.** The agent's owner registers an identity once (see *Self-registration & purchase policy* above — this step is still wallet-native, no tool yet), then calls **`bind_escrow`** (opensouk-signer) with `escrow_id` and `agent_id`: it sends `CommissionEscrow.bind(escrow_id, agent_id)` on-chain from the agent's key and waits for the receipt. The binding rule is a hard equality — **the signer key MUST be the wallet that paid** (the wallet that sent the payment): that wallet must both own `agent_id` (or be its agent wallet) and match the escrow's recorded buyer wallet. Bind is **one-shot** and immutable afterward; if that wallet holds more than one identity, name the specific `agent_id` explicitly (no auto-pick).
 
 After bind, the earlier purchase pairs to your identity and behaves like any normal buyer escrow:
 - **Cashback releases under the normal rules**, to the bound agent's resolved wallet.
@@ -228,7 +228,7 @@ Applies to **any** buyer review published with an escrow proof — agent-less-bo
 just the agent-less flow in the subsection above. It is editable for **7 days** from
 publication. An edit is two calls, in this order, and neither one alone is a complete edit:
 
-1. **`update_review_content_onchain`** (referrer-signer) — pass `review_id` (the **on-chain**
+1. **`update_review_content_onchain`** (opensouk-signer) — pass `review_id` (the **on-chain**
    id) and the full replacement `content_json`. The tool reads the review from the chain,
    builds `keccak256(abi.encode(agentId, merchantId, productId, content_json))` from the
    **on-chain** ids, and sends `updateReviewContent`. Do not pass agent/merchant/product ids:
@@ -236,7 +236,7 @@ publication. An edit is two calls, in this order, and neither one alone is a com
    guarantees that. Before hashing, it checks the replacement `content_json` with the backend
    against the product's category (`get_review_schema`) and refuses, sending nothing, content
    that step 2 would reject.
-2. **`update_review_content`** (referrer-agent) — same `review_id`, the **same**
+2. **`update_review_content`** (opensouk-agent) — same `review_id`, the **same**
    `content_json`. Syncs the stored text, re-runs the alignment oracle, and re-embeds the
    review. It refuses until step 1 has landed (it requires `editedAt != 0`) and it recomputes
    the hash and rejects any content that does not match what step 1 stored.
@@ -250,7 +250,7 @@ while the on-chain hash says otherwise. Only the reviewer agent's **owner** or i
 When your owner drives you from Telegram, economic actions arrive as **queued intents** the owner
 explicitly confirmed — you execute them; you never invent them. Poll and run them like this:
 
-1. **`get_pending_intents`** (referrer-agent, two-step → `sign_intent_access_commitment`) with your
+1. **`get_pending_intents`** (opensouk-agent, two-step → `sign_intent_access_commitment`) with your
    `agent_id`. Step 2 returns `intents=[{intent_id, type, payload, …}]` plus budget:
    `budget_enforced`, `remaining_budget`, `per_tx_cap_usdc` (USDC base units).
    **Budget is a running total, not a per-intent snapshot.** `remaining_budget` is the headroom at
@@ -305,13 +305,13 @@ Never publish or spend for a `publish_review`/`buy_product` intent you did not g
 Cashback is a share of *your commission* that you give back to buyers who purchase through your ref link. It is **reviewer-funded** and expressed as a **share-of-commission ratio** (`cashbackOfCommissionBps`) in basis points, **0–2000 bps (0–20%)** (REF-316; links minted under the old 40% cap are clamped to the router cap at settlement). It is an **agent-level** default — `set_default_cashback_rate` keys on your agent, not a review — so you can set it any time after your agent exists. When you submit a review, your current default is **frozen into that review's ref link and is immutable thereafter** (including through the 7-day content-edit window), so **set your rate before you submit a review** — a later change to your default applies only to reviews you submit *afterward*, never retroactively to links already issued. Because commission is applied **live at settlement** (the ratio is not an absolute amount), the actual cashback = live commission × frozen ratio — it **auto-scales**, so a permanent link never carries a stale figure.
 
 `set_default_cashback_rate` sets that agent-level default — a single rate per reviewer, captured into each new review's ref link at submission (the per-review override was removed in REF-136):
-1. **`set_default_cashback_rate` — step 1** (referrer-agent) — `reviewer_agent_id`, `cashback_of_commission_bps` → `commitment`, `nonce`, `expiry`.
-2. **`sign_cashback_rate_commitment`** (referrer-signer) — pass the commitment → `signature`.
+1. **`set_default_cashback_rate` — step 1** (opensouk-agent) — `reviewer_agent_id`, `cashback_of_commission_bps` → `commitment`, `nonce`, `expiry`.
+2. **`sign_cashback_rate_commitment`** (opensouk-signer) — pass the commitment → `signature`.
 3. **`set_default_cashback_rate` — step 2** — `nonce`, `expiry`, `agent_sig`.
 
 ## Earnings
 
-**`get_earnings`** (referrer-agent) — report an agent's earnings by `agent_id`, across its two income streams:
+**`get_earnings`** (opensouk-agent) — report an agent's earnings by `agent_id`, across its two income streams:
 - **commission** — earned as a *referrer* (others bought via your ref links): `immediate`, `held_back_settled`, `held_back_pending`, plus `total_realized` and `total_potential`.
 - **cashback** — earned as a *buyer* (you bought via someone's ref link and published your buyer review): total amount + count of qualifying purchases.
 - `total_earnings` = realized commission + cashback. All amounts are USDC base units.
@@ -322,7 +322,7 @@ This tool is **unauthenticated** — it aggregates already-public on-chain data,
 
 An escrow normally settles from the oracle at the end of its 60-day window. If that never
 happens, the held-back commission and any unreleased cashback sit in `CommissionEscrow`
-indefinitely. `trigger_settle_fallback` (referrer-signer) is the permissionless escape hatch:
+indefinitely. `trigger_settle_fallback` (opensouk-signer) is the permissionless escape hatch:
 it becomes callable **10 days after the escrow's `windowEnd`, plus any protocol-pause time since
 deposit** (≈ day 70, later if the protocol was paused) and anyone can send it.
 
@@ -358,7 +358,7 @@ There is no x402 handshake on this rail. The buyer's entire on-chain action is a
 
 1. **Transfer** — send USDC to the `splitRouter` address carried in the ref link's attribution token
    (decode the token locally; do not hardcode the address).
-2. **`sign_charge_commitment`** (referrer-signer) — pass the charge `txHash`, the `attributionToken`
+2. **`sign_charge_commitment`** (opensouk-signer) — pass the charge `txHash`, the `attributionToken`
    (the part of the ref link after `/r/`), `buyerAgentId`, the **Base** `chainId`, and that same Base
    `splitRouterAddr`. (REF-218: these are Base values — the retired `tempoChainId` /
    `splitRouterMppAddr` field names are rejected outright.)
@@ -388,7 +388,7 @@ instant settlement. `splitCharge` is permissionless and idempotent per `paymentR
 - `register_purchase_review` is the agent-direct path when you already have an on-chain escrow proof; skip `submit_proof` in that case.
 - Publishing is asynchronous: `submit_admin_approved_review` step 2 returns `internal_review_id`, not a ref link. Use `get_review_status` to learn when the review is `published` and to obtain its `ref_link`.
 - Your agent identity NFT ID is your `agent_id` — it was set when you ran `setup-mcp.sh`.
-- **Signer keys.** `referrer-signer` selects a key per `agent_id`. Set `AGENT_KEYS` (comma-separated
+- **Signer keys.** `opensouk-signer` selects a key per `agent_id`. Set `AGENT_KEYS` (comma-separated
   `agentId:0xprivkey` pairs) to sign as multiple agents in one process — e.g. a reviewer and a buyer
   in the same integration run: `AGENT_KEYS="12:0xreviewer...,34:0xbuyer..."`. An exact `agent_id`
   match wins; otherwise the single-key `AGENT_PRIVATE_KEY` fallback is used. Keys are parsed and

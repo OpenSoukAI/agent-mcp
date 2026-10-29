@@ -44,8 +44,8 @@ jobs:
   drift:
     runs-on: ubuntu-latest
     steps:
-      - name: Check out agent-mcp (referrer-signer tools + the checker)
-        uses: actions/checkout@v4
+      - name: Check out agent-mcp (opensouk-signer tools + the checker)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: OpenSoukAI/agent-mcp
           path: agent-mcp
@@ -56,8 +56,8 @@ jobs:
       # would compare the skill against a backend that no longer exists; the checker exits 1 on
       # "no tools found" rather than reporting every tool as undocumented, but the right ref is
       # cheaper than the right error message.
-      - name: Check out backend@dev (referrer-agent tools)
-        uses: actions/checkout@v4
+      - name: Check out backend@dev (opensouk-agent tools)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: OpenSoukAI/backend
           ref: dev
@@ -65,13 +65,13 @@ jobs:
           token: ${{ secrets.SKILLDRIFT_TOKEN }}
 
       - name: Check out skills (the inventory)
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: OpenSoukAI/skills
           path: skills
           token: ${{ secrets.SKILLDRIFT_TOKEN }}
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: agent-mcp/go.mod
           cache-dependency-path: agent-mcp/go.sum

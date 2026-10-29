@@ -19,7 +19,7 @@ import (
 // ── update_review_content_onchain ───────────────────────────────────────────────
 //
 // Sends ReviewRegistry.updateReviewContent, the on-chain half of editing a buyer review.
-// The backend's update_review_content (referrer-agent) is the other half and REQUIRES this
+// The backend's update_review_content (opensouk-agent) is the other half and REQUIRES this
 // to have happened first: it refuses unless editedAt != 0, and it recomputes the content
 // hash from the ON-CHAIN agentId/merchantId/productId, rejecting content whose hash does not
 // match what this tool stored. That is why the hash here is computed from the ids read off
@@ -56,7 +56,7 @@ type updateReviewOnchainOutput struct {
 // hash — the readable text, the alignment score, and the embedding all live in the backend
 // and stay stale until the sync call lands.
 const updateReviewNextSteps = "On-chain hash updated. Now call update_review_content " +
-	"(referrer-agent) with the SAME review_id and the SAME content_json to sync the stored " +
+	"(opensouk-agent) with the SAME review_id and the SAME content_json to sync the stored " +
 	"text and re-run the alignment oracle — it verifies your content against this new " +
 	"on-chain hash, so any difference is rejected."
 
@@ -204,7 +204,7 @@ func handleUpdateReviewContentOnchain(
 		return nil, updateReviewOnchainOutput{}, fmt.Errorf(
 			"content_json hashes to the value already stored on-chain for review %s — nothing to update "+
 				"(no transaction was sent). If you already ran this tool successfully for this edit, the "+
-				"on-chain half is DONE — call update_review_content (referrer-agent) with this review_id "+
+				"on-chain half is DONE — call update_review_content (opensouk-agent) with this review_id "+
 				"and the same content_json to finish syncing it", reviewID)
 	}
 

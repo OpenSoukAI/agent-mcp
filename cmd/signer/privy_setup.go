@@ -11,7 +11,7 @@ import (
 	"strings"
 )
 
-// runPrivySetup is `referrer-signer privy-setup`: with the OWNER's authorization key, create the
+// runPrivySetup is `opensouk-signer privy-setup`: with the OWNER's authorization key, create the
 // policy, an Ethereum wallet owned by the owner quorum, and add the signer's key quorum as an
 // additional signer bound to the policy. The owner key is used only here, never by the MCP
 // server, so the signer that runs next to the agent cannot replace its own policy.
@@ -20,13 +20,13 @@ func runPrivySetup(ctx context.Context, args []string, stdout, stderr io.Writer)
 	fs.SetOutput(stderr)
 	ownerID := fs.String("owner-id", "", "key quorum id of the owner (keep its key off the agent's machine)")
 	signerID := fs.String("signer-id", "", "key quorum id of the signer's authorization key (PRIVY_AUTHORIZATION_KEY)")
-	policyPath := fs.String("policy", "", "policy file from `referrer-signer policy --provider privy`")
+	policyPath := fs.String("policy", "", "policy file from `opensouk-signer policy --provider privy`")
 	ownerEnv := fs.String("owner-key-env", "PRIVY_OWNER_AUTHORIZATION_KEY", "environment variable holding the owner's wallet-auth: key")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
 	fail := func(format string, a ...any) int {
-		fmt.Fprintf(stderr, "referrer-signer privy-setup: "+format+"\n", a...)
+		fmt.Fprintf(stderr, "opensouk-signer privy-setup: "+format+"\n", a...)
 		return 1
 	}
 	if *ownerID == "" || *signerID == "" || *policyPath == "" {

@@ -12,23 +12,16 @@ import (
 // docs site alone, and the skill is the surface where drift costs most: an agent
 // reads it and acts without a human seeing the text. So the same ban runs here.
 //
-// The BAN IS ON THE PRODUCT NAME, not the string. `referrer-agent` and
-// `referrer-signer` are the two MCP server names and appear on nearly every page —
-// correctly, and the brand page says so explicitly. Only the capitalised forms and
-// "referrer-agent protocol" name the product.
-// Capitalised forms are matched EXACTLY. Lower-casing them first would make
-// "Referrer-Agent" match the server name `referrer-agent`, which is on nearly every
-// page and is correct — the first draft of this test did exactly that and reported
-// the whole skill as broken.
+// The MCP servers were `referrer-agent` / `referrer-signer` until they became
+// `opensouk-agent` / `opensouk-signer`, so the old server names are banned too: a
+// skill page still naming them tells an agent to call a server that no longer exists.
 var bannedExact = []string{
 	"Referrer Agent",
-	"Referrer-Agent",
 }
 
-// These name the product whatever their case, because no server is "the
-// referrer-agent protocol".
 var bannedAnyCase = []string{
-	"referrer-agent protocol",
+	"referrer-agent",
+	"referrer-signer",
 	"referrer agent protocol",
 }
 
@@ -70,9 +63,8 @@ func TestSkillNamesTheProductOpenSouk(t *testing.T) {
 	}
 
 	if len(offenders) > 0 {
-		t.Fatalf("the product is OpenSouk, and these name it something else:\n  %s\n\n"+
-			"The server names `referrer-agent` and `referrer-signer` are fine and stay — "+
-			"only the product name is banned (opensouk-docs src/pages/brand.mdx).",
+		t.Fatalf("the product is OpenSouk, and these name it (or its MCP servers) something else:\n  %s\n\n"+
+			"The MCP servers are `opensouk-agent` and `opensouk-signer`.",
 			strings.Join(offenders, "\n  "))
 	}
 }

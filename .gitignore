@@ -1,5 +1,5 @@
-referrer-signer
-referrer-signer.exe
+opensouk-signer
+opensouk-signer.exe
 
 # Compiled signer binary (build artifact; build in CI/release, not git)
 /signer

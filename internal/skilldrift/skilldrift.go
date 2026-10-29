@@ -24,8 +24,8 @@ import (
 
 // Server names, matching the two MCP server ids agents configure.
 const (
-	ServerAgent  = "referrer-agent"
-	ServerSigner = "referrer-signer"
+	ServerAgent  = "opensouk-agent"
+	ServerSigner = "opensouk-signer"
 )
 
 // registration matches `sdkmcp.AddTool(<srv>, &sdkmcp.Tool{Name: "x"`, and the same call through

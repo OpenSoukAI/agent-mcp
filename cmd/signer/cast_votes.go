@@ -35,10 +35,10 @@ func castVotesViaBackend(ctx context.Context, mcpURL string, agentID, escrowID i
 		transport = &sdkmcp.StreamableClientTransport{Endpoint: mcpURL}
 	}
 
-	client := sdkmcp.NewClient(&sdkmcp.Implementation{Name: "referrer-signer", Version: "1"}, nil)
+	client := sdkmcp.NewClient(&sdkmcp.Implementation{Name: "opensouk-signer", Version: "1"}, nil)
 	session, err := client.Connect(ctx, transport, nil)
 	if err != nil {
-		return 0, fmt.Errorf("connect to referrer-agent MCP: %w", err)
+		return 0, fmt.Errorf("connect to opensouk-agent MCP: %w", err)
 	}
 	defer session.Close()
 

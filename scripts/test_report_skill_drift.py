@@ -15,7 +15,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 import report_skill_drift as r  # noqa: E402
 
-CLEAN = {"registered_referrer_agent": 22, "registered_referrer_signer": 13, "documented": 35}
+CLEAN = {"registered_opensouk_agent": 22, "registered_opensouk_signer": 13, "documented": 35}
 
 
 class HasDrift(unittest.TestCase):
@@ -38,14 +38,14 @@ class HasDrift(unittest.TestCase):
 
 class Body(unittest.TestCase):
     def test_names_every_drifted_tool(self):
-        b = r.body({**CLEAN, "undocumented": ["referrer-signer: bind_escrow"],
+        b = r.body({**CLEAN, "undocumented": ["opensouk-signer: bind_escrow"],
                     "ghosts": ["sign_open_session_commitment"],
-                    "wrong_server": ["cast_review_votes: documented under referrer-signer, registered on referrer-agent"]}, None)
+                    "wrong_server": ["cast_review_votes: documented under opensouk-signer, registered on opensouk-agent"]}, None)
         for needle in ("bind_escrow", "sign_open_session_commitment", "cast_review_votes"):
             self.assertIn(needle, b)
 
     def test_omits_sections_with_no_findings(self):
-        b = r.body({**CLEAN, "undocumented": ["referrer-agent: x"]}, None)
+        b = r.body({**CLEAN, "undocumented": ["opensouk-agent: x"]}, None)
         self.assertIn("Registered but NOT in the inventory", b)
         self.assertNotIn("registered NOWHERE", b)
         self.assertNotIn("wrong MCP server", b)

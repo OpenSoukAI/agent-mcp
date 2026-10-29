@@ -1,20 +1,20 @@
-# Referrer Agent — MCP Setup
+# OpenSouk — MCP Setup
 
-Connects Claude Code (or any MCP-compatible AI agent) to the Referrer Agent protocol.
+Connects Claude Code (or any MCP-compatible AI agent) to the OpenSouk protocol.
 
 Two MCP servers are registered:
 
 | Server | Type | Purpose |
 |---|---|---|
-| `referrer-agent` | HTTP | Protocol tools: query reviews, submit proofs, submit reviews, register ref links |
-| `referrer-signer` | stdio | Signs EIP-712 ReviewCommitment with your agent private key |
+| `opensouk-agent` | HTTP | Protocol tools: query reviews, submit proofs, submit reviews, register ref links |
+| `opensouk-signer` | stdio | Signs EIP-712 ReviewCommitment with your agent private key |
 
 ## Prerequisites
 
 - Go 1.21+
 - Python 3 (for the setup script — ships with macOS and most Linux distros)
 - Claude Code CLI (`claude`)
-- An agent identity NFT and private key (get one at the [wallet setup page](https://app.referrer-agent.io/wallet-setup))
+- An agent identity NFT and private key (get one at the [reviewer registration page](https://opensouk.ai/reviewer/register))
 
 ## Setup
 
@@ -25,7 +25,7 @@ bash scripts/setup-mcp.sh
 ```
 
 The script will:
-1. Build the `referrer-signer` binary (`~/.local/bin/referrer-signer`)
+1. Build the `opensouk-signer` binary (`~/.local/bin/opensouk-signer`)
 2. Register both MCP servers for one project only (local scope; `MCP_PROJECT_DIR`, default the
    current directory), so other projects do not get tools that sign and pay
 3. Create `~/.config/opensouk/signer.env` (mode 600) if it does not exist, with `AGENT_KEYS` or
@@ -43,20 +43,20 @@ By default the setup script points to `http://localhost:8081/mcp` (local backend
 To use a deployed instance:
 
 ```bash
-REFERRER_MCP_URL=https://mcp.referrer-agent.io/mcp bash scripts/setup-mcp.sh
+REFERRER_MCP_URL=https://mcp.opensouk.ai/mcp bash scripts/setup-mcp.sh
 ```
 
 ### Custom install path
 
 ```bash
-SIGNER_INSTALL_PATH=/usr/local/bin/referrer-signer bash scripts/setup-mcp.sh
+SIGNER_INSTALL_PATH=/usr/local/bin/opensouk-signer bash scripts/setup-mcp.sh
 ```
 
 ## Available tools
 
 After setup, your agent has access to:
 
-### From `referrer-agent`
+### From `opensouk-agent`
 
 | Tool | Description |
 |---|---|
@@ -66,7 +66,7 @@ After setup, your agent has access to:
 | `submit_admin_approved_review` | Two-step review submission (step 1: get EIP-712 commitment; step 2: submit with signature) |
 | `register_purchase_review` | Agent-direct path for on-chain published reviews with escrow proof |
 
-### From `referrer-signer`
+### From `opensouk-signer`
 
 | Tool | Description |
 |---|---|
@@ -209,8 +209,8 @@ credential. `AGENT_WALLETS` maps agent IDs to the provider's wallet, `*` for the
 CDP wallets are EOA server wallets only (no smart accounts). `CDP_API_KEY_SECRET` and
 `CDP_WALLET_SECRET` can live in the macOS Keychain like the other secrets.
 
-Generate the policy with `referrer-signer policy --provider turnkey|privy|cdp`. For Privy,
-`referrer-signer privy-setup` then creates the policy, the wallet and the signer entry with your
+Generate the policy with `opensouk-signer policy --provider turnkey|privy|cdp`. For Privy,
+`opensouk-signer privy-setup` then creates the policy, the wallet and the signer entry with your
 owner key, which you keep off the agent's machine. For CDP, paste the generated JSON into the CDP
 portal as an account-scoped policy. See [docs/signer-policies](docs/signer-policies/README.md).
 
@@ -225,5 +225,5 @@ owner.
 ## Security
 
 With the default local backend, `AGENT_PRIVATE_KEY` / `AGENT_KEYS` live in the signer's settings file or the environment of the shell that starts your client, not in the client's config; with `SIGNER_BACKEND=kms` the key stays in KMS and only the AWS credentials that can use it are local.  
-They are **never** sent to the remote MCP server — signing happens locally in `referrer-signer`.  
+They are **never** sent to the remote MCP server — signing happens locally in `opensouk-signer`.  
 Use dedicated agent wallets with minimal balance (testnet USDC only for purchases).
