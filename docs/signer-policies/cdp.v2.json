@@ -1143,22 +1143,45 @@
     },
     {
       "action": "reject",
-      "criteria": [],
+      "criteria": [
+        {
+          "match": "(?s).*",
+          "type": "evmMessage"
+        }
+      ],
       "operation": "signEvmMessage"
     },
     {
       "action": "reject",
-      "criteria": [],
+      "criteria": [
+        {
+          "ethValue": "0",
+          "operator": ">=",
+          "type": "ethValue"
+        }
+      ],
       "operation": "sendEvmTransaction"
     },
     {
       "action": "reject",
-      "criteria": [],
+      "criteria": [
+        {
+          "ethValue": "0",
+          "operator": ">=",
+          "type": "ethValue"
+        }
+      ],
       "operation": "prepareUserOperation"
     },
     {
       "action": "reject",
-      "criteria": [],
+      "criteria": [
+        {
+          "ethValue": "0",
+          "operator": ">=",
+          "type": "ethValue"
+        }
+      ],
       "operation": "sendUserOperation"
     }
   ],

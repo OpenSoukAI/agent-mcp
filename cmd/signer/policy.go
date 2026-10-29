@@ -351,8 +351,17 @@ func cdpPolicyDoc(in policyInputs) map[string]any {
 			}))
 		}
 	}
-	for _, op := range []string{"signEvmHash", "signEvmMessage", "sendEvmTransaction", "prepareUserOperation", "sendUserOperation"} {
-		rules = append(rules, map[string]any{"action": "reject", "operation": op, "criteria": []any{}})
+	// The CDP SDK's CreatePolicyBodySchema requires at least one criterion for every operation
+	// except signEvmHash; the other four reject rules carry an always-matching criterion purely to
+	// satisfy that shape (CDP's own ANY/ALL matcher still rejects outright with just one rule here).
+	rules = append(rules, map[string]any{"action": "reject", "operation": "signEvmHash", "criteria": []any{}})
+	rules = append(rules, map[string]any{"action": "reject", "operation": "signEvmMessage", "criteria": []any{
+		map[string]any{"type": "evmMessage", "match": "(?s).*"},
+	}})
+	for _, op := range []string{"sendEvmTransaction", "prepareUserOperation", "sendUserOperation"} {
+		rules = append(rules, map[string]any{"action": "reject", "operation": op, "criteria": []any{
+			map[string]any{"type": "ethValue", "ethValue": "0", "operator": ">="},
+		}})
 	}
 	return map[string]any{"scope": "account", "description": "OpenSouk signer " + policyVersion, "rules": rules}
 }

@@ -257,22 +257,36 @@ func cdpRules(t *testing.T) []map[string]any {
 }
 
 // CDP cannot restrict signEvmHash, signEvmMessage, sendEvmTransaction, prepareUserOperation or
-// sendUserOperation by criteria (a policy can't inspect a raw digest or an already-built op), so
-// each is rejected outright; every accept rule must instead carry at least one criterion.
+// sendUserOperation by a criterion that would distinguish the signer's own traffic from an
+// attacker's (a policy can't inspect a raw digest, free text, or an already-built op), so each is
+// rejected outright. CDP's CreatePolicyBodySchema still requires at least one criterion for every
+// operation except signEvmHash, so the other four carry a criterion that always matches rather
+// than one that restricts anything. Every accept rule must instead carry at least one criterion
+// that actually restricts something.
 func TestCDPPolicyRejectsUnrestrictableOps(t *testing.T) {
-	want := map[string]bool{"signEvmHash": false, "signEvmMessage": false, "sendEvmTransaction": false, "prepareUserOperation": false, "sendUserOperation": false}
+	alwaysMatchMessage := []any{map[string]any{"type": "evmMessage", "match": "(?s).*"}}
+	alwaysMatchEthValue := []any{map[string]any{"type": "ethValue", "ethValue": "0", "operator": ">="}}
+	wantCriteria := map[string][]any{
+		"signEvmHash":          {},
+		"signEvmMessage":       alwaysMatchMessage,
+		"sendEvmTransaction":   alwaysMatchEthValue,
+		"prepareUserOperation": alwaysMatchEthValue,
+		"sendUserOperation":    alwaysMatchEthValue,
+	}
+	seen := map[string]int{}
 	for _, r := range cdpRules(t) {
 		criteria, _ := r["criteria"].([]any)
 		op, _ := r["operation"].(string)
 		switch r["action"] {
 		case "reject":
-			if _, ok := want[op]; !ok {
+			want, ok := wantCriteria[op]
+			if !ok {
 				t.Fatalf("unexpected reject rule for operation %s", op)
 			}
-			if len(criteria) != 0 {
-				t.Fatalf("reject rule for %s has non-empty criteria %v", op, criteria)
+			seen[op]++
+			if !reflect.DeepEqual(criteria, want) {
+				t.Fatalf("reject rule for %s has criteria %v, want %v", op, criteria, want)
 			}
-			want[op] = true
 		case "accept":
 			if len(criteria) == 0 {
 				t.Fatalf("accept rule for %s has empty criteria", op)
@@ -281,9 +295,9 @@ func TestCDPPolicyRejectsUnrestrictableOps(t *testing.T) {
 			t.Fatalf("rule %v has action %v", r, r["action"])
 		}
 	}
-	for op, seen := range want {
-		if !seen {
-			t.Fatalf("no reject rule with empty criteria for %s", op)
+	for op := range wantCriteria {
+		if seen[op] != 1 {
+			t.Fatalf("want exactly one reject rule for %s, saw %d", op, seen[op])
 		}
 	}
 }
