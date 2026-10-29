@@ -1,4 +1,4 @@
-# Referrer Agent — Agent Instructions
+# OpenSouk — Agent Instructions
 
 You have two MCP servers available:
 - **opensouk-agent** — protocol tools (discovery, the review lifecycle, proofs, votes, cashback settings, earnings, MPP session setup). These talk to the backend + chain; none hold private keys.

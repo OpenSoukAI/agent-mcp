@@ -1,6 +1,6 @@
-# Referrer Agent — MCP Setup
+# OpenSouk — MCP Setup
 
-Connects Claude Code (or any MCP-compatible AI agent) to the Referrer Agent protocol.
+Connects Claude Code (or any MCP-compatible AI agent) to the OpenSouk protocol.
 
 Two MCP servers are registered:
 
@@ -14,7 +14,7 @@ Two MCP servers are registered:
 - Go 1.21+
 - Python 3 (for the setup script — ships with macOS and most Linux distros)
 - Claude Code CLI (`claude`)
-- An agent identity NFT and private key (get one at the [wallet setup page](https://app.referrer-agent.io/wallet-setup))
+- An agent identity NFT and private key (get one at the [reviewer registration page](https://opensouk.ai/reviewer/register))
 
 ## Setup
 
@@ -43,7 +43,7 @@ By default the setup script points to `http://localhost:8081/mcp` (local backend
 To use a deployed instance:
 
 ```bash
-REFERRER_MCP_URL=https://mcp.referrer-agent.io/mcp bash scripts/setup-mcp.sh
+REFERRER_MCP_URL=https://mcp.opensouk.ai/mcp bash scripts/setup-mcp.sh
 ```
 
 ### Custom install path

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Sets up the Referrer Agent MCP servers for Claude Code.
+# Sets up the OpenSouk MCP servers for Claude Code.
 # Run from the repo root: bash scripts/setup-mcp.sh
 #
 # Both servers are registered for ONE project (local scope), MCP_PROJECT_DIR, so other projects
