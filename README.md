@@ -126,7 +126,7 @@ the signer refuses to start and says so.
 At startup the signer reads `KEY=value` lines from `~/.config/opensouk/signer.env`, or from the
 path in `SIGNER_ENV_FILE`, so the key does not have to sit in the client's config or in a shell
 export. Any setting goes there, for any backend: `AGENT_PRIVATE_KEY` or `AGENT_KEYS`, or
-`SIGNER_BACKEND`, `AGENT_WALLETS` and the Turnkey or Privy credentials.
+`SIGNER_BACKEND`, `AGENT_WALLETS` and the Turnkey, Privy or CDP credentials.
 
 ```bash
 mkdir -p ~/.config/opensouk
@@ -185,31 +185,34 @@ AGENT_WALLETS="12:arn:aws:kms:eu-central-1:111122223333:key/<key-id>,*:<fallback
   identity or be its bound wallet.
 - `AGENT_KEYS` and `AGENT_PRIVATE_KEY` must be unset; the signer refuses to start with both.
 
-### Let a policy decide what is signed: `SIGNER_BACKEND=turnkey` or `privy`
+### Let a policy decide what is signed: `SIGNER_BACKEND=turnkey`, `privy` or `cdp`
 
-KMS keeps the key out of reach but signs any digest it is given. Turnkey and Privy keep the key
-too, and each request goes to them as EIP-712 typed data or a whole transaction, so their policy
-engine can refuse anything outside
+KMS keeps the key out of reach but signs any digest it is given. Turnkey, Privy and CDP keep the
+key too, and each request goes to them as EIP-712 typed data or a whole transaction, so their
+policy engine can refuse anything outside
 [the OpenSouk policy](docs/signer-policies/README.md): the eight commitment types and
 `AgentWalletSet` in their own domains, `ReceiveWithAuthorization` to the SplitRouter up to a
-ceiling, and the ten contract functions the transaction tools call. The signer never asks either provider for a raw-hash
-signature, and the policy denies one: a raw hash can be any signature.
+ceiling, and the ten contract functions the transaction tools call. The signer never asks any
+provider for a raw-hash signature, and the policy denies one: a raw hash can be any signature.
 
 You create the wallet under your own provider account; OpenSouk never holds a provider
 credential. `AGENT_WALLETS` maps agent IDs to the provider's wallet, `*` for the fallback.
 
-| | Turnkey | Privy |
-|---|---|---|
-| `AGENT_WALLETS` entry | `12:<wallet account address>` | `12:<wallet id>` |
-| Credentials | `TURNKEY_ORG_ID`, `TURNKEY_API_PUBLIC_KEY`, `TURNKEY_API_PRIVATE_KEY` (hex P-256) | `PRIVY_APP_ID`, `PRIVY_APP_SECRET`, `PRIVY_AUTHORIZATION_KEY` (`wallet-auth:…`) |
-| The API key must belong to | a **non-root** user (root bypasses every policy) | an **additional signer**, not the wallet's owner (an owner can replace the policy) |
-| Checked at boot | the API key, with `whoami` | the wallet exists and has an owner |
-| Merchant REST tools | unavailable: Turnkey can personal-sign only as a raw payload | work: `personal_sign` of binary messages (any; do not make the wallet a Safe owner) |
+| | Turnkey | Privy | CDP |
+|---|---|---|---|
+| `AGENT_WALLETS` entry | `12:<wallet account address>` | `12:<wallet id>` | `12:<wallet address>` |
+| Credentials | `TURNKEY_ORG_ID`, `TURNKEY_API_PUBLIC_KEY`, `TURNKEY_API_PRIVATE_KEY` (hex P-256) | `PRIVY_APP_ID`, `PRIVY_APP_SECRET`, `PRIVY_AUTHORIZATION_KEY` (`wallet-auth:…`) | `CDP_API_KEY_ID`, `CDP_API_KEY_SECRET` (Ed25519 Secret API key; legacy EC keys refused), `CDP_WALLET_SECRET`, optional `CDP_API_BASE_URL` (default `https://api.cdp.coinbase.com/platform`) |
+| The API key must belong to | a **non-root** user (root bypasses every policy) | an **additional signer**, not the wallet's owner (an owner can replace the policy) | a key with **neither** the Export nor the Manage-policies scope (see docs/signer-policies) |
+| Checked at boot | the API key, with `whoami` | the wallet exists and has an owner | each wallet's policy, via CDP's policy simulator (any accept refuses boot) |
+| Merchant REST tools | unavailable: Turnkey can personal-sign only as a raw payload | work: `personal_sign` of binary messages (any; do not make the wallet a Safe owner) | unavailable: CDP signs messages only as text, and raw bytes only through its unrestrictable sign-hash endpoint |
 
-Generate the policy with `referrer-signer policy --provider turnkey|privy`. For Privy,
+CDP wallets are EOA server wallets only (no smart accounts). `CDP_API_KEY_SECRET` and
+`CDP_WALLET_SECRET` can live in the macOS Keychain like the other secrets.
+
+Generate the policy with `referrer-signer policy --provider turnkey|privy|cdp`. For Privy,
 `referrer-signer privy-setup` then creates the policy, the wallet and the signer entry with your
-owner key, which you keep off the agent's machine. See
-[docs/signer-policies](docs/signer-policies/README.md).
+owner key, which you keep off the agent's machine. For CDP, paste the generated JSON into the CDP
+portal as an account-scoped policy. See [docs/signer-policies](docs/signer-policies/README.md).
 
 To bind a provider wallet to an identity, list the agent ID in `AGENT_WALLETS` and in the policy
 (`--agent-id`), call `sign_agent_wallet_set` with it, then send `setAgentWallet` from the owner
