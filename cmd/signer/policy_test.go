@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math/big"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -13,6 +14,7 @@ import (
 	"testing"
 
 	"github.com/ethereum/go-ethereum/accounts/abi"
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 )
 
@@ -443,6 +445,83 @@ func TestTxMethodsMatchTheTools(t *testing.T) {
 	}
 	if !reflect.DeepEqual(used, listed) {
 		t.Fatalf("tools send %v, txMethods lists %v", used, listed)
+	}
+}
+
+// zeroABIValue is the harmless zero argument for ABI type t. The ten transaction methods take
+// only flat types (abiFragment's own comment), so only those need handling; a uint/int wider than
+// 64 bits needs an actual *big.Int (reflect.Zero of that Go type is a nil pointer, which the ABI
+// packer cannot encode).
+func zeroABIValue(t abi.Type) (any, error) {
+	switch t.T {
+	case abi.UintTy, abi.IntTy:
+		if t.Size > 64 {
+			return big.NewInt(0), nil
+		}
+		return reflect.Zero(t.GetType()).Interface(), nil
+	case abi.AddressTy:
+		return common.Address{}, nil
+	case abi.BoolTy:
+		return false, nil
+	case abi.StringTy:
+		return "", nil
+	case abi.FixedBytesTy:
+		return reflect.Zero(t.GetType()).Interface(), nil
+	case abi.BytesTy:
+		return []byte{}, nil
+	default:
+		return nil, fmt.Errorf("zeroABIValue: unsupported ABI type %s", t.String())
+	}
+}
+
+// zeroArgsCalldata packs method m on contract k's ABI with every argument at its zero value: real,
+// ABI-decodable calldata for a call to m that happens to mean nothing, for building a self-test or
+// live-test transaction without caring what the method does with the values. Used by
+// TestZeroArgsCalldataUnpacks here and by provider_live_test.go's CDP "allowed" leg, which needs
+// real calldata per (contract, method) because CDP's policy ABI-decodes it.
+func zeroArgsCalldata(k protocolKey, m string) ([]byte, error) {
+	a, ok := txABIs[k]
+	if !ok {
+		return nil, fmt.Errorf("zeroArgsCalldata: no ABI for %s", k)
+	}
+	method, ok := a.Methods[m]
+	if !ok {
+		return nil, fmt.Errorf("zeroArgsCalldata: %s has no method %s", k, m)
+	}
+	args := make([]any, len(method.Inputs))
+	for i, in := range method.Inputs {
+		v, err := zeroABIValue(in.Type)
+		if err != nil {
+			return nil, fmt.Errorf("zeroArgsCalldata: %s.%s arg %s: %w", k, m, in.Name, err)
+		}
+		args[i] = v
+	}
+	return a.Pack(m, args...)
+}
+
+// Every (contract, method) txMethods lists must pack with zero arguments and ABI-decode back
+// against its own method. This runs without live env, unlike the real target (CDP's policy
+// engine): it would have caught the bug where the "allowed" live-test leg built calldata as a
+// selector padded with 64 arbitrary zero bytes, which cannot decode for a method with more than
+// one word of arguments (publishReviewWithEscrowProof, grantRole, revokeRole, setCommission,
+// setProductActive: 3 words each) or a dynamic type (addProduct's trailing string).
+func TestZeroArgsCalldataUnpacks(t *testing.T) {
+	for k, ms := range txMethods {
+		for _, m := range ms {
+			t.Run(string(k)+"."+m, func(t *testing.T) {
+				data, err := zeroArgsCalldata(k, m)
+				if err != nil {
+					t.Fatalf("zeroArgsCalldata(%s, %s): %v", k, m, err)
+				}
+				method := txABIs[k].Methods[m]
+				if len(data) < 4 || !bytes.Equal(data[:4], method.ID) {
+					t.Fatalf("%s.%s: calldata selector %x, want %x", k, m, data, method.ID)
+				}
+				if _, err := method.Inputs.Unpack(data[4:]); err != nil {
+					t.Fatalf("%s.%s: calldata does not ABI-decode against its own method: %v", k, m, err)
+				}
+			})
+		}
 	}
 }
 

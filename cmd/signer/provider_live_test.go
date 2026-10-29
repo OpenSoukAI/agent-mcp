@@ -83,6 +83,13 @@ func TestProviderLive(t *testing.T) {
 		return types.NewTx(&types.DynamicFeeTx{ChainID: big.NewInt(chainID), Nonce: 0, GasTipCap: big.NewInt(1), GasFeeCap: big.NewInt(1_000_000_000),
 			Gas: 200000, To: &to, Value: big.NewInt(value), Data: data})
 	}
+	// txData is tx() but with real calldata instead of selector+zero-padding: CDP ABI-decodes the
+	// calldata against the method's own evmData ABI, so a method with more than one word of
+	// arguments, or a dynamic type, needs real bytes, not padding.
+	txData := func(to common.Address, data []byte, value int64) *types.Transaction {
+		return types.NewTx(&types.DynamicFeeTx{ChainID: big.NewInt(chainID), Nonce: 0, GasTipCap: big.NewInt(1), GasFeeCap: big.NewInt(1_000_000_000),
+			Gas: 200000, To: &to, Value: big.NewInt(value), Data: data})
+	}
 	signTx := func(t *testing.T, x *types.Transaction) error {
 		_, err := transactOpts(ctx, s, big.NewInt(chainID)).Signer(s.Address(), x)
 		return err
@@ -97,19 +104,27 @@ func TestProviderLive(t *testing.T) {
 		if _, err := s.SignTypedData(ctx, receive(erc3009ReceiveAuthorizationType, ceiling)); err != nil {
 			t.Errorf("ReceiveWithAuthorization at the ceiling: %v", err)
 		}
-		if err := signTx(t, tx(addr[keyReviewRegistry], hexSelector(keyReviewRegistry, "updateReviewContent"), 0)); err != nil {
-			t.Errorf("updateReviewContent tx: %v", err)
-		}
 		if provider == "cdp" {
-			// cdpPolicyDoc emits one accept rule per (contract, method) pair, not one per contract,
-			// so a gap in any single pair would not show up by testing updateReviewContent alone.
+			// cdpPolicyDoc emits one accept rule per (contract, method) pair, and CDP ABI-decodes the
+			// calldata against that pair's own evmData ABI, so each needs real, ABI-valid calldata
+			// (every argument zero-valued) — not a selector padded with arbitrary zero bytes, which
+			// cannot decode for a method with more than one word of arguments or a dynamic type
+			// (publishReviewWithEscrowProof, grantRole, revokeRole, setCommission, setProductActive,
+			// addProduct). This loop already covers updateReviewContent, so there is no separate call
+			// for it below, unlike the other providers.
 			for _, k := range txContracts {
 				for _, m := range txMethods[k] {
-					if err := signTx(t, tx(addr[k], hexSelector(k, m), 0)); err != nil {
+					data, err := zeroArgsCalldata(k, m)
+					if err != nil {
+						t.Fatalf("%s.%s: build zero-arg calldata: %v", k, m, err)
+					}
+					if err := signTx(t, txData(addr[k], data, 0)); err != nil {
 						t.Errorf("%s.%s tx: %v", k, m, err)
 					}
 				}
 			}
+		} else if err := signTx(t, tx(addr[keyReviewRegistry], hexSelector(keyReviewRegistry, "updateReviewContent"), 0)); err != nil {
+			t.Errorf("updateReviewContent tx: %v", err)
 		}
 		if provider == "privy" {
 			if _, err := agentAuthSignature(ctx, []byte(`{"live":true}`), time.Now().Unix(), s); err != nil {
