@@ -17,6 +17,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -55,6 +56,11 @@ type fakeCDP struct {
 	simulateErrBody    string
 	simulateAction     string // non-empty: every simulate call answers with this action, ignoring acceptOps
 	omitSimulateAction bool   // true: the simulate response has no "action" key at all
+
+	projectPolicyPages     [][]cdpPolicyEntry // pages served for GET .../policies?scope=project; nil = one empty page
+	projectPoliciesStatus  int                // forced non-200 status for the policy listing only
+	projectPoliciesErrBody string
+	lastListQuery          string // raw query string the listing endpoint last received
 
 	mu   sync.Mutex
 	hits int
@@ -163,6 +169,8 @@ func (f *fakeCDP) serve(w http.ResponseWriter, r *http.Request) {
 		f.signTransaction(w, body)
 	case strings.HasSuffix(r.URL.Path, "/v2/policy-engine/simulate"):
 		f.serveSimulate(w, body)
+	case r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/v2/policy-engine/policies"):
+		f.serveListPolicies(w, r)
 	default:
 		http.NotFound(w, r)
 	}
@@ -230,6 +238,44 @@ func (f *fakeCDP) serveSimulate(w http.ResponseWriter, body []byte) {
 			action = "accept"
 		}
 		resp["action"] = action
+	}
+	_ = json.NewEncoder(w).Encode(resp)
+}
+
+// serveListPolicies answers GET /v2/policy-engine/policies?scope=project, paginating through
+// projectPolicyPages via a pageToken that is just the fake's own page index, stringified — real
+// CDP's token is opaque, but nothing here depends on its shape, only on empty-vs-not. Records the
+// request's raw query so a test can confirm the query string reached the server even though the
+// bearer JWT's uris claim must exclude it (see TestCDPDoKeepsQueryOutOfBearerURI).
+// projectPoliciesStatus/ErrBody force a non-200 response just for this endpoint.
+func (f *fakeCDP) serveListPolicies(w http.ResponseWriter, r *http.Request) {
+	f.mu.Lock()
+	f.lastListQuery = r.URL.RawQuery
+	f.mu.Unlock()
+	if f.projectPoliciesStatus != 0 {
+		w.WriteHeader(f.projectPoliciesStatus)
+		_, _ = w.Write([]byte(f.projectPoliciesErrBody))
+		return
+	}
+	if got := r.URL.Query().Get("scope"); got != "project" {
+		f.t.Errorf("policy listing scope = %q, want project", got)
+	}
+	pages := f.projectPolicyPages
+	if pages == nil {
+		pages = [][]cdpPolicyEntry{{}}
+	}
+	idx := 0
+	if tok := r.URL.Query().Get("pageToken"); tok != "" {
+		n, err := strconv.Atoi(tok)
+		if err != nil || n < 0 || n >= len(pages) {
+			f.t.Errorf("unexpected pageToken %q", tok)
+		} else {
+			idx = n
+		}
+	}
+	resp := map[string]any{"policies": pages[idx]}
+	if idx+1 < len(pages) {
+		resp["nextPageToken"] = strconv.Itoa(idx + 1)
 	}
 	_ = json.NewEncoder(w).Encode(resp)
 }
@@ -712,5 +758,112 @@ func TestCDPKeystoreBaseURLWithPathPrefix(t *testing.T) {
 	s, err := ks.KeyFor("1")
 	if err != nil || s.Address() != f.addr() {
 		t.Fatalf("the fallback key must resolve to %s: %v", f.addr().Hex(), err)
+	}
+}
+
+// ── cdpKeystore (boot: project policy listing) ──
+
+func TestCDPKeystoreBootsWithNoProjectPolicies(t *testing.T) {
+	f, _ := newFakeCDP(t)
+	env := f.env()
+	env["AGENT_WALLETS"] = "*:" + f.addr().Hex()
+
+	_, report, err := cdpKeystore(context.Background(), envOf(env), env["AGENT_WALLETS"])
+	if err != nil {
+		t.Fatalf("cdpKeystore with no project policies: %v", err)
+	}
+	joined := strings.Join(report, "\n")
+	if !strings.Contains(joined, "CDP project policies: none accept (checked 0)") {
+		t.Fatalf("report %v must report zero project policies checked", report)
+	}
+}
+
+func TestCDPKeystoreBootsWithRejectOnlyProjectPolicy(t *testing.T) {
+	f, _ := newFakeCDP(t)
+	f.projectPolicyPages = [][]cdpPolicyEntry{{
+		{ID: "proj-pol-1", Description: "reject only", Scope: "project",
+			Rules: []cdpPolicyRule{{Action: "reject", Operation: "signEvmHash"}}},
+	}}
+	env := f.env()
+	env["AGENT_WALLETS"] = "*:" + f.addr().Hex()
+
+	_, report, err := cdpKeystore(context.Background(), envOf(env), env["AGENT_WALLETS"])
+	if err != nil {
+		t.Fatalf("cdpKeystore with a reject-only project policy: %v", err)
+	}
+	joined := strings.Join(report, "\n")
+	if !strings.Contains(joined, "CDP project policies: none accept (checked 1)") {
+		t.Fatalf("report %v must report one project policy checked", report)
+	}
+}
+
+func TestCDPKeystoreRefusesProjectPolicyWithAcceptRule(t *testing.T) {
+	f, _ := newFakeCDP(t)
+	f.projectPolicyPages = [][]cdpPolicyEntry{{
+		{ID: "proj-pol-bad", Description: "too permissive", Scope: "project", Rules: []cdpPolicyRule{
+			{Action: "reject", Operation: "signEvmHash"},
+			{Action: "accept", Operation: "signEvmTransaction"},
+		}},
+	}}
+	env := f.env()
+	env["AGENT_WALLETS"] = "*:" + f.addr().Hex()
+
+	_, _, err := cdpKeystore(context.Background(), envOf(env), env["AGENT_WALLETS"])
+	if err == nil {
+		t.Fatal("want an error")
+	}
+	if !strings.Contains(err.Error(), "proj-pol-bad") || !strings.Contains(err.Error(), "signEvmTransaction") {
+		t.Fatalf("want an error naming the policy id and operation, got %v", err)
+	}
+}
+
+func TestCDPKeystoreRefusesForbiddenProjectPolicyListing(t *testing.T) {
+	f, _ := newFakeCDP(t)
+	f.projectPoliciesStatus = http.StatusForbidden
+	f.projectPoliciesErrBody = `{"errorType":"forbidden","errorMessage":"no scope"}`
+	env := f.env()
+	env["AGENT_WALLETS"] = "*:" + f.addr().Hex()
+
+	_, _, err := cdpKeystore(context.Background(), envOf(env), env["AGENT_WALLETS"])
+	if err == nil || !strings.Contains(err.Error(), "list project policies") {
+		t.Fatalf("want an error mentioning list project policies, got %v", err)
+	}
+	if strings.Contains(err.Error(), "Manage") {
+		t.Fatalf("a listing-scope refusal must never mention Manage: %v", err)
+	}
+}
+
+func TestCDPKeystoreRefusesProjectPolicyAcceptRuleOnSecondPage(t *testing.T) {
+	f, _ := newFakeCDP(t)
+	f.projectPolicyPages = [][]cdpPolicyEntry{
+		{{ID: "proj-pol-1", Rules: []cdpPolicyRule{{Action: "reject", Operation: "signEvmHash"}}}},
+		{{ID: "proj-pol-2", Rules: []cdpPolicyRule{{Action: "accept", Operation: "signEvmMessage"}}}},
+	}
+	env := f.env()
+	env["AGENT_WALLETS"] = "*:" + f.addr().Hex()
+
+	_, _, err := cdpKeystore(context.Background(), envOf(env), env["AGENT_WALLETS"])
+	if err == nil || !strings.Contains(err.Error(), "proj-pol-2") || !strings.Contains(err.Error(), "signEvmMessage") {
+		t.Fatalf("want an error naming the second page's policy id and operation, got %v", err)
+	}
+}
+
+// The bearer JWT's uris claim must exclude the query string, or CDP would answer 401 to every
+// request that needs one — the project policy listing is the first call that does
+// (?scope=project). The fake's verifyBearer rebuilds the expected uri from the request's path
+// only, so a client that leaked the query into its JWT would fail here with an unauthorized error
+// rather than a clean decode.
+func TestCDPDoKeepsQueryOutOfBearerURI(t *testing.T) {
+	f, c := newFakeCDP(t)
+
+	out, err := c.do(context.Background(), http.MethodGet, "/v2/policy-engine/policies?scope=project", nil)
+	if err != nil {
+		t.Fatalf("do with a query string: %v", err)
+	}
+	if _, ok := out["policies"]; !ok {
+		t.Fatalf("response %v missing policies", out)
+	}
+	if f.lastListQuery != "scope=project" {
+		t.Fatalf("the fake must still receive the query string in the request URL, got %q", f.lastListQuery)
 	}
 }

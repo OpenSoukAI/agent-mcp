@@ -78,8 +78,9 @@ owner.
 
 **CDP.** In the CDP portal, go to the Server Wallet, open Policies, and create a new policy with
 scope `account`, pasting in the generated JSON unchanged. Assign it to the account. Keep the
-project-level policy empty, or confirm it accepts none of these operations: a project-level
-policy's decision overrides the account policy. See below for what else to set up.
+project-level policy empty, or reject-only: a project-level policy's decision overrides the
+account policy, and boot refuses to start otherwise (see below). See below for what else to set
+up.
 
 ## Changing a policy
 
@@ -116,7 +117,8 @@ The policy cannot cover everything, so set up these yourself:
 - **Unnamed operations.** CDP allows by default any operation no rule names. Use the generated
   policy unchanged; do not trim the reject rules.
 - **Project policy.** A project-level policy's decision is final and overrides the account
-  policy — an empty or permissive project policy can undo the account policy above it.
+  policy. Boot checks this itself (see below): it lists every project policy and refuses to
+  start if any rule's action is "accept". Keep the project policy empty or reject-only.
 - **Smart-account upgrade.** CDP's EIP-7702 delegation endpoint, which upgrades the account to
   CDP's smart-account implementation, is not governed by policies either — another reason to keep
   the API key and the Wallet Secret on the agent's machine only. The generated policy rejects the
@@ -133,8 +135,17 @@ nothing) to run five probe requests: a raw hash (`signEvmHash`), a text message
 (`signEvmMessage`), the self-test transaction as `signEvmTransaction` and again as a pre-built
 `sendEvmTransaction`, and an ERC-2612 Permit as `signEvmTypedData`. Any answer other than "reject"
 refuses boot — this catches a missing account policy, or a project policy that accepts any of
-these probe requests. It does not catch a narrowly permissive project policy: one that accepts
-something outside these five exact shapes passes the self-test undetected.
+these probe requests.
 
-Not yet verified against a live CDP project: typed-data number encoding, whether CDP accepts
-`EIP712Domain` in the policy's types, and the policy-denial error shape.
+It then lists every project-scoped policy (`GET /v2/policy-engine/policies?scope=project`,
+paginating through `nextPageToken`) and refuses boot if any rule's action is "accept", naming the
+policy id and the operation. This is what catches a narrowly permissive project policy — one that
+accepts something outside the five probe shapes, which the simulator alone would miss. A
+401/403 or any other error listing policies also refuses boot (fail closed), with a
+permission-style message rather than telling you to grant a scope. Together, boot checks: the
+five probes, and no accept rule in any project policy.
+
+Verified against a live CDP project (2026-10-29): uint fields are sent as decimal strings and CDP
+compares them numerically; CDP accepts `EIP712Domain` in the policy's types; a policy denial is
+HTTP 403 `policy_violation`; the policy simulator and the policy listing both work with a key that
+has neither the Export nor the Manage scope.

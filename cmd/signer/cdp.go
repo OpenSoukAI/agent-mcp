@@ -45,6 +45,9 @@ func (e *cdpHTTPError) Error() string { return fmt.Sprintf("HTTP %d: %s", e.stat
 // do sends one CDP request, body (nil for none) encoded with cdpBody so the bytes signed by the
 // wallet JWT are exactly the bytes sent. The bearer JWT authenticates every request; the wallet
 // JWT additionally authorizes a write under /accounts, the only paths CDP's policy engine covers.
+// path may carry a query string (e.g. "...?scope=project"); CDP's own SDK builds the JWTs' uris
+// claim from the request path alone, so the query is kept out of uri here but still sent on the
+// request URL — a uri that included it would make CDP answer 401 to every request that needs one.
 func (c *cdpClient) do(ctx context.Context, method, path string, body any) (map[string]any, error) {
 	var raw []byte
 	if body != nil {
@@ -54,7 +57,11 @@ func (c *cdpClient) do(ctx context.Context, method, path string, body any) (map[
 			return nil, err
 		}
 	}
-	uri := method + " " + c.host + path
+	uriPath := path
+	if i := strings.IndexByte(path, '?'); i >= 0 {
+		uriPath = path[:i]
+	}
+	uri := method + " " + c.host + uriPath
 	now := time.Now()
 	bearer, err := c.key.bearer(uri, now)
 	if err != nil {
@@ -248,9 +255,9 @@ func cdpPermitProbeBody(addr common.Address) (map[string]any, error) {
 // so a gap in the generated template can't be exploited by calling CDP directly with the same
 // credentials. An "accept" for any probe catches a missing account policy, or a project policy
 // that accepts any of these five probe requests (raw hash, text message, an off-policy
-// transaction, an off-policy typed-data payload, or a send) — it does not catch a narrowly
-// permissive project policy, since that policy may allow something these five probes don't
-// exercise.
+// transaction, an off-policy typed-data payload, or a send). A project policy that only allows
+// something these five probes don't exercise is instead caught by checkProjectPolicies, which
+// lists every project policy and refuses boot if any rule accepts an operation.
 func (c *cdpClient) selfTest(ctx context.Context, addr common.Address) error {
 	tx := types.NewTx(&types.DynamicFeeTx{
 		ChainID:   big.NewInt(1),
@@ -302,6 +309,70 @@ func (c *cdpClient) selfTest(ctx context.Context, addr common.Address) error {
 	return nil
 }
 
+// cdpPolicyEntry is one policy from GET /v2/policy-engine/policies.
+type cdpPolicyEntry struct {
+	ID          string          `json:"id"`
+	Description string          `json:"description"`
+	Scope       string          `json:"scope"`
+	Rules       []cdpPolicyRule `json:"rules"`
+}
+
+type cdpPolicyRule struct {
+	Action    string `json:"action"`
+	Operation string `json:"operation"`
+}
+
+// checkProjectPolicies lists every project-scoped CDP policy (GET /v2/policy-engine/policies
+// ?scope=project, paginating through nextPageToken) and refuses boot if any rule's action is
+// "accept". A project-level policy's decision overrides the account policy (see selfTest and
+// docs/signer-policies), so an accept rule there would let CDP sign outside the generated policy
+// no matter what the five probes found; this is what catches a narrowly permissive project
+// policy that selfTest's probes don't happen to exercise. A reject-only project policy, or none
+// at all, is fine. Returns the number of policies checked, for the boot report.
+func (c *cdpClient) checkProjectPolicies(ctx context.Context) (int, error) {
+	checked := 0
+	pageToken := ""
+	for {
+		path := "/v2/policy-engine/policies?scope=project"
+		if pageToken != "" {
+			path += "&pageToken=" + url.QueryEscape(pageToken)
+		}
+		callCtx, cancel := context.WithTimeout(ctx, providerCallTimeout)
+		out, err := c.do(callCtx, http.MethodGet, path, nil)
+		cancel()
+		if err != nil {
+			var httpErr *cdpHTTPError
+			if errors.As(err, &httpErr) && (httpErr.status == http.StatusUnauthorized || httpErr.status == http.StatusForbidden) {
+				return checked, fmt.Errorf("CDP API key cannot list project policies (HTTP %d: %s); the signer key needs no extra scopes for this — check the key belongs to the project and its IP allowlist", httpErr.status, httpErr.detail)
+			}
+			return checked, fmt.Errorf("list CDP project policies: %w", err)
+		}
+		raw, err := json.Marshal(out)
+		if err != nil {
+			return checked, fmt.Errorf("list CDP project policies: %w", err)
+		}
+		var page struct {
+			Policies      []cdpPolicyEntry `json:"policies"`
+			NextPageToken string           `json:"nextPageToken"`
+		}
+		if err := json.Unmarshal(raw, &page); err != nil {
+			return checked, fmt.Errorf("list CDP project policies: decode response: %w", err)
+		}
+		for _, p := range page.Policies {
+			checked++
+			for _, r := range p.Rules {
+				if r.Action == "accept" {
+					return checked, fmt.Errorf("CDP project policy %s has an accept rule for %s; a project-level decision overrides the account policy, so the signer refuses to start (remove it or move it to an account policy; see docs/signer-policies)", p.ID, r.Operation)
+				}
+			}
+		}
+		if page.NextPageToken == "" {
+			return checked, nil
+		}
+		pageToken = page.NextPageToken
+	}
+}
+
 // cdpKeystore opens SIGNER_BACKEND=cdp: AGENT_WALLETS maps agent ids to CDP Server Wallet EVM
 // addresses. Each account is checked to exist and to pass the policy self-test before any tool
 // can use it, so an unreachable or too-permissive policy fails at boot, not on first use.
@@ -331,6 +402,14 @@ func cdpKeystore(ctx context.Context, getenv func(string) string, wallets string
 	}
 	c := &cdpClient{base: base, host: host, key: key, wallet: wallet, http: &http.Client{}}
 
+	// Checked once per boot, before any per-wallet work: a project-level accept rule overrides
+	// every account policy below it, so there is no point self-testing a wallet the project
+	// policy could override anyway.
+	checked, err := c.checkProjectPolicies(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+
 	var selfTestReport []string
 	ks, report, err := walletKeystore(ctx, wallets, "CDP account", func(ctx context.Context, ref string) (Signer, error) {
 		if !common.IsHexAddress(ref) {
@@ -349,6 +428,7 @@ func cdpKeystore(ctx context.Context, getenv func(string) string, wallets string
 	if err != nil {
 		return nil, nil, err
 	}
+	report = append([]string{fmt.Sprintf("CDP project policies: none accept (checked %d)", checked)}, report...)
 	report = append(report, selfTestReport...)
 	return ks, append(report, fmt.Sprintf("CDP API key %s: make sure it has neither the %q nor the %q scope (see docs/signer-policies)", key.id, cdpExportScope, cdpManageScope)), nil
 }
