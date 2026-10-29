@@ -26,6 +26,7 @@ import (
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/ethereum/go-ethereum/rlp"
 	"github.com/ethereum/go-ethereum/signer/core/apitypes"
 )
 
@@ -353,8 +354,31 @@ func (f *fakeCDP) signTransaction(w http.ResponseWriter, body []byte) {
 		http.Error(w, `{"errorType":"bad_request","errorMessage":"bad transaction"}`, http.StatusBadRequest)
 		return
 	}
-	tx, chainID := decodeUnsignedForTest(f.t, raw)
-	signed, err := types.SignTx(tx, types.LatestSignerForChainID(chainID), f.signKey())
+	// Decoded inline rather than with decodeUnsignedForTest: this handler runs on its own goroutine,
+	// and t.Fatalf must only ever be called from the test goroutine.
+	if len(raw) == 0 || raw[0] != types.DynamicFeeTxType {
+		f.t.Errorf("sign/transaction: not an unsigned 1559 tx (got %x); the CDP adapter only sends 1559", raw)
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+	var unsigned struct {
+		ChainID              *big.Int
+		Nonce                uint64
+		GasTipCap, GasFeeCap *big.Int
+		Gas                  uint64
+		To                   *common.Address `rlp:"nil"`
+		Value                *big.Int
+		Data                 []byte
+		AccessList           types.AccessList
+	}
+	if err := rlp.DecodeBytes(raw[1:], &unsigned); err != nil {
+		f.t.Errorf("decode unsigned 1559 tx: %v", err)
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+	tx := types.NewTx(&types.DynamicFeeTx{ChainID: unsigned.ChainID, Nonce: unsigned.Nonce, GasTipCap: unsigned.GasTipCap, GasFeeCap: unsigned.GasFeeCap,
+		Gas: unsigned.Gas, To: unsigned.To, Value: unsigned.Value, Data: unsigned.Data, AccessList: unsigned.AccessList})
+	signed, err := types.SignTx(tx, types.LatestSignerForChainID(unsigned.ChainID), f.signKey())
 	if err != nil {
 		f.t.Errorf("sign transaction: %v", err)
 		w.WriteHeader(http.StatusInternalServerError)
@@ -545,8 +569,8 @@ func TestCDPKeystoreBoots(t *testing.T) {
 	if !strings.Contains(joined, "self-test passed") {
 		t.Fatalf("report %v must mention self-test passed", report)
 	}
-	if !strings.Contains(joined, f.apiKeyID) || !strings.Contains(joined, "Export") || !strings.Contains(joined, "Manage") {
-		t.Fatalf("report %v must warn about the Export/Manage scopes, naming the key id", report)
+	if !strings.Contains(joined, f.apiKeyID) || !strings.Contains(joined, cdpExportScope) || !strings.Contains(joined, cdpManageScope) {
+		t.Fatalf("report %v must warn about the %s/%s scopes, naming the key id", report, cdpExportScope, cdpManageScope)
 	}
 }
 

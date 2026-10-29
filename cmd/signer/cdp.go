@@ -21,8 +21,8 @@ import (
 
 // CDP backend (SIGNER_BACKEND=cdp). The wallet key stays in a Coinbase CDP Server Wallet. For any
 // write under /accounts, the wallet JWT binds reqHash to the exact body sent, which is what CDP's
-// policy engine evaluates. CDP's sign-hash endpoint is unrestrictable by policy, so the signer
-// never calls it.
+// policy engine evaluates. CDP's sign-hash and sign-message endpoints take no criteria a policy
+// could restrict to a specific commitment shape, so the signer never calls either.
 
 // cdpClient talks to one CDP Server Wallet project. host is the base URL's host plus any path
 // prefix (e.g. "api.cdp.coinbase.com/platform"), which the JWTs' uris claim is built from.
@@ -37,7 +37,7 @@ type cdpClient struct {
 // a 404 account lookup) can branch on it without parsing the error string.
 type cdpHTTPError struct {
 	status int
-	detail string // "errorType: errorMessage"
+	detail string // "errorType: errorMessage", or a capped raw body snippet if CDP sent neither
 }
 
 func (e *cdpHTTPError) Error() string { return fmt.Sprintf("HTTP %d: %s", e.status, e.detail) }
@@ -241,15 +241,16 @@ func cdpPermitProbeBody(addr common.Address) (map[string]any, error) {
 }
 
 // selfTest proves addr's CDP policy is not permissive enough to let the signer bypass it: CDP's
-// policy engine must reject five probe requests covering every operation shape the signer or an
-// attacker with the same credentials could send — a raw hash, a text message, the self-test
+// policy engine must reject five probe requests — a raw hash, a text message, the self-test
 // transaction both as signEvmTransaction and as a pre-built sendEvmTransaction, and an ERC-2612
 // Permit as signEvmTypedData. The signer itself never calls signEvmHash or signEvmMessage (see
-// the package comment); this additionally checks that the project policy would refuse them too,
+// the package comment); this additionally checks that the account policy would refuse them too,
 // so a gap in the generated template can't be exploited by calling CDP directly with the same
-// account. An "accept" for any probe catches a missing account policy, or a project policy that
-// accepts any of these probe requests — it does not prove a narrowly permissive project policy
-// safe, since that policy may allow something these five probes don't exercise.
+// credentials. An "accept" for any probe catches a missing account policy, or a project policy
+// that accepts any of these five probe requests (raw hash, text message, an off-policy
+// transaction, an off-policy typed-data payload, or a send) — it does not catch a narrowly
+// permissive project policy, since that policy may allow something these five probes don't
+// exercise.
 func (c *cdpClient) selfTest(ctx context.Context, addr common.Address) error {
 	tx := types.NewTx(&types.DynamicFeeTx{
 		ChainID:   big.NewInt(1),
