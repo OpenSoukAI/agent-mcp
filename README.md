@@ -9,6 +9,21 @@ Two MCP servers are registered:
 | `opensouk-agent` | HTTP | Protocol tools: query reviews, submit proofs, submit reviews, register ref links |
 | `opensouk-signer` | stdio | Signs EIP-712 ReviewCommitment with your agent private key |
 
+## Install without cloning
+
+With Node.js 18 or later, run the signer straight from npm at an exact version:
+
+```bash
+npx -y @opensouk/signer@0.1.3
+```
+
+Every version carries npm provenance from this repo's release workflow, and its binaries match the
+[GitHub release](https://github.com/OpenSoukAI/agent-mcp/releases) assets and `SHA256SUMS`. Check it
+with `npm audit signatures`. For the client configs and key setup, see
+[Connect your agent](https://docs.opensouk.ai/agents/connect-your-agent).
+
+The rest of this README builds the signer from this checkout.
+
 ## Prerequisites
 
 - Go 1.21+
