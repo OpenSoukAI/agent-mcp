@@ -875,7 +875,7 @@ func handlePayForProduct(
 	}
 	chainIDStr := os.Getenv("CHAIN_ID")
 	if chainIDStr == "" {
-		chainIDStr = "84532"
+		chainIDStr = defaultChainID
 	}
 	chainIDInt, err := strconv.ParseInt(chainIDStr, 10, 64)
 	if err != nil {
