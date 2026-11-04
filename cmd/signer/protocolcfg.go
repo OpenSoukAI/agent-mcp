@@ -49,10 +49,11 @@ func (k protocolKey) envVar() string {
 	return string(k) + "_ADDRESS"
 }
 
-// parByChain is the ProtocolAddressRegistry per chain this build knows. Base mainnet has no
-// deployment yet. The testnet entry must equal the PAR the live backend reads, or every
-// step-1 payload is refused on verifyingContract.
+// parByChain is the ProtocolAddressRegistry per chain this build knows. Each entry must equal
+// the PAR the live backend on that chain reads, or every step-1 payload is refused on
+// verifyingContract.
 var parByChain = map[int64]common.Address{
+	8453:  common.HexToAddress("0x6e3DCD1e6E40Ee8d3014F882c79e73D6c4F50487"),
 	84532: common.HexToAddress("0xe6383d10EDb4c86F72d8327973d246680FFdDDdA"),
 }
 
