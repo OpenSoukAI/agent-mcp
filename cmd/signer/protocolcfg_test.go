@@ -289,3 +289,29 @@ func TestParGetAddress_NoContractAtPAR(t *testing.T) {
 		t.Fatalf("want a no-contract error naming PROTOCOL_ADDRESS_REGISTRY, got %v", err)
 	}
 }
+
+// TestParByChain_MainnetIsTheProductionPAR pins Base mainnet to the production registry deployed
+// 2026-11-04 (contracts v1.0.0). Any other value sends every mainnet signature to the wrong
+// verifyingContract and every PAR lookup to the wrong contracts.
+func TestParByChain_MainnetIsTheProductionPAR(t *testing.T) {
+	got, ok := parByChain[8453]
+	if !ok {
+		t.Fatal("Base mainnet (8453) has no built-in ProtocolAddressRegistry")
+	}
+	if want := common.HexToAddress("0x6e3DCD1e6E40Ee8d3014F882c79e73D6c4F50487"); got != want {
+		t.Fatalf("parByChain[8453] = %s, want %s", got.Hex(), want.Hex())
+	}
+}
+
+// TestParAddressFor_MainnetWithoutOverride: with PROTOCOL_ADDRESS_REGISTRY unset, mainnet resolves
+// to the production registry instead of failing as an unknown chain.
+func TestParAddressFor_MainnetWithoutOverride(t *testing.T) {
+	t.Setenv("PROTOCOL_ADDRESS_REGISTRY", "")
+	got, err := parAddressFor(8453)
+	if err != nil {
+		t.Fatalf("parAddressFor(8453): %v", err)
+	}
+	if want := common.HexToAddress("0x6e3DCD1e6E40Ee8d3014F882c79e73D6c4F50487"); got != want {
+		t.Fatalf("parAddressFor(8453) = %s, want %s", got.Hex(), want.Hex())
+	}
+}
