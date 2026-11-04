@@ -11,11 +11,12 @@ MCP_PROJECT_DIR="${MCP_PROJECT_DIR:-$PWD}"
 
 SIGNER_BIN="${SIGNER_INSTALL_PATH:-$HOME/.local/bin/opensouk-signer}"
 MCP_URL="${REFERRER_MCP_URL:-http://localhost:8081/mcp}"
-BASE_RPC_URL="${BASE_RPC_URL:-https://sepolia.base.org}"
+# Base mainnet by default; for testnet set CHAIN_ID=84532 and BASE_RPC_URL=https://sepolia.base.org.
+BASE_RPC_URL="${BASE_RPC_URL:-https://mainnet.base.org}"
 # PROTOCOL_ADDRESS_REGISTRY (optional): overrides the signer's built-in registry for CHAIN_ID.
 # The signer resolves every contract address from the registry itself; nothing is looked up here.
 PAR_ADDR="${PROTOCOL_ADDRESS_REGISTRY:-}"
-CHAIN_ID="${CHAIN_ID:-84532}"
+CHAIN_ID="${CHAIN_ID:-8453}"
 # AGENT_KEYS: comma-separated agentId:0xprivkey pairs to sign as multiple agents in one signer
 #   process, e.g. AGENT_KEYS="12:0xabc...,34:0xdef..." (reviewer 12 + buyer 34). Otherwise
 #   AGENT_PRIVATE_KEY, a single key. Written to signer.env only if that file does not exist yet.

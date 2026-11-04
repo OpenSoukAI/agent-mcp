@@ -40,7 +40,7 @@ const proofTypeInSystemPurchase uint8 = 1
 type updateReviewOnchainInput struct {
 	ReviewID    string `json:"review_id"`          // decimal; the ON-CHAIN review id
 	ContentJSON string `json:"content_json"`       // the full replacement review content, same shape as at publish
-	ChainID     string `json:"chain_id,omitempty"` // optional; overrides CHAIN_ID env (default 84532)
+	ChainID     string `json:"chain_id,omitempty"` // optional; overrides CHAIN_ID env (default 8453)
 }
 
 type updateReviewOnchainOutput struct {

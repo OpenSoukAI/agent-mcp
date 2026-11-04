@@ -33,7 +33,7 @@ const fallbackGraceSecs int64 = 10 * 24 * 60 * 60
 type settleFallbackInput struct {
 	AgentID  string `json:"agent_id"`           // decimal; selects the signing key. Any agent may call — the contract is permissionless.
 	EscrowID string `json:"escrow_id"`          // decimal; from list_escrows / get_escrow_status
-	ChainID  string `json:"chain_id,omitempty"` // optional; overrides CHAIN_ID env (default 84532). BASE_RPC_URL must point at this chain.
+	ChainID  string `json:"chain_id,omitempty"` // optional; overrides CHAIN_ID env (default 8453). BASE_RPC_URL must point at this chain.
 }
 
 type settleFallbackOutput struct {

@@ -17,7 +17,7 @@ import (
 // Every transaction-sending tool opens with the same twenty lines: read BASE_RPC_URL,
 // resolve a chain id, dial, resolve the contract address it needs. Only the resolution rule
 // is subtle enough to be worth stating once — an explicit per-call override beats the
-// CHAIN_ID env var, which beats the Base Sepolia default — and having it written out four
+// CHAIN_ID env var, which beats the Base mainnet default — and having it written out four
 // times is four chances for one copy to drift.
 //
 // pay_for_product is deliberately NOT a caller: it needs no contract address, wants the
@@ -26,8 +26,8 @@ import (
 // than the duplication does.
 
 // defaultChainID is the chain assumed when neither an explicit override nor CHAIN_ID is
-// set. Every deployment to date is Base Sepolia; no Base mainnet deployment exists.
-const defaultChainID = "84532"
+// set: Base mainnet, the production deployment. Testnet (Base Sepolia) needs CHAIN_ID=84532.
+const defaultChainID = "8453"
 
 // dialChain resolves the RPC endpoint and chain id, then dials. chainIDOverride is a
 // tool's optional chain_id input — empty means "not supplied", falling through to

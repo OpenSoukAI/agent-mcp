@@ -16,21 +16,36 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 )
 
-func TestConfiguredChainID_DefaultsToSepolia(t *testing.T) {
+// With no CHAIN_ID the signer serves Base mainnet: the production PAR and the production
+// attestation origin, with no override needed.
+func TestConfiguredChainID_DefaultsToMainnet(t *testing.T) {
 	t.Setenv("CHAIN_ID", "")
+	t.Setenv("PROTOCOL_ADDRESS_REGISTRY", "")
+	t.Setenv("ATTESTATION_ORIGIN", "")
 	got, err := configuredChainID()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got != 84532 {
-		t.Fatalf("got %d, want 84532", got)
+	if got != 8453 {
+		t.Fatalf("got %d, want 8453", got)
+	}
+	par, err := parAddressFor(got)
+	if err != nil {
+		t.Fatalf("parAddressFor(%d): %v", got, err)
+	}
+	if want := common.HexToAddress("0x6e3DCD1e6E40Ee8d3014F882c79e73D6c4F50487"); par != want {
+		t.Fatalf("default chain PAR = %s, want %s", par.Hex(), want.Hex())
+	}
+	origin, err := attestationOrigin(got)
+	if err != nil || origin != "https://api.opensouk.ai" {
+		t.Fatalf("default chain origin = %q, err %v; want https://api.opensouk.ai", origin, err)
 	}
 }
 
 func TestConfiguredChainID_ReadsEnv(t *testing.T) {
-	t.Setenv("CHAIN_ID", "8453")
+	t.Setenv("CHAIN_ID", "84532")
 	got, err := configuredChainID()
-	if err != nil || got != 8453 {
+	if err != nil || got != 84532 {
 		t.Fatalf("got %d, %v", got, err)
 	}
 }

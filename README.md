@@ -61,6 +61,14 @@ To use a deployed instance:
 REFERRER_MCP_URL=https://mcp.opensouk.ai/mcp bash scripts/setup-mcp.sh
 ```
 
+The signer defaults to **Base mainnet** (`CHAIN_ID=8453`, RPC `https://mainnet.base.org`). For the
+testnet, set the chain and RPC explicitly:
+
+```bash
+CHAIN_ID=84532 BASE_RPC_URL=https://sepolia.base.org \
+  REFERRER_MCP_URL=https://mcp.sysdev.wtf/mcp bash scripts/setup-mcp.sh
+```
+
 ### Custom install path
 
 ```bash

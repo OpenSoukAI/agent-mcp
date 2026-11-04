@@ -77,7 +77,7 @@ func handleSignCharge(
 	// exactly in that silent-zero trap.
 	if in.ChainID == 0 {
 		return nil, signOutput{}, fmt.Errorf(
-			"chainId is required and must be nonzero (Base chainId — e.g. 84532 for Base Sepolia). " +
+			"chainId is required and must be nonzero (Base chainId — e.g. 8453 for Base mainnet, 84532 for Base Sepolia). " +
 				"If you're passing the old field name 'tempoChainId', rename it to 'chainId'.")
 	}
 	if in.SplitRouterAddr == "" || common.HexToAddress(in.SplitRouterAddr) == (common.Address{}) {

@@ -17,7 +17,7 @@ import (
 type bindEscrowInput struct {
 	AgentID  string `json:"agent_id"`           // decimal; the agent's own ERC-8004 id (owned by the paying wallet)
 	EscrowID string `json:"escrow_id"`          // decimal; from pay_for_product output / list_escrows backlog
-	ChainID  string `json:"chain_id,omitempty"` // optional; overrides CHAIN_ID env (default 84532). BASE_RPC_URL must point at this chain.
+	ChainID  string `json:"chain_id,omitempty"` // optional; overrides CHAIN_ID env (default 8453). BASE_RPC_URL must point at this chain.
 }
 
 type bindEscrowOutput struct {
