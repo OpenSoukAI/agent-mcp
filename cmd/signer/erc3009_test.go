@@ -10,7 +10,7 @@ import (
 	"github.com/x402-foundation/x402/go/mechanisms/evm"
 )
 
-// Cross-language ERC-3009 digest vector (REF-269 item 8).
+// Cross-language ERC-3009 digest vector.
 //
 // Same fixed authorization, same pinned digest as:
 //
@@ -60,7 +60,7 @@ func TestHashERC3009Receive_MatchesCrossLanguageVector(t *testing.T) {
 }
 
 // TestHashERC3009Receive_DiffersFromTransfer pins the reason this file exists. If the two ever
-// hash alike, the pre-REF-269 signature would settle and this whole change would be moot.
+// hash alike, the old TransferWithAuthorization signature would settle and this whole change would be moot.
 func TestHashERC3009Receive_DiffersFromTransfer(t *testing.T) {
 	transfer, err := evm.HashEIP3009Authorization(
 		vectorAuth(), big.NewInt(vectorChainID), vectorToken, vectorName, vectorVersion,

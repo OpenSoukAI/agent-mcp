@@ -19,7 +19,7 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 )
 
-// The validate endpoint's reply for content the backend refuses, as the REF-469 handler writes it.
+// The validate endpoint's reply for content the backend refuses, as the backend handler writes it.
 const refusedReply = `{"valid":false,"rule":"schema","path":"","error":"content_json: schema: /core: missing properties: 'price_paid_usdc'"}`
 
 const (
@@ -275,7 +275,7 @@ func TestUpdateReviewOnchain_RefusesInvalidContentBeforeSigning(t *testing.T) {
 	if !bytes.Contains(got.body, []byte(`"agent_id":5`)) || !bytes.Contains(got.body, []byte(`"merchant_id":2`)) {
 		t.Fatalf("the dry-run was not given the on-chain ids: %s", got.body)
 	}
-	// The edited review's id, so its own onchain_receipts do not count as reused (REF-425).
+	// The edited review's id, so its own onchain_receipts do not count as reused.
 	if !bytes.Contains(got.body, []byte(`"review_id":9`)) {
 		t.Fatalf("the edit's dry-run did not name the review: %s", got.body)
 	}

@@ -9,7 +9,7 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 )
 
-// ── Live role-write tests (REF-324) ─────────────────────────────────────────────
+// ── Live role-write tests ─────────────────────────────────────────────
 //
 // Same gating as merchant_live_test.go: skipped unless MERCHANT_LIVE_RPC is set.
 //

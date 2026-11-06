@@ -16,7 +16,7 @@ import (
 // the schema (x402-review/1, picked by the product's category) and the offchain_proof binding,
 // so neither is mirrored here. Fails closed: content the backend could not check is not hashed.
 // reviewID is the on-chain id of a review being edited, nil for a new one: the backend then
-// counts the review's own onchain_receipts as its own, not as reused (REF-425).
+// counts the review's own onchain_receipts as its own, not as reused.
 func checkReviewContent(ctx context.Context, agentID, merchantID *big.Int, productID [32]byte, content string, reviewID *big.Int) error {
 	if !agentID.IsInt64() {
 		return fmt.Errorf("agent_id %s is too large for the backend API (int64)", agentID)

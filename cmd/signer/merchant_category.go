@@ -10,7 +10,7 @@ import (
 )
 
 // checkCategory refuses a category outside the backend's vocabulary before add_product writes
-// the product on-chain: the backend refuses it too (REF-447), but only in the metadata sync,
+// the product on-chain: the backend refuses it too, but only in the metadata sync,
 // after addProduct has spent the gas and left a payable product nobody can discover. The
 // vocabulary is read from the backend itself, so there is no second copy to drift.
 func checkCategory(ctx context.Context, category string) error {

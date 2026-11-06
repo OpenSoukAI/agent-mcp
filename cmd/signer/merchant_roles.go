@@ -16,7 +16,7 @@ import (
 // ── grant_merchant_role / revoke_merchant_role ──────────────────────────────────
 //
 // Per-merchant roles let an owner delegate one capability to a key without handing over the
-// identity. Until REF-324 nothing in this repo could set one, so an agent-run merchant had to
+// identity. Before the role tools nothing in this repo could set one, so an agent-run merchant had to
 // build a raw contract call to give its server a settlement key.
 //
 // The roles are scoped to one merchant: granting PRODUCT_MANAGER_ROLE for merchant 7 says

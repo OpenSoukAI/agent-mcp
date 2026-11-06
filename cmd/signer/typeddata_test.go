@@ -13,7 +13,7 @@ import (
 )
 
 // Every typed-data builder must hash to exactly the digest the hand-rolled encoder produces: a
-// policy backend (REF-492) signs the typed data, so a wrong field type or order would make it sign
+// policy backend signs the typed data, so a wrong field type or order would make it sign
 // a different message than the one the backend verifies.
 
 var tdDomain = commitmentDomain{ChainID: 84532, VerifyingContract: "0x5FC8d32690cc91D4c39d9d3abcBD16989F875707"}

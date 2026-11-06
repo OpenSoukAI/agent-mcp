@@ -63,13 +63,13 @@ func computeChargeDigest(payer common.Address, paymentRef [32]byte, buyerAgentID
 
 // handleSignCharge signs a ChargeCommitment with the buyer-agent owner's (= payer) key. The buyer
 // is both the transfer sender and the agent owner; POST /mpp/charge recovers this signature and
-// requires it == the on-chain transfer sender (REF-91).
+// requires it == the on-chain transfer sender.
 func handleSignCharge(
 	ctx context.Context,
 	_ *sdkmcp.CallToolRequest,
 	in signChargeInput,
 ) (*sdkmcp.CallToolResult, signOutput, error) {
-	// REF-218: chainId/splitRouterAddr are MCP tool inputs, supplied by the caller — not values the
+	// chainId/splitRouterAddr are MCP tool inputs, supplied by the caller — not values the
 	// backend sends. A zero chainId or empty/zero splitRouterAddr silently digests to a wrong
 	// signer (chainId=0 or verifyingContract=0x0..0), which fails at recover with no diagnostic
 	// pointing at the cause. Reject both loudly here instead, and name the old field names

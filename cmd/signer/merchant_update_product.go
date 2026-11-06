@@ -13,9 +13,9 @@ import (
 
 // ── update_product ──────────────────────────────────────────────────────────────
 //
-// A partial update of a product's backend metadata (REF-398): POST /v1/merchant/product with
+// A partial update of a product's backend metadata: POST /v1/merchant/product with
 // only the fields given. No transaction — commission and the active flag live on-chain and
-// have their own tools. The backend owns the write: the owner or a PRODUCT_MANAGER (REF-446).
+// have their own tools. The backend owns the write: the owner or a PRODUCT_MANAGER.
 
 // Pointers so an omitted field stays distinct from "": an omitted field keeps its stored
 // value, and "" clears it.

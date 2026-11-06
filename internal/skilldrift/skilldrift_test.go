@@ -100,7 +100,7 @@ func f() {
 	}
 }
 
-// The backend registers every tool through its own addTool wrapper (REF-441), which calls
+// The backend registers every tool through its own addTool wrapper, which calls
 // sdkmcp.AddTool once with a variable. Seeing only the SDK call found zero backend tools, and the
 // check could not run at all from 2026-10-06 — long enough for an undocumented tool to ship.
 func TestRegistered_SeesTheBackendAddToolWrapper(t *testing.T) {

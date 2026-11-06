@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-// Golden attribution-token fixture, shared with the backend (REF-267).
+// Golden attribution-token fixture, shared with the backend.
 //
 // These bytes are IDENTICAL to backend/internal/signing/token_golden_test.go's fixture, on
 // purpose. `attributionTokenVersion` here is a hand-copied mirror of the backend's

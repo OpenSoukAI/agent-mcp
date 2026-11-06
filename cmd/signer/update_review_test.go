@@ -224,6 +224,5 @@ func TestUpdateReview_StopsBeforeRPCWithoutURL(t *testing.T) {
 	}
 }
 
-// v1Review is doc 22's core-only example review (x402-review/1), as the backend requires since
-// REF-422.
+// v1Review is doc 22's core-only example review (x402-review/1), as the backend requires.
 const v1Review = `{"schema_version":"x402-review/1","core":{"price_paid_usdc":"0.001","billing_model":"per_call_fixed","calls_measured":1,"calls_charged":1,"measurement_window":{"start_ts":1790000000,"end_ts":1790000010},"client_region":"ap-southeast-1","latency_ms_p50":300,"latency_ms_p95":300,"response_bytes_p50":120,"error_rate_bps":0,"delivered":"usable","listing_description_quality":"clear","charged_for_failures":null,"refund_offered":null,"agent_ready":true,"agent_blockers":[],"stable_across_calls":null,"is_resold":false,"is_router":false,"offchain_proof":{"proof_id":7}},"open_review":{"rating":5,"use_case":"Single coin-flip round","review":"Instant result and the payout matched the stated odds."}}`

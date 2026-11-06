@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Tests for the pure parts of report_skill_drift (REF-248).
+"""Tests for the pure parts of report_skill_drift.
 
 The GraphQL calls need a real key and are exercised only by a live run; everything that decides
 WHAT to do is here, because that is where a mistake is silent — a wrong body is still a filed

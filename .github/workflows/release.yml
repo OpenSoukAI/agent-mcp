@@ -1,6 +1,6 @@
-# Cuts a signer release (REF-494): tags main, builds opensouk-signer for each platform, and
+# Cuts a signer release: tags main, builds opensouk-signer for each platform, and
 # publishes the binaries with a SHA256SUMS file and a GitHub build-provenance attestation. It then
-# starts npm-publish.yml, which publishes those same binaries to npm (REF-553).
+# starts npm-publish.yml, which publishes those same binaries to npm.
 #
 # Manual only. Nothing else triggers it: a release is a decision, and the tag it creates is what
 # the docs pin `go install …/cmd/signer@<version>` to.

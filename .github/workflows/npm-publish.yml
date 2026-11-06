@@ -1,5 +1,5 @@
 # Publishes a signer release to npm as @opensouk/signer plus one @opensouk/signer-<platform> package
-# per binary (REF-553). release.yml starts it after each release; run it by hand to retry a failed
+# per binary. release.yml starts it after each release; run it by hand to retry a failed
 # publish for an existing tag. Tags before v0.1.3 can't be published: their assets carry the old
 # referrer-signer name and their binaries have no --version.
 #

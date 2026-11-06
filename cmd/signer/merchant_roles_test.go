@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-// REF-324. The three per-merchant roles, with the hashes `cast keccak "<NAME>"` produces.
+// The three per-merchant roles, with the hashes `cast keccak "<NAME>"` produces.
 //
 // Pinned, not derived: MerchantAccessControl._roleExists allowlists exactly these three, and
 // the ABI carries only the hash — a role name misspelled here compiles, passes any test that

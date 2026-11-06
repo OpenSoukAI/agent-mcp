@@ -20,10 +20,10 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 )
 
-// Call-site wiring for the pay path (REF-265).
+// Call-site wiring for the pay path.
 //
 // The helpers being correct proves nothing about the handler USING them: deleting the call leaves
-// every helper test green with the feature dead. That is the bug class REF-270 §3 shipped, so this
+// every helper test green with the feature dead. That bug class has shipped before, so this
 // drives the real handlePayForProduct instead of the seam beneath it.
 //
 // Phase 2 is reachable without a chain — the RPC dial happens after it — so a fake merchant that
@@ -177,7 +177,7 @@ func TestPayForProduct_ReusedAuthorizationSurfacesAsAlreadyPaid(t *testing.T) {
 	}
 	if !strings.HasPrefix(err.Error(), alreadyPaidToken+":") {
 		t.Fatalf("handler did not classify the reused authorization:\n%s\n\nThe helpers pass in "+
-			"isolation, so this is the call site: a runner following REF-193 §C cannot match on "+
+			"isolation, so this is the call site: a runner following the intent-runner contract cannot match on "+
 			"anything but the hex selector.", err)
 	}
 }
@@ -198,7 +198,7 @@ func TestPayForProduct_RealUSDCReuseSurfacesAsAlreadyPaid(t *testing.T) {
 	}
 }
 
-// REF-364 moved the revert into the facilitator log; the merchant forwards only the reason.
+// Newer facilitators keep the revert in their log; the merchant forwards only the reason.
 func TestPayForProduct_FacilitatorAuthUsedReasonSurfacesAsAlreadyPaid(t *testing.T) {
 	body := `{"success":false,"errorReason":"authorization_used","errorMessage":"this payment authorization was already used or cancelled; this request moved no funds"}`
 	refLink := payTestEnv(t, http.StatusConflict, body)
@@ -386,7 +386,7 @@ func TestPayForProduct_ConfigCapRefusesBeforeSigning(t *testing.T) {
 
 // TestPayForProduct_ManifestFromOriginOnly: the attestation key comes from ATTESTATION_ORIGIN,
 // never from the ref link's host. An attacker host that publishes its own key and signs its own
-// token must be refused on signature, with its manifest never fetched (REF-493 C).
+// token must be refused on signature, with its manifest never fetched.
 func TestPayForProduct_ManifestFromOriginOnly(t *testing.T) {
 	realPub, _, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {

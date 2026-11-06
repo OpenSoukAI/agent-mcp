@@ -31,7 +31,7 @@ import (
 // rather than skipping — a half-configured live run that silently passes is worse than no
 // live run, because it looks like coverage.
 //
-// Preconditions on the chain (see the REF-251 notes in the PR):
+// Preconditions on the chain (see the merchant tools' PR notes):
 //   - MERCHANT_LIVE_MERCHANT_ID is a minted ERC-8004 identity owned by OWNER_KEY's address
 //   - MERCHANT_LIVE_PRODUCT_ID already exists for it
 //   - OTHER_KEY's address owns neither
@@ -526,7 +526,7 @@ func TestLive_SetMerchantProfile(t *testing.T) {
 	api := liveAPI(t)
 	e.ensureActivated(t, api)
 
-	want := "REF-251 live profile " + strconv.FormatInt(time.Now().Unix(), 10)
+	want := "live profile " + strconv.FormatInt(time.Now().Unix(), 10)
 
 	_, out, err := handleSetMerchantProfile(t.Context(), nil, setMerchantProfileInput{
 		MerchantID:     e.merchantID,
@@ -701,7 +701,7 @@ func TestLive_ActivateMerchant_IsIdempotent(t *testing.T) {
 	}
 }
 
-// TestLive_ActivateMerchant_SyncFailureIsRecoverable is the REF-254 hazard on the activation
+// TestLive_ActivateMerchant_SyncFailureIsRecoverable is the half-synced hazard on the activation
 // path: the chain write lands and the backend does not. The error has to say the gas is
 // spent and that repeating the call is safe, and repeating it has to actually work.
 func TestLive_ActivateMerchant_SyncFailureIsRecoverable(t *testing.T) {
@@ -877,7 +877,7 @@ func TestLive_AddProduct_DoesNotRepriceSilently(t *testing.T) {
 	}
 }
 
-// TestLive_AddProduct_SyncFailureNamesRetry is the REF-254 hazard on the product path. A
+// TestLive_AddProduct_SyncFailureNamesRetry is the half-synced hazard on the product path. A
 // product on-chain with no backend metadata is payable and undiscoverable, and the agent
 // cannot recover by calling addProduct again — so the message must point at this tool.
 func TestLive_AddProduct_SyncFailureNamesRetry(t *testing.T) {
@@ -1003,7 +1003,7 @@ func TestLive_AddProduct_AgainstRealBackend(t *testing.T) {
 		ProductID:     productID,
 		CommissionBps: 900,
 		EndpointURL:   "https://shop.example/buy",
-		Name:          "REF-251 Real Widget",
+		Name:          "Live Real Widget",
 		Description:   "added through add_product against a real backend",
 		Category:      "lookup.other",
 		ChainID:       e.chainID,

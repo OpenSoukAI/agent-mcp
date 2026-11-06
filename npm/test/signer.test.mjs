@@ -1,4 +1,4 @@
-// Tests for the npm packaging of the signer (REF-553): node --test npm/test/*.test.mjs
+// Tests for the npm packaging of the signer: node --test npm/test/*.test.mjs
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";

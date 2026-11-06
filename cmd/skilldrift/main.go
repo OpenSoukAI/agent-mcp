@@ -1,5 +1,5 @@
 // Command skilldrift compares the MCP tools the two servers register against the tools the
-// opensoukai skill documents, and prints the difference as JSON (REF-248).
+// opensoukai skill documents, and prints the difference as JSON.
 //
 // Exit codes are the point of this binary existing alongside the package's Go test: CI has to tell
 // "the skill has drifted" (an expected finding — report it and move on) from "the check could not

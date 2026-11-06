@@ -11,8 +11,8 @@ import (
 
 // ── set_merchant_profile ────────────────────────────────────────────────────────
 
-// Pointers so an omitted field stays distinct from "": the endpoint is a partial update
-// (backend REF-387), and only the fields given are sent.
+// Pointers so an omitted field stays distinct from "": the endpoint is a partial update,
+// and only the fields given are sent.
 type setMerchantProfileInput struct {
 	MerchantID           string  `json:"merchant_id"`                      // decimal; the merchant's own ERC-8004 id
 	Description          *string `json:"description,omitempty"`            // public profile copy; "" clears it
@@ -140,7 +140,7 @@ type checkProductReadinessOutput struct {
 	Referral        readinessRoute         `json:"referral"`
 	Public          *readinessPublic       `json:"public,omitempty"`
 	PriceComparison *readinessComparison   `json:"price_comparison,omitempty"`
-	// ControlsEndpoint is absent from a backend older than readiness v2 (REF-401).
+	// ControlsEndpoint is absent from a backend older than readiness v2.
 	ControlsEndpoint *readinessControl `json:"controls_endpoint,omitempty"`
 }
 
