@@ -31,7 +31,7 @@ func addProductWith(category string) addProductInput {
 	}
 }
 
-// REF-447: a category outside the vocabulary is refused before addProduct, not after it.
+// a category outside the vocabulary is refused before addProduct, not after it.
 func TestAddProduct_CategoryCheckedBeforeTheChain(t *testing.T) {
 	installMerchantKey(t)
 

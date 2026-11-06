@@ -9,7 +9,7 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 )
 
-// REF-193 A: pay_for_product must refuse when the live merchant price exceeds
+// pay_for_product must refuse when the live merchant price exceeds
 // the owner-confirmed max_amount, and must not otherwise interfere.
 func TestEnforceMaxAmount(t *testing.T) {
 	tests := []struct {
@@ -43,7 +43,7 @@ func TestEnforceMaxAmount(t *testing.T) {
 	}
 }
 
-// REF-193 B: the ERC-3009 nonce derived from (payer, idempotency_key) must be
+// the ERC-3009 nonce derived from (payer, idempotency_key) must be
 // deterministic (so a retry of the same intent reuses the nonce and the second
 // receiveWithAuthorization reverts — at-most-once), and must match
 // keccak256(payer ‖ idempotency_key).

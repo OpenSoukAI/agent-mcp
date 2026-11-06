@@ -1,8 +1,8 @@
-// Copied from OpenSoukAI/backend internal/endpointpath at dev b2c8715 (REF-562): the rule the
+// Copied from OpenSoukAI/backend internal/endpointpath at dev b2c8715: the rule the
 // facilitator settles by. Keep testdata/vectors.json byte-identical to the backend's.
 
 // Package endpointpath is the rule that maps a URL a merchant served to the product registered
-// at that path (REF-560). Only the path is compared: host, scheme, port and query are dropped,
+// at that path. Only the path is compared: host, scheme, port and query are dropped,
 // because a merchant behind a proxy sees an internal host and the query holds the buyer's input.
 // A registered segment written {name} or :name matches any one segment.
 package endpointpath

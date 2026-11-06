@@ -22,7 +22,7 @@ func keyPair(t *testing.T, seedByte byte) (ed25519.PrivateKey, string) {
 	return priv, hex.EncodeToString(priv.Public().(ed25519.PublicKey))
 }
 
-// REF-322: the token's kid selects the public key; a token without kid is the launch key (0).
+// the token's kid selects the public key; a token without kid is the launch key (0).
 func TestVerifyAndDecodeToken_SelectsKeyByKid(t *testing.T) {
 	priv0, pub0 := keyPair(t, 1)
 	priv1, pub1 := keyPair(t, 2)
@@ -70,7 +70,7 @@ func TestVerifyAndDecodeToken_SingleKeyIsKid0(t *testing.T) {
 }
 
 // attestationPubKeys reads the manifest's attestationPubKeys (per chain first), falls back to
-// the legacy attestationPubKey as kid 0 for a backend that predates REF-322, and refetches
+// the legacy attestationPubKey as kid 0 for a backend that predates key ids, and refetches
 // once when asked for a kid it has not cached — so a rotation needs no signer restart.
 func TestAttestationPubKeys_KeySetFallbackAndRefetch(t *testing.T) {
 	pubKeyCacheMu.Lock()

@@ -113,7 +113,7 @@ func TestWindowGatesAreFedTheChainClock(t *testing.T) {
 				t.Errorf("%s: window gate is fed the wall clock: %s. "+
 					"The contracts compare block.timestamp, so this must be chainNow(ctx, client) — "+
 					"a wall-clock comparison is only correct while the chain's clock agrees with this "+
-					"machine's, which is not true on any test chain whose time has been moved (REF-263).",
+					"machine's, which is not true on any test chain whose time has been moved.",
 					file, m[0])
 			}
 		}

@@ -11,7 +11,7 @@ import (
 	"github.com/ethereum/go-ethereum/signer/core/apitypes"
 )
 
-// recordingSigner records which Signer method each tool used. A policy backend (REF-492) can only
+// recordingSigner records which Signer method each tool used. A policy backend can only
 // enforce a policy on SignTypedData; a tool that calls SignDigest for an EIP-712 message would
 // hand it an opaque hash.
 type recordingSigner struct {

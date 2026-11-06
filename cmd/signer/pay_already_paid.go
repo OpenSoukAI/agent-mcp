@@ -6,20 +6,20 @@ import (
 	"strings"
 )
 
-// ── Reused-authorization detection on the pay retry path (REF-265 item 2) ───────
+// ── Reused-authorization detection on the pay retry path ───────
 //
 // A retry with the same idempotency_key derives the same ERC-3009 nonce, so the second
-// receiveWithAuthorization reverts and the wallet is charged at most once (REF-193). That works;
+// receiveWithAuthorization reverts and the wallet is charged at most once. That works;
 // the revert just used to reach the caller as a raw selector inside a facilitator 402:
 //
 //	{"error":"... execution reverted: custom error 0x3d22f6b8: 0000…"}
 //
-// REF-193 §C tells the runner to catch it, treat it as already-paid, and mark the intent executed.
-// Matching that needed a hex constant REF-193 never states. Since REF-364 the facilitator keeps the
+// The intent-runner contract tells the runner to catch it, treat it as already-paid, and mark the intent executed.
+// Matching that needed a hex constant that contract never states. Newer facilitators keep the
 // revert in its log and reports errorReason "authorization_used"; the revert matchers serve older ones.
 
 // alreadyPaidToken leads the error message so a runner can prefix-match one stable string instead
-// of a selector. It is the REF-193 §C contract; do not reword it.
+// of a selector. It is the intent-runner contract; do not reword it.
 const alreadyPaidToken = "already_paid"
 
 // alreadyPaidAdvice explains the state the caller is actually in.
@@ -35,7 +35,7 @@ const alreadyPaidAdvice = "this idempotency_key was already used to pay, so the 
 // is used or canceled". Matching the selector alone would work on anvil only.
 const realUSDCAuthReused = "authorization is used or canceled"
 
-// facilitatorAuthUsedReason is the facilitator's errorReason for a consumed authorization (REF-364);
+// facilitatorAuthUsedReason is the facilitator's errorReason for a consumed authorization;
 // merchants forward it in the phase-2 body.
 const facilitatorAuthUsedReason = "authorization_used"
 
@@ -68,8 +68,8 @@ func alreadyPaidError(status int, body, advice string) error {
 
 // phase2Failure turns a non-200 facilitator response into the error the caller sees.
 //
-// A reused idempotency_key means the wallet was ALREADY charged, not that the purchase failed
-// (REF-265 item 2), so that case gets the named token. Everything else keeps the raw status and
+// A reused idempotency_key means the wallet was ALREADY charged, not that the purchase failed,
+// so that case gets the named token. Everything else keeps the raw status and
 // body: misreporting a genuine failure as a completed purchase is worse than an undecoded selector.
 func phase2Failure(status int, body string) error {
 	if advice, ok := classifyAuthReused(body); ok {

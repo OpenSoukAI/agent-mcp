@@ -1,5 +1,5 @@
 // Package skilldrift compares the MCP tools the two servers actually register against the tools
-// the opensoukai skill documents (REF-248).
+// the opensoukai skill documents.
 //
 // The skill is what an agent reads before acting, so a tool missing from it makes the agent
 // hand-roll something it could have called, and a tool named in it that no longer exists sends the
@@ -29,7 +29,7 @@ const (
 )
 
 // registration matches `sdkmcp.AddTool(<srv>, &sdkmcp.Tool{Name: "x"`, and the same call through
-// the backend's `addTool` wrapper (REF-441). Anchored on the call so a CallToolParams{Name: ...} is
+// the backend's `addTool` wrapper. Anchored on the call so a CallToolParams{Name: ...} is
 // not mistaken for a registration — the signer calls the backend's cast_review_votes that way,
 // which would otherwise look like the signer registering it.
 var registration = regexp.MustCompile(`(?:\bsdkmcp\.AddTool|\baddTool)\([^,]+,\s*&sdkmcp\.Tool\{\s*Name:\s*"([a-z_]+)"`)

@@ -14,7 +14,7 @@ import (
 // ERC-3009 defines TransferWithAuthorization and ReceiveWithAuthorization with identical fields
 // and different struct names, so they hash to different EIP-712 digests and are not
 // interchangeable. route() calls receiveWithAuthorization, which real Circle USDC validates
-// against the Receive typehash; a Transfer signature is rejected inside the token (REF-269).
+// against the Receive typehash; a Transfer signature is rejected inside the token.
 //
 // Kept in lockstep with the backend's signing.ERC3009ReceiveAuthorizationType. The backend
 // rejects a wrong-typehash payload with requiredAuthorizationType naming the type it wants, so a

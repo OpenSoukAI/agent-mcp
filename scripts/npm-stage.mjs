@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Stages the npm packages for one signer release (REF-553).
+// Stages the npm packages for one signer release.
 //
 //   node scripts/npm-stage.mjs <vX.Y.Z> <dist-dir> <out-dir>
 //

@@ -18,7 +18,7 @@ import (
 )
 
 // attributionTokenVersion is the only self-contained token version this signer
-// decodes at the edge (v4, REF-139: rank-derived multiplier removed, computed live
+// decodes at the edge (v4: rank-derived multiplier removed, computed live
 // at settlement). Mirrors backend internal/signing.tokenVersion.
 const attributionTokenVersion = 4
 
@@ -33,12 +33,12 @@ const maxTokenLen = 12288
 // on-chain ProtocolConstants.SENTINEL_BUYER (SplitRouter/SplitRouterMPP). A buyer
 // paying with only a funded wallet (no ERC-8004 identity) sends this as buyerAgentId;
 // route() skips the ownerOf bind for it and the paying wallet is captured for the
-// deferred identity bind (REF-134 decision 4 / contract track C-3).
+// deferred identity bind.
 var sentinelBuyerAgentID = new(big.Int).Sub(new(big.Int).Lsh(big.NewInt(1), 256), big.NewInt(1)).String()
 
 // buyerAgentIDOrSentinel maps the tool's optional agent_id to the value sent as
 // buyerAgentId in the x402 payload: a non-empty id passes through unchanged; an empty
-// id means agent-less (no ERC-8004 identity yet), so the sentinel is used (REF-134).
+// id means agent-less (no ERC-8004 identity yet), so the sentinel is used.
 func buyerAgentIDOrSentinel(agentID string) string {
 	if id := strings.TrimSpace(agentID); id != "" {
 		return id
@@ -57,14 +57,14 @@ type decodedAttributionToken struct {
 	MerchantID              string `json:"merchantId"`
 	ProductID               string `json:"productId"`
 	LockedCommissionBps     uint16 `json:"lockedCommissionBps"`     // informational; commission is live at settle
-	CashbackOfCommissionBps uint16 `json:"cashbackOfCommissionBps"` // frozen share-of-commission ratio (<= the admin cap, 2000 since REF-316; older tokens up to 4000, clamped at settlement)
+	CashbackOfCommissionBps uint16 `json:"cashbackOfCommissionBps"` // frozen share-of-commission ratio (<= the admin cap, 2000; older tokens up to 4000, clamped at settlement)
 	ProductType             uint8  `json:"productType"`
 	IssuedAt                int64  `json:"issuedAt"`
 	ChainID                 int64  `json:"chainId"`
 	SplitRouter             string `json:"splitRouter"`
 	MerchantEndpoint        string `json:"merchantEndpoint"`
 	SetupURL                string `json:"setupUrl"`
-	// KeyID selects which published attestation public key signed the token (REF-322). Absent
+	// KeyID selects which published attestation public key signed the token. Absent
 	// in tokens minted before the field existed, which decodes to 0 — the launch key.
 	KeyID uint8 `json:"kid"`
 }
@@ -95,7 +95,7 @@ func splitToken(rawToken string) (payload, sig []byte, err error) {
 }
 
 // peekTokenKeyID reads the key id from an UNVERIFIED token so the caller can fetch the matching
-// public key (REF-322). It only chooses which key must have signed; a forged kid can at most
+// public key. It only chooses which key must have signed; a forged kid can at most
 // make verification fail.
 func peekTokenKeyID(rawToken string) (uint8, error) {
 	payload, _, err := splitToken(rawToken)
@@ -111,7 +111,7 @@ func peekTokenKeyID(rawToken string) (uint8, error) {
 	return k.KeyID, nil
 }
 
-// verifyAndDecodeTokenWithKeys is verifyAndDecodeToken over a key set by id (REF-322): the
+// verifyAndDecodeTokenWithKeys is verifyAndDecodeToken over a key set by id: the
 // payload's kid (absent = 0) selects the public key; an id not in keys is rejected by name, so
 // the message says "the backend rotated / the manifest lacks the key", not "forged token".
 func verifyAndDecodeTokenWithKeys(rawToken string, keys map[uint8]string) (decodedAttributionToken, error) {
@@ -161,7 +161,7 @@ func parseEd25519PubKeyHex(h string) (ed25519.PublicKey, error) {
 
 // splitRefPath splits the path portion after "/r/" into an optional chain segment and
 // the base64url token. Base mints the bare <base>/r/<token>; non-Base rails mint the
-// chain-qualified <base>/r/<chainID>/<token> (REF-90). The token is always the last
+// chain-qualified <base>/r/<chainID>/<token>. The token is always the last
 // segment — it is BOTH decoded locally and attached verbatim to the x402 payload.
 func splitRefPath(afterR string) (chainSeg, token string, err error) {
 	segs := strings.Split(strings.Trim(afterR, "/"), "/")
@@ -180,7 +180,7 @@ func splitRefPath(afterR string) (chainSeg, token string, err error) {
 // matching chains[] entry and falls back to the top-level (Base default) key.
 type wellKnownManifest struct {
 	AttestationPubKey  string            `json:"attestationPubKey"`
-	AttestationPubKeys map[string]string `json:"attestationPubKeys"` // key id → hex pubkey (REF-322)
+	AttestationPubKeys map[string]string `json:"attestationPubKeys"` // key id → hex pubkey
 	Chains             []struct {
 		ChainID            int64             `json:"chainId"`
 		AttestationPubKey  string            `json:"attestationPubKey"`
@@ -189,7 +189,7 @@ type wellKnownManifest struct {
 }
 
 // keySet returns the manifest's accepted keys by id for chainID: the per-chain set when present,
-// else the top-level set, and — for a backend that predates REF-322 — the single legacy key as
+// else the top-level set, and — for a backend that predates key ids — the single legacy key as
 // id 0. Empty when the manifest exposes nothing usable.
 func (m wellKnownManifest) keySet(chainID int64) map[uint8]string {
 	single, set := m.AttestationPubKey, m.AttestationPubKeys
@@ -226,12 +226,12 @@ func (m wellKnownManifest) keySet(chainID int64) map[uint8]string {
 var (
 	pubKeyCacheMu  sync.Mutex
 	pubKeyCache    = map[string]string{}           // apiBase + "|" + chainID -> pubkey hex
-	pubKeySetCache = map[string]map[uint8]string{} // apiBase + "|" + chainID -> key id -> pubkey hex (REF-322)
+	pubKeySetCache = map[string]map[uint8]string{} // apiBase + "|" + chainID -> key id -> pubkey hex
 )
 
 // attestationPubKeys returns the accepted attestation keys by id for chainID, from the cached
 // manifest — refetching once when wantKid is not in the cached set, so a backend key rotation
-// is picked up without a signer restart (REF-322). A kid still missing after the refetch is
+// is picked up without a signer restart. A kid still missing after the refetch is
 // returned as-is for the verifier to reject by name.
 func attestationPubKeys(ctx context.Context, httpClient *http.Client, apiBase string, chainID int64, wantKid uint8) (map[uint8]string, error) {
 	apiBase = strings.TrimRight(apiBase, "/")

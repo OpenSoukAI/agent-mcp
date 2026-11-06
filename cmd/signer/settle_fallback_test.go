@@ -257,7 +257,7 @@ func TestDecodeFallbackReceipt_NoCashbackFailedEvent(t *testing.T) {
 
 // TestDecodeFallbackReceipt_IgnoresLogsFromAnotherAddress proves the escrowAddr filter: a log
 // carrying the right topic but from a different contract (e.g. forwarded/replayed in the same
-// receipt) must not be decoded into the output (REF-361 review).
+// receipt) must not be decoded into the output.
 func TestDecodeFallbackReceipt_IgnoresLogsFromAnotherAddress(t *testing.T) {
 	escrowAddr := common.HexToAddress("0x00000000000000000000000000000000000abc")
 	otherAddr := common.HexToAddress("0x00000000000000000000000000000000000999")

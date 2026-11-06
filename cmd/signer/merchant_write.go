@@ -14,7 +14,7 @@ import (
 
 // ── Merchant-side contract writes ───────────────────────────────────────────────
 //
-// The merchant tools (REF-251) all send one transaction from the merchant's own key and
+// The merchant tools all send one transaction from the merchant's own key and
 // differ only in contract, method, arguments and revert advice. merchantWrite is that
 // difference; send is everything else.
 //

@@ -75,7 +75,7 @@ type headerReader interface {
 // Base), so preferring this costs one RPC round-trip on a path that already makes several and
 // changes no outcome. On a test chain whose clock has been moved the two can be months apart,
 // and a wall-clock preflight then refuses calls the contract would accept — which is exactly
-// what made trigger_settle_fallback's happy path unreachable on Anvil (REF-263).
+// what made trigger_settle_fallback's happy path unreachable on Anvil.
 //
 // The residual imprecision is inherent and safe: the including block's timestamp is slightly
 // later than the latest block's, so within one block of a boundary this can refuse a call that

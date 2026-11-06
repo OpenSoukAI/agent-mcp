@@ -13,7 +13,7 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 )
 
-// REF-562: a product registered at a template such as /letters/{id} is bought through a concrete
+// a product registered at a template such as /letters/{id} is bought through a concrete
 // url the agent passes. The signer checks the url fits the template on the product's own host,
 // and that the facilitator's path rule resolves it to that product, before anything is signed.
 

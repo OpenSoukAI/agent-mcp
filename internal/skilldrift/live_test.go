@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-// Sibling checkouts. REF-248 step 4 makes CI check these out and drop the env vars; until then the
+// Sibling checkouts. A later step makes CI check these out and drop the env vars; until then the
 // defaults are the local layout, where all three repos sit side by side.
 const (
 	envBackend = "SKILLDRIFT_BACKEND_DIR"
@@ -29,7 +29,7 @@ func dirFromEnv(t *testing.T, env, fallback string) string {
 	return dir
 }
 
-// The check REF-248 asks for: what the two servers register versus what the skill documents.
+// The check: what the two servers register versus what the skill documents.
 //
 // Deliberately compares declared sets. The inventory table is the skill's contract; the prose that
 // teaches the flows is not machine-checked, because scanning it for tool-shaped words reported a

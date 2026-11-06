@@ -236,7 +236,7 @@ func mustBigInt(t *testing.T, s string) *big.Int {
 	return v
 }
 
-// TestProductMetadataBody_OmitsWhatWasNotGiven: since REF-398 "" clears a stored field, so a
+// TestProductMetadataBody_OmitsWhatWasNotGiven: since "" clears a stored field, so a
 // retry of add_product with fewer fields must not send empties over what an earlier call stored.
 func TestProductMetadataBody_OmitsWhatWasNotGiven(t *testing.T) {
 	bare := productMetadataBody(4, addProductInput{ProductID: validTestProductID, EndpointURL: "https://x/ref", Name: "n"})

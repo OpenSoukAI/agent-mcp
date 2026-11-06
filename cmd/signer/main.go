@@ -74,7 +74,7 @@ var (
 		{"anonymous":false,"inputs":[{"indexed":true,"name":"escrowId","type":"uint256"},{"indexed":true,"name":"reviewer","type":"address"},{"indexed":false,"name":"amount","type":"uint128"}],"name":"FallbackCashbackFailed","type":"event"}
 	]`)
 
-	// MerchantRegistry and ProductRegistry carry the merchant-side writes (REF-251). Both
+	// MerchantRegistry and ProductRegistry carry the merchant-side writes. Both
 	// literals are trimmed to what the tools call; entries are added when a tool needs one,
 	// so an unused entry here means something was removed and its ABI was not.
 	//
@@ -685,30 +685,30 @@ type voteArg struct {
 type payForProductInput struct {
 	// Buyer agent ID (decimal string). Key is resolved via AGENT_KEYS or AGENT_PRIVATE_KEY.
 	// Optional: omit for an agent-less purchase (no ERC-8004 identity yet) — the sentinel
-	// buyer id is sent and the fallback AGENT_PRIVATE_KEY wallet pays (REF-134).
+	// buyer id is sent and the fallback AGENT_PRIVATE_KEY wallet pays.
 	AgentID string `json:"agent_id,omitempty"`
 	// Full ref link URL returned by query_registry or fetch_review, e.g.
 	// https://api.example/r/<base64url-token>. The token is decoded and verified locally.
 	RefLink string `json:"ref_link"`
-	// Optional (REF-317): 0x-prefixed bytes32 id of the product to buy when it is NOT the one the
+	// Optional: 0x-prefixed bytes32 id of the product to buy when it is NOT the one the
 	// ref link was minted for. Must be a listed product of the same merchant; its endpoint is read
 	// from the catalogue and paid with this same token. Omit to buy the link's own product.
 	ProductID string `json:"product_id,omitempty"`
-	// Optional (REF-562): the concrete URL to pay when the product's endpoint_url is a template
+	// Optional: the concrete URL to pay when the product's endpoint_url is a template
 	// such as https://shop.example/letters/{id}. It must be on the same host and its path must fit
 	// the template; the merchant's catalog is checked to confirm it settles as that product.
 	// Omit for a fixed endpoint, which is paid as registered.
 	URL string `json:"url,omitempty"`
-	// Optional inline votes (REF-143): 1–3 reviews that influenced this purchase. After the
+	// Optional inline votes: 1–3 reviews that influenced this purchase. After the
 	// purchase settles, the tool signs and submits these via the backend's cast_review_votes
 	// two-step, before returning. Omit to skip voting (behaviour is then unchanged).
 	SubmitVotes []voteArg `json:"submit_votes,omitempty"`
-	// Owner-confirmed spending cap in USDC base units (REF-193). When set, the tool refuses if
+	// Owner-confirmed spending cap in USDC base units. When set, the tool refuses if
 	// the merchant's LIVE price exceeds it — so a price rise after an intent was queued cannot
 	// overspend past the confirmed budget. The runner passes the intent payload's max_amount.
 	// Omit for no cap (unchanged behaviour).
 	MaxAmount string `json:"max_amount,omitempty"`
-	// Idempotency key for at-most-once execution (REF-193). When set, the ERC-3009 nonce is
+	// Idempotency key for at-most-once execution. When set, the ERC-3009 nonce is
 	// derived deterministically from (payer ‖ idempotency_key) instead of random, so a retry of
 	// the SAME purchase reuses the nonce and the second receiveWithAuthorization reverts — the
 	// wallet is charged at most once. The runner passes the intent_id. Omit for a random nonce.
@@ -738,7 +738,7 @@ const maxResponseBytes = 64 << 10
 type payForProductOutput struct {
 	EscrowID string `json:"escrow_id"` // decimal string
 	TxHash   string `json:"tx_hash"`
-	// SettledProductID is the product settlement recorded (REF-317): what the merchant's 402
+	// SettledProductID is the product settlement recorded: what the merchant's 402
 	// named, or the token's product when the merchant asserted none.
 	SettledProductID string `json:"settled_product_id"`
 	// Response is what the merchant served for the payment: the product bought. Cut to
@@ -755,11 +755,11 @@ type payForProductOutput struct {
 	// merchant's 402 reports no extra.endpoint, so a sibling purchase attributed to the token's
 	// product.
 	Warning string `json:"warning,omitempty"`
-	// NextSteps is an advisory nudge (REF-131) pointing the buyer at cast_review_votes
+	// NextSteps is an advisory nudge pointing the buyer at cast_review_votes
 	// for the reviews that influenced this purchase. The escrow_id the vote flow needs
 	// is carried in EscrowID above; this is the human-readable prompt.
 	NextSteps string `json:"next_steps"`
-	// VotesRecorded is set when inline votes were submitted successfully (REF-143).
+	// VotesRecorded is set when inline votes were submitted successfully.
 	VotesRecorded int `json:"votes_recorded,omitempty"`
 	// VotesError is set when inline voting failed AFTER a successful payment — the purchase
 	// still stands; the agent should retry votes via cast_review_votes with this escrow_id.
@@ -796,7 +796,7 @@ const payVoteReminder = "If any reviews materially influenced this purchase, cas
 	"the purchase to be indexed. Vote deliberately, only for the reviews that shaped your " +
 	"decision; votes feed the platform's Review Rank."
 
-// payBindReminder is the agent-less next step (REF-265 item 1). cast_review_votes REQUIRES
+// payBindReminder is the agent-less next step. cast_review_votes REQUIRES
 // agent_id, so the vote nudge is not merely premature there — it cannot be satisfied at all.
 const payBindReminder = "This was an agent-less purchase, so no votes can be cast yet: " +
 	"cast_review_votes requires an agent_id you do not have. Register an ERC-8004 identity, then " +
@@ -813,7 +813,7 @@ func payNextSteps(agentLess bool) string {
 }
 
 // enforceMaxAmount refuses a purchase whose LIVE merchant price exceeds the
-// owner-confirmed max_amount (REF-193 A). Both are USDC base-unit decimal
+// owner-confirmed max_amount. Both are USDC base-unit decimal
 // strings. An empty max is "no cap" (back-compat for non-intent callers). This
 // closes the gap where pay_for_product signed requirements.Amount verbatim: a
 // price rising above the queued budget after the intent was confirmed would
@@ -837,7 +837,7 @@ func enforceMaxAmount(live, max string) error {
 }
 
 // deriveNonce produces a DETERMINISTIC ERC-3009 nonce from the payer and an
-// idempotency key (REF-193 B): keccak256(payer ‖ idempotency_key). Because
+// idempotency key: keccak256(payer ‖ idempotency_key). Because
 // ERC-3009 tracks used nonces per authorizer on-chain, replaying the same
 // intent reuses the nonce, so the second receiveWithAuthorization reverts
 // ("authorization used") — at-most-once, chain-enforced. Callers that pass no
@@ -865,7 +865,7 @@ func handlePayForProduct(
 	}
 	buyerAddr := keySigner.Address().Hex()
 
-	// Agent-less buyer (REF-134): an empty agent_id means "no ERC-8004 identity yet".
+	// Agent-less buyer: an empty agent_id means "no ERC-8004 identity yet".
 	// Pay with the fallback wallet key (resolved above) and send the sentinel buyer id
 	// so the router skips the ownerOf bind and records the paying wallet for a later
 	// deferred identity bind. A real agent_id is passed through unchanged.
@@ -916,12 +916,12 @@ func handlePayForProduct(
 	// payload || Ed25519 sig). Fetch the attestation pubkey for OUR configured chain
 	// (trusted, so an unverified token can't steer key selection), verify the token's
 	// signature against it, then confirm the token was minted for this chain. All the
-	// pay targets come straight from the decoded payload — REF-139 drops the backend
-	// GET /r/<token> resolution entirely.
+	// pay targets come straight from the decoded payload; there is no backend
+	// GET /r/<token> resolution.
 	//
-	// Manifest and product lookups go to the pinned origin, never to the link's host (REF-493 C).
+	// Manifest and product lookups go to the pinned origin, never to the link's host.
 	httpClient := &http.Client{Timeout: 30 * time.Second}
-	// REF-322: the token's kid picks the attestation key; the manifest publishes the set.
+	// the token's kid picks the attestation key; the manifest publishes the set.
 	kid, err := peekTokenKeyID(attributionToken)
 	if err != nil {
 		return nil, payForProductOutput{}, fmt.Errorf("read attribution token key id: %w", err)
@@ -937,13 +937,13 @@ func handlePayForProduct(
 	if tok.ChainID != chainIDInt {
 		return nil, payForProductOutput{}, fmt.Errorf("attribution token is for chain %d, but this signer is configured for chain %d", tok.ChainID, chainIDInt)
 	}
-	// REF-317: pay the link's product at the token's endpoint, or a sibling at the endpoint the
+	// pay the link's product at the token's endpoint, or a sibling at the endpoint the
 	// catalogue names for it — same token either way.
 	merchantEndpoint, intendedProduct, err := resolvePayTarget(ctx, httpClient, apiBase, tok, in.ProductID)
 	if err != nil {
 		return nil, payForProductOutput{}, err
 	}
-	// REF-562: a templated endpoint is paid at the agent's concrete url, and only if the
+	// a templated endpoint is paid at the agent's concrete url, and only if the
 	// facilitator's path rule resolves that url to the intended product.
 	payURL, templated, err := concretePayURL(merchantEndpoint, in.URL)
 	if err != nil {
@@ -983,7 +983,7 @@ func handlePayForProduct(
 	}
 	requirements := payReq.Accepts[0]
 	// Refuse before signing if the merchant says it is selling something other than what was
-	// asked for (REF-317); settlement records the merchant's assertion, not the agent's intent.
+	// asked for; settlement records the merchant's assertion, not the agent's intent.
 	settledProduct, productWarning, err := settledProductFrom402(requirements, merchantEndpoint, intendedProduct, tok.ProductID)
 	if err != nil {
 		return nil, payForProductOutput{}, err
@@ -1000,7 +1000,7 @@ func handlePayForProduct(
 	tokenName, _ := requirements.Extra["name"].(string)
 	tokenVersion, _ := requirements.Extra["version"].(string)
 
-	// Owner policy first (config, REF-493 B), then the caller's own max_amount (REF-193 A).
+	// Owner policy first (config), then the caller's own max_amount.
 	if err := signerSpendPolicy.check(requirements.Amount, in.MaxAmount, tok.MerchantID); err != nil {
 		return nil, payForProductOutput{}, err
 	}
@@ -1009,7 +1009,7 @@ func handlePayForProduct(
 	}
 
 	// ── sign ERC-3009 authorization ────────────────────────────────────────────
-	// Deterministic nonce when an idempotency key is supplied (REF-193 B) → a replayed intent
+	// Deterministic nonce when an idempotency key is supplied → a replayed intent
 	// reuses the nonce and the second transfer reverts (at-most-once); random otherwise.
 	var nonce32 [32]byte
 	if strings.TrimSpace(in.IdempotencyKey) != "" {
@@ -1027,8 +1027,8 @@ func handlePayForProduct(
 	}
 	// SplitRouter.route() calls receiveWithAuthorization, so this must be signed under the
 	// ReceiveWithAuthorization typehash. TransferWithAuthorization has identical fields under a
-	// different struct name and hashes differently, so real USDC rejects it inside the token
-	// (REF-269). evm.HashEIP3009Authorization pins Transfer inline with no config path, which is
+	// different struct name and hashes differently, so real USDC rejects it inside the token.
+	// evm.HashEIP3009Authorization pins Transfer inline with no config path, which is
 	// why it is no longer used here.
 	erc3009Hash, err := hashERC3009Receive(authz, chainID, tokenAddr, tokenName, tokenVersion)
 	if err != nil {
@@ -1384,7 +1384,7 @@ func main() {
 			"charge transfer and owns the buyer agent. Pass the charge tx hash ('txHash'), the " +
 			"attribution token, the buyer agent id, the Base chain id ('chainId'), and the Base " +
 			"SplitRouter address ('splitRouterAddr'); use the returned 'signature' as " +
-			"'buyerSignature' in POST /mpp/charge. (REF-218: these are Base values, not Tempo — " +
+			"'buyerSignature' in POST /mpp/charge. (These are Base values, not Tempo — " +
 			"the old 'tempoChainId'/'splitRouterMppAddr' field names are retired.)",
 	}, handleSignCharge)
 
@@ -1539,7 +1539,8 @@ func main() {
 		Description: "Probe a product's referral x402 endpoint and report whether it is wired correctly " +
 			"for referral payments (POST /v1/merchant/product/readiness). The backend GETs referral_url " +
 			"with the referral-mode header set and checks that it answers 402, that payTo is this chain's " +
-			"SplitRouter, and that the attribution token is echoed back; pass reflects those three only. " +
+			"SplitRouter, that it asks for ReceiveWithAuthorization, that the attribution token is echoed " +
+			"back, and that extra.endpoint reports the path it called; pass needs all five. " +
 			"It also reports the referral route's price, asset and network. Pass the merchant's public " +
 			"endpoint as public_url to probe it alongside: the result then carries its own 402 and price, " +
 			"price_comparison (referral_costs_more is true when the referral route is priced higher in the " +

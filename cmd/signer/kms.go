@@ -21,7 +21,7 @@ import (
 
 // AWS KMS backend (SIGNER_BACKEND=kms): the key is an ECC_SECG_P256K1 KMS key and never enters
 // this process. The DER/SPKI conversion is ported from the backend's internal/signing
-// remote_signer.go (REF-414 spike), which proved it against SplitRouter on chain.
+// remote_signer.go, which proved it against SplitRouter on chain.
 
 var (
 	secp256k1N        = crypto.S256().Params().N

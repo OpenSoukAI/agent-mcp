@@ -16,10 +16,10 @@ import (
 	"github.com/OpenSoukAI/agent-mcp/internal/endpointpath"
 )
 
-// Merchant-wide commission (REF-317): a ref link's token pays for any product of the same
+// Merchant-wide commission: a ref link's token pays for any product of the same
 // merchant on the x402 rail. The agent names the product it wants (product_id), the catalogue
 // says where that product is paid, and the merchant's 402 names the product it actually sells —
-// which is what settlement records (backend REF-311).
+// which is what settlement records.
 
 // normalizeProductID validates a 32-byte hex id (0x prefix optional) and returns it as
 // lowercase 0x-hex, so ids from the token, the catalogue and the 402 compare byte-for-byte.
@@ -88,14 +88,14 @@ func resolvePayTarget(
 	return prod.EndpointURL, want, nil
 }
 
-// settledProductFrom402 decides what settlement will record, from the merchant's 402 (REF-562).
+// settledProductFrom402 decides what settlement will record, from the merchant's 402.
 // The facilitator settles on the product registered at the path in extra.endpoint, so that path
 // must be the one the signer called, or nothing is signed. The retired extra.productId is refused:
 // the facilitator rejects it. An absent endpoint means the merchant has not adopted the field and
 // settlement falls back to the token's product, which is only warned about for a sibling.
 func settledProductFrom402(requirements x402types.PaymentRequirements, calledURL, intended, tokenProduct string) (settled, warning string, err error) {
 	if raw, ok := requirements.Extra["productId"]; ok && raw != nil && raw != "" {
-		return "", "", fmt.Errorf("merchant's 402 sends extra.productId, which the protocol no longer accepts (it names the endpoint in extra.endpoint instead); refusing to sign a payment the facilitator would reject")
+		return "", "", fmt.Errorf("merchant's 402 sends extra.productId, which the facilitator refuses (the product is named by extra.endpoint); refusing to sign")
 	}
 	raw, present := requirements.Extra["endpoint"]
 	if present && raw != nil && raw != "" {
@@ -122,7 +122,7 @@ func settledProductFrom402(requirements x402types.PaymentRequirements, calledURL
 	return tokenProduct, "", nil
 }
 
-// concretePayURL is the URL to pay for a product registered at registered (REF-562). A fixed
+// concretePayURL is the URL to pay for a product registered at registered. A fixed
 // endpoint is paid as registered, or at a given url with the same path. A template such as
 // /letters/{id} can only be paid at a concrete url the agent gives: same scheme, host and port,
 // and a path the template matches under the facilitator's rule.
@@ -176,7 +176,7 @@ func hostKey(u *url.URL) string {
 }
 
 // resolvesToIntended refuses unless the facilitator's path rule, run over the merchant's listed
-// products, resolves payURL to the intended product (REF-562). A fixed path beats a template, so
+// products, resolves payURL to the intended product. A fixed path beats a template, so
 // a url fitting the intended template can still settle as another product registered at exactly
 // that path. The catalog comes from the pinned API origin; if it cannot be read, nothing is signed.
 func resolvesToIntended(ctx context.Context, client *http.Client, apiBase, merchantID, intended, payURL string) error {

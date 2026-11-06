@@ -11,7 +11,7 @@ const workflowRel = ".github/workflows/skill-drift.yml"
 
 // The skill-drift workflow is duplicated rather than shared as a reusable workflow, because
 // calling one across repos means trusting a mutable ref with secrets passed to it and branch
-// protection is not available on this plan (REF-248).
+// protection is not available on this plan.
 //
 // Duplication has exactly one cost — the copies drift — so this is the check that they do not. It
 // compares everything from `permissions:` onward; the triggers above that line differ on purpose
@@ -88,7 +88,7 @@ func itoa(n int) string {
 }
 
 // The skills repo must NOT carry this workflow, and that is a security constraint rather than an
-// omission (REF-248).
+// omission.
 //
 // skills is public. The job needs a token that reads backend and agent-mcp, which stay private, so
 // a copy in a public repo turns that repo into a lever for reading private source — and secrets

@@ -21,9 +21,9 @@ func validChargeInput() signChargeInput {
 	}
 }
 
-// TestHandleSignCharge_RejectsZeroChainID pins the REF-218 guard converting a silent chainId=0
+// TestHandleSignCharge_RejectsZeroChainID pins the guard converting a silent chainId=0
 // (e.g. from a stale caller still on the retired 'tempoChainId' field) into a loud, named error —
-// this guard is the central deliverable of REF-218's agent-mcp side, and had no coverage before
+// this guard is the central deliverable of the Base charge move on this side, and had no coverage before
 // this test.
 func TestHandleSignCharge_RejectsZeroChainID(t *testing.T) {
 	in := validChargeInput()
@@ -66,7 +66,7 @@ func TestHandleSignCharge_RejectsZeroSplitRouterAddr(t *testing.T) {
 }
 
 // TestComputeChargeDigest_CrossRepoParityVector_REF218 is the frozen cross-repo digest-parity
-// vector (REF-218), mirrored byte-for-byte from backend/internal/signing/charge_commitment_test.go
+// vector, mirrored byte-for-byte from backend/internal/signing/charge_commitment_test.go
 // TestChargeCommitment_CrossRepoParityVector_REF218. backend ChargeDigest and agent-mcp
 // computeChargeDigest MUST agree — if they diverge, every buyer charge commitment fails at
 // recover with no useful diagnostic. Keep these literals identical in both repos.
@@ -86,7 +86,7 @@ func TestComputeChargeDigest_CrossRepoParityVector_REF218(t *testing.T) {
 	// this to make a future change pass — a mismatch here means the two repos have diverged.
 	const want = "a9ca0fe88657be00dddc6296ed3fc22e21837a6d57b8d6f07d67e9f067c2a85b"
 	if got := common.Bytes2Hex(d); got != want {
-		t.Fatalf("REF-218 cross-repo parity vector drift vs backend: got %s want %s", got, want)
+		t.Fatalf("cross-repo parity vector drift vs backend: got %s want %s", got, want)
 	}
 }
 

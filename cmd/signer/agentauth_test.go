@@ -17,7 +17,7 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 )
 
-// Golden AgentAuth fixture, shared with the backend (REF-251).
+// Golden AgentAuth fixture, shared with the backend.
 //
 // These bytes are IDENTICAL to backend/internal/api/middleware/agentauth_golden_internal_test.go's
 // fixture, on purpose, and were produced by a third implementation (`cast wallet sign`) so

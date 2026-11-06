@@ -1,5 +1,5 @@
 # Keeps the opensoukai skill's tool inventory level with what the two MCP servers
-# actually register (REF-248).
+# actually register.
 #
 # This file is DUPLICATED, verbatim below the trigger, in backend and agent-mcp — and deliberately
 # NOT in skills. Drift can originate in any of the three repos, but skills is becoming PUBLIC, and

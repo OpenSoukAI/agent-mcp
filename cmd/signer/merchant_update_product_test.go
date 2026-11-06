@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-// TestUpdateProduct_SendsOnlyGivenFields pins the partial write (REF-398): an omitted field
+// TestUpdateProduct_SendsOnlyGivenFields pins the partial write: an omitted field
 // must not appear in the body, or the backend would keep nothing the caller left out.
 func TestUpdateProduct_SendsOnlyGivenFields(t *testing.T) {
 	var got capturedRequest
@@ -94,7 +94,7 @@ func TestUpdateProduct_EmptyPublicEndpointUnpairs(t *testing.T) {
 	}
 }
 
-// REF-446: the backend accepts the owner or a PRODUCT_MANAGER, so a 403 means the key is neither.
+// the backend accepts the owner or a PRODUCT_MANAGER, so a 403 means the key is neither.
 func TestUpdateProduct_ForbiddenNamesWhoMay(t *testing.T) {
 	var got capturedRequest
 	srv := fakeBackend(t, http.StatusForbidden, `{"error":"caller does not own this merchant"}`, &got)

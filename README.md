@@ -242,7 +242,7 @@ To bind a provider wallet to an identity, list the agent ID in `AGENT_WALLETS` a
 wallet with the returned signature within five minutes.
 A bound agent wallet is also where payouts go (`SplitRouter._resolveWallet`), so a provider
 wallet bound to an identity receives its earnings until the owner rebinds it. Until the backend
-accepts the bound wallet for signed requests (REF-491), the provider wallet must be the identity's
+accepts the bound wallet for signed requests, the provider wallet must be the identity's
 owner.
 
 ## Security

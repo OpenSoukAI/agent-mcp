@@ -54,9 +54,9 @@ func TestPayNextSteps_AgentBoundIsUnchanged(t *testing.T) {
 //
 //	{"error":"settle: route tx: Route tx: execution reverted: custom error 0x3d22f6b8: 0000…"}
 //
-// REF-193 §C instructs the runner to "catch that revert, treat it as already-paid, and mark the
+// The intent-runner contract instructs the runner to "catch that revert, treat it as already-paid, and mark the
 // intent executed". A runner matching on text cannot match that, and hardcoding 0x3d22f6b8 means a
-// magic constant REF-193's guidance never states.
+// magic constant that guidance never states.
 //
 // The two rails revert DIFFERENTLY, which the ticket did not account for. MockUSDC uses a custom
 // error; real Circle USDC uses a require string — a deliberate, documented divergence
@@ -83,8 +83,8 @@ func TestClassifyAuthReused_BothRails(t *testing.T) {
 				`FiatTokenV2: authorization is used or canceled"}`,
 		},
 		{
-			// REF-364: the facilitator keeps the revert in its log and reports this reason instead.
-			name: "facilitator authorization_used reason (REF-364)",
+			// the facilitator keeps the revert in its log and reports this reason instead.
+			name: "facilitator authorization_used reason",
 			body: `{"success":false,"errorReason":"authorization_used","errorMessage":"this payment authorization was already used or cancelled; this request moved no funds — deliver only if you hold a successful settlement transaction for it"}`,
 		},
 	} {
@@ -136,7 +136,7 @@ func TestAuthReusedSelectorMatchesTheContract(t *testing.T) {
 // The runner needs one stable token to match on across both rails.
 func TestAlreadyPaidToken_IsStableAndLeading(t *testing.T) {
 	if alreadyPaidToken != "already_paid" {
-		t.Errorf("alreadyPaidToken = %q — REF-193 §C's runner contract keys on this string",
+		t.Errorf("alreadyPaidToken = %q — the intent-runner contract keys on this string",
 			alreadyPaidToken)
 	}
 	err := alreadyPaidError(402, "whatever the facilitator said", "advice here")

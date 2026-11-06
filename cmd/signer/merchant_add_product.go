@@ -20,7 +20,7 @@ import (
 // is payable but invisible.
 //
 // addProduct reverts ProductAlreadyExists, so a naive retry after a failed sync is
-// impossible — the exact hazard REF-254 was about. Instead the tool reads the product
+// impossible — the exact hazard to avoid. Instead the tool reads the product
 // first and skips the chain write when it is already there, which makes re-running the
 // tool the retry path for a half-finished add.
 
@@ -33,7 +33,7 @@ type addProductInput struct {
 	Description   string `json:"description,omitempty"`
 	Category      string `json:"category,omitempty"` // a doc-22 slug from GET /v1/product-categories
 	// PublicEndpointURL is the merchant's own public x402 endpoint for the same product, if it has
-	// one (REF-398). Merchant-only: the backend never shows it to buyers.
+	// one. Merchant-only: the backend never shows it to buyers.
 	PublicEndpointURL string `json:"public_endpoint_url,omitempty"`
 	// ProductCardURI points at off-chain product metadata JSON. On-chain and optional.
 	ProductCardURI string `json:"product_card_uri,omitempty"`
@@ -159,7 +159,7 @@ func handleAddProduct(
 	return nil, out, nil
 }
 
-// productMetadataBody is the backend half. Optional fields go only when given: since REF-398
+// productMetadataBody is the backend half. Optional fields go only when given: since
 // the write is partial and "" clears a stored value, so sending empties would make a retry
 // with fewer fields wipe what an earlier call stored.
 func productMetadataBody(restID int64, in addProductInput) map[string]any {

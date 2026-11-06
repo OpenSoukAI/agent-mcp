@@ -22,7 +22,7 @@ var merchantSelectors = []struct {
 }{
 	{"merchantRegistryABI", "setActive", "setActive(uint256,bool)", "e60a955d"},
 	{"merchantRegistryABI", "isActive", "isActive(uint256)", "82afd23b"},
-	// REF-324. The per-merchant three-argument forms. MerchantRegistry ALSO inherits
+	// The per-merchant three-argument forms. MerchantRegistry ALSO inherits
 	// AccessControl's two-argument grantRole/revokeRole, which it overrides to revert
 	// UseMerchantScopedRole — so a signature that drops merchantId compiles, encodes, and
 	// reverts on-chain.

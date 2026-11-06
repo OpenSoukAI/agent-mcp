@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Report MCP-skill drift to Linear, idempotently (REF-248).
+"""Report MCP-skill drift to Linear, idempotently.
 
 Reads the JSON that `cmd/skilldrift` prints and keeps exactly ONE open Linear issue in step with
 it. Idempotency is the whole difficulty: three repositories trigger this check, so a naive
@@ -47,7 +47,7 @@ SECTIONS = [
 def body(diff: dict, source: str | None) -> str:
     """Markdown description. Pure — this is what the tests cover."""
     lines = [
-        "Raised automatically by the `skilldrift` check (REF-248). "
+        "Raised automatically by the `skilldrift` check. "
         "Fix `reference/mcp-tools.md` in the **skills** repo, then this issue closes itself on the "
         "next run.",
         "",
