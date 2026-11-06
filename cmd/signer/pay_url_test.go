@@ -55,8 +55,9 @@ func TestConcretePayURL(t *testing.T) {
 	}
 }
 
-// catalogServer answers GET /v1/merchant/3/catalog with the given status and products.
-func catalogServer(t *testing.T, status int, products []map[string]string) *httptest.Server {
+// catalogServer answers GET /v1/merchant/3/catalog with the given status, products and
+// truncated flag.
+func catalogServer(t *testing.T, status int, products []map[string]string, truncated bool) *httptest.Server {
 	t.Helper()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/v1/merchant/3/catalog" {
@@ -64,7 +65,7 @@ func catalogServer(t *testing.T, status int, products []map[string]string) *http
 			return
 		}
 		w.WriteHeader(status)
-		_ = json.NewEncoder(w).Encode(map[string]any{"products": products})
+		_ = json.NewEncoder(w).Encode(map[string]any{"products": products, "truncated": truncated})
 	}))
 	t.Cleanup(srv.Close)
 	return srv
@@ -74,22 +75,26 @@ func TestResolvesToIntended(t *testing.T) {
 	rpcTmpl := map[string]string{"product_id": siblingProductHex, "endpoint_url": "https://m.example/rpc/{network}"}
 	rpcBase := map[string]string{"product_id": otherProductHex, "endpoint_url": "https://m.example/rpc/base"}
 	cases := []struct {
-		name     string
-		status   int
-		products []map[string]string
-		payURL   string
-		wantErr  string
+		name      string
+		status    int
+		products  []map[string]string
+		payURL    string
+		truncated bool
+		wantErr   string
 	}{
-		{"the template is the only match", 200, []map[string]string{rpcTmpl, rpcBase}, "https://m.example/rpc/eth?x=1", ""},
-		{"another product's fixed path wins", 200, []map[string]string{rpcTmpl, rpcBase}, "https://m.example/rpc/base", "another product is registered"},
-		{"overlapping templates", 200, []map[string]string{rpcTmpl, {"product_id": otherProductHex, "endpoint_url": "https://m.example/{a}/eth"}}, "https://m.example/rpc/eth", "url"},
-		{"no listed product matches", 200, []map[string]string{rpcBase}, "https://m.example/rpc/eth", "url"},
-		{"catalog not found", 404, nil, "https://m.example/rpc/eth", "cannot verify"},
-		{"catalog failing", 500, nil, "https://m.example/rpc/eth", "cannot verify"},
+		{"the template is the only match", 200, []map[string]string{rpcTmpl, rpcBase}, "https://m.example/rpc/eth?x=1", false, ""},
+		{"another product's fixed path wins", 200, []map[string]string{rpcTmpl, rpcBase}, "https://m.example/rpc/base", false, "another product is registered"},
+		{"overlapping templates", 200, []map[string]string{rpcTmpl, {"product_id": otherProductHex, "endpoint_url": "https://m.example/{a}/eth"}}, "https://m.example/rpc/eth", false, "url"},
+		{"no listed product matches", 200, []map[string]string{rpcBase}, "https://m.example/rpc/eth", false, "url"},
+		// The catalog stops at 500 products; the facilitator resolves over all of them, so a fixed
+		// path beyond the cap could win unseen.
+		{"truncated catalog", 200, []map[string]string{rpcTmpl}, "https://m.example/rpc/eth", true, "truncated"},
+		{"catalog not found", 404, nil, "https://m.example/rpc/eth", false, "cannot verify"},
+		{"catalog failing", 500, nil, "https://m.example/rpc/eth", false, "cannot verify"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			srv := catalogServer(t, tc.status, tc.products)
+			srv := catalogServer(t, tc.status, tc.products, tc.truncated)
 			err := resolvesToIntended(context.Background(), srv.Client(), srv.URL, "3", siblingProductHex, tc.payURL)
 			if tc.wantErr == "" {
 				if err != nil {
@@ -107,7 +112,8 @@ func TestResolvesToIntended(t *testing.T) {
 // templateEnv is a merchant whose token product lives at tokenPath and whose sibling lives at
 // siblingPath (either may be a template), with the catalogue and public catalog served by the
 // same fake. Unpaid calls answer 402 reporting the path called; paid calls stop with a 502.
-func templateEnv(t *testing.T, tokenPath, siblingPath string) (string, func() []string) {
+// catalog, when given, replaces the default listing (both products); it receives the fake's base URL.
+func templateEnv(t *testing.T, tokenPath, siblingPath string, catalog ...func(base string) []map[string]string) (string, func() []string) {
 	t.Helper()
 	pub, priv, err := ed25519.GenerateKey(nil)
 	if err != nil {
@@ -130,10 +136,14 @@ func templateEnv(t *testing.T, tokenPath, siblingPath string) (string, func() []
 		case r.URL.Path == "/v1/merchant/product":
 			_, _ = w.Write([]byte(`{"active":true,"endpoint_url":"` + srv.URL + siblingPath + `"}`))
 		case r.URL.Path == "/v1/merchant/3/catalog":
-			_ = json.NewEncoder(w).Encode(map[string]any{"products": []map[string]string{
+			products := []map[string]string{
 				{"product_id": tokenProductHex, "endpoint_url": srv.URL + tokenPath},
 				{"product_id": siblingProductHex, "endpoint_url": srv.URL + siblingPath},
-			}})
+			}
+			if len(catalog) > 0 {
+				products = catalog[0](srv.URL)
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"products": products})
 		case r.Header.Get("PAYMENT-SIGNATURE") == "":
 			w.WriteHeader(http.StatusPaymentRequired)
 			_ = json.NewEncoder(w).Encode(map[string]any{
@@ -252,5 +262,35 @@ func TestPayForProduct_TemplatedSibling_FixedPathOfAnotherProduct_Refused(t *tes
 	}
 	if m := merchantHits(hits()); len(m) != 0 {
 		t.Fatalf("the merchant must not be called: %v", m)
+	}
+}
+
+// The link's product was delisted and a replacement is now active at the same fixed path. The
+// facilitator tries active products first, so the sale would settle as the replacement while the
+// tool reported the link's product: refused before signing.
+func TestPayForProduct_TokenProductReplacedAtItsPath_Refused(t *testing.T) {
+	refLink, hits := templateEnv(t, "/buy", "/letters/{id}", func(base string) []map[string]string {
+		return []map[string]string{{"product_id": otherProductHex, "endpoint_url": base + "/buy"}}
+	})
+	_, _, err := handlePayForProduct(context.Background(), nil, payForProductInput{RefLink: refLink, AgentID: "12"})
+	if err == nil || !strings.Contains(err.Error(), "settles as product "+otherProductHex) {
+		t.Fatalf("want a refusal naming the replacement product, got %v", err)
+	}
+	for _, h := range hits() {
+		if strings.HasSuffix(h, "[paid]") {
+			t.Fatalf("no payment may be submitted, saw %q", h)
+		}
+	}
+}
+
+// The ordinary case: the link's own product is listed at its fixed path, so the purchase goes on.
+func TestPayForProduct_TokenProductAtItsPath_Pays(t *testing.T) {
+	refLink, hits := templateEnv(t, "/buy", "/letters/{id}")
+	_, _, err := handlePayForProduct(context.Background(), nil, payForProductInput{RefLink: refLink, AgentID: "12"})
+	if err == nil || !strings.Contains(err.Error(), "stop here") {
+		t.Fatalf("expected to reach phase 2 and stop there, got %v", err)
+	}
+	if !strings.Contains(strings.Join(hits(), "\n"), "POST /buy [paid]") {
+		t.Fatalf("want a paid call to /buy, saw %v", hits())
 	}
 }

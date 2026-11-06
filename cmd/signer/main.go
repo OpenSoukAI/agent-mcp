@@ -988,6 +988,14 @@ func handlePayForProduct(
 	if err != nil {
 		return nil, payForProductOutput{}, err
 	}
+	// The link's own product is never looked up, so it may have been delisted and replaced at
+	// the same path; the facilitator then settles the active replacement. A sibling was checked
+	// active by resolvePayTarget, and a template was checked above.
+	if !templated && reportsEndpoint(requirements) && strings.EqualFold(intendedProduct, tok.ProductID) {
+		if err := resolvesToIntended(ctx, httpClient, apiBase, tok.MerchantID, intendedProduct, merchantEndpoint); err != nil {
+			return nil, payForProductOutput{}, err
+		}
+	}
 	tokenAddr := requirements.Asset
 	tokenName, _ := requirements.Extra["name"].(string)
 	tokenVersion, _ := requirements.Extra["version"].(string)
@@ -1607,7 +1615,8 @@ func main() {
 			"link's own product and `warning` says so. " +
 			"If the product's endpoint_url is a template such as https://shop.example/letters/{id}, pass url " +
 			"with the concrete URL to pay: same host, a path fitting the template. The tool checks the " +
-			"merchant's catalog that this URL settles as that product, and refuses otherwise. " +
+			"merchant's catalog that this URL settles as that product, and refuses otherwise. When buying the " +
+			"link's own product it also checks the catalog, refusing if another product now holds that path. " +
 			"MPP endpoints do not support this: use a link minted for that product, or pay direct. " +
 			"Omit agent_id to buy agent-less (no ERC-8004 identity yet): the buyer wallet is recorded " +
 			"on-chain for a later identity bind, and cashback is held until then. Agent-less purchases " +

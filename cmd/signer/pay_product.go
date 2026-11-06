@@ -159,6 +159,13 @@ func concretePayURL(registered, given string) (payURL string, templated bool, er
 	return strings.TrimSpace(given), templated, nil
 }
 
+// reportsEndpoint is whether the 402 names an endpoint, so that settlement resolves the product
+// by path rather than falling back to the token's product.
+func reportsEndpoint(requirements x402types.PaymentRequirements) bool {
+	s, ok := requirements.Extra["endpoint"].(string)
+	return ok && s != ""
+}
+
 // hostKey is scheme, lowercased host and port, with the scheme's default port made explicit.
 func hostKey(u *url.URL) string {
 	port := u.Port()
@@ -196,9 +203,14 @@ func resolvesToIntended(ctx context.Context, client *http.Client, apiBase, merch
 			ProductID   string `json:"product_id"`
 			EndpointURL string `json:"endpoint_url"`
 		} `json:"products"`
+		Truncated bool `json:"truncated"`
 	}
 	if err := json.Unmarshal(body, &cat); err != nil {
 		return fmt.Errorf("cannot verify which product url %s settles as: parse catalog: %w", payURL, err)
+	}
+	// The facilitator resolves over every product; a product past the catalog's cap could win.
+	if cat.Truncated {
+		return fmt.Errorf("cannot verify which product url %s settles as: merchant %s's catalog is truncated", payURL, merchantID)
 	}
 	var paths, ids []string
 	for _, p := range cat.Products {
