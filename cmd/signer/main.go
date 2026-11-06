@@ -694,6 +694,11 @@ type payForProductInput struct {
 	// ref link was minted for. Must be a listed product of the same merchant; its endpoint is read
 	// from the catalogue and paid with this same token. Omit to buy the link's own product.
 	ProductID string `json:"product_id,omitempty"`
+	// Optional (REF-562): the concrete URL to pay when the product's endpoint_url is a template
+	// such as https://shop.example/letters/{id}. It must be on the same host and its path must fit
+	// the template; the merchant's catalog is checked to confirm it settles as that product.
+	// Omit for a fixed endpoint, which is paid as registered.
+	URL string `json:"url,omitempty"`
 	// Optional inline votes (REF-143): 1–3 reviews that influenced this purchase. After the
 	// purchase settles, the tool signs and submits these via the backend's cast_review_votes
 	// two-step, before returning. Omit to skip voting (behaviour is then unchanged).
@@ -747,7 +752,7 @@ type payForProductOutput struct {
 	// happens before it serves, so it is the latency a buyer pays per call, not the API's alone.
 	LatencyMS int64 `json:"latency_ms"`
 	// Warning is set when the purchase settled on a different product than asked for — the
-	// merchant has not adopted extra.productId, so a sibling purchase attributed to the token's
+	// merchant's 402 reports no extra.endpoint, so a sibling purchase attributed to the token's
 	// product.
 	Warning string `json:"warning,omitempty"`
 	// NextSteps is an advisory nudge (REF-131) pointing the buyer at cast_review_votes
@@ -938,6 +943,18 @@ func handlePayForProduct(
 	if err != nil {
 		return nil, payForProductOutput{}, err
 	}
+	// REF-562: a templated endpoint is paid at the agent's concrete url, and only if the
+	// facilitator's path rule resolves that url to the intended product.
+	payURL, templated, err := concretePayURL(merchantEndpoint, in.URL)
+	if err != nil {
+		return nil, payForProductOutput{}, err
+	}
+	if templated {
+		if err := resolvesToIntended(ctx, httpClient, apiBase, tok.MerchantID, intendedProduct, payURL); err != nil {
+			return nil, payForProductOutput{}, err
+		}
+	}
+	merchantEndpoint = payURL
 	splitRouterAddr := tok.SplitRouter
 
 	// ── phase 1: probe merchant for 402 payment requirements ──────────────────
@@ -967,9 +984,17 @@ func handlePayForProduct(
 	requirements := payReq.Accepts[0]
 	// Refuse before signing if the merchant says it is selling something other than what was
 	// asked for (REF-317); settlement records the merchant's assertion, not the agent's intent.
-	settledProduct, productWarning, err := settledProductFrom402(requirements, intendedProduct, tok.ProductID)
+	settledProduct, productWarning, err := settledProductFrom402(requirements, merchantEndpoint, intendedProduct, tok.ProductID)
 	if err != nil {
 		return nil, payForProductOutput{}, err
+	}
+	// The link's own product is never looked up, so it may have been delisted and replaced at
+	// the same path; the facilitator then settles the active replacement. A sibling was checked
+	// active by resolvePayTarget, and a template was checked above.
+	if !templated && reportsEndpoint(requirements) && strings.EqualFold(intendedProduct, tok.ProductID) {
+		if err := resolvesToIntended(ctx, httpClient, apiBase, tok.MerchantID, intendedProduct, merchantEndpoint); err != nil {
+			return nil, payForProductOutput{}, err
+		}
 	}
 	tokenAddr := requirements.Asset
 	tokenName, _ := requirements.Extra["name"].(string)
@@ -1584,9 +1609,14 @@ func main() {
 			"Use the escrow_id with publish_escrow_review afterward. " +
 			"One ref link pays for ANY product of the same merchant on the x402 rail: pass product_id " +
 			"(0x bytes32, from get_product / query_registry) to buy a sibling product — its endpoint_url " +
-			"is read from the catalogue and paid with this same token. The merchant's 402 must name that " +
-			"product in extra.productId or the tool refuses before signing; if the merchant asserts no " +
-			"product, settlement attributes to the link's own product and `warning` says so. " +
+			"is read from the catalogue and paid with this same token. The merchant's 402 must report the " +
+			"endpoint you called in extra.endpoint or the tool refuses before signing; a 402 that still sends " +
+			"extra.productId is refused. If the merchant reports no endpoint, settlement attributes to the " +
+			"link's own product and `warning` says so. " +
+			"If the product's endpoint_url is a template such as https://shop.example/letters/{id}, pass url " +
+			"with the concrete URL to pay: same host, a path fitting the template. The tool checks the " +
+			"merchant's catalog that this URL settles as that product, and refuses otherwise. When buying the " +
+			"link's own product it also checks the catalog, refusing if another product now holds that path. " +
 			"MPP endpoints do not support this: use a link minted for that product, or pay direct. " +
 			"Omit agent_id to buy agent-less (no ERC-8004 identity yet): the buyer wallet is recorded " +
 			"on-chain for a later identity bind, and cashback is held until then. Agent-less purchases " +
