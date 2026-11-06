@@ -29,27 +29,33 @@ func reqWithExtra(extra map[string]any) x402types.PaymentRequirements {
 }
 
 func TestSettledProductFrom402(t *testing.T) {
+	const called = "https://m.example/buy-b?x=1"
 	cases := []struct {
 		name        string
 		extra       map[string]any
+		calledURL   string
 		intended    string
 		wantSettled string
 		wantWarn    bool
 		wantErr     string
 	}{
-		{"absent, buying token product", map[string]any{"name": "USDC"}, tokenProductHex, tokenProductHex, false, ""},
-		{"absent, buying sibling: falls back with warning", map[string]any{"name": "USDC"}, siblingProductHex, tokenProductHex, true, ""},
-		{"names the sibling we asked for", map[string]any{"productId": siblingProductHex}, siblingProductHex, siblingProductHex, false, ""},
-		{"names the token product we asked for", map[string]any{"productId": tokenProductHex}, tokenProductHex, tokenProductHex, false, ""},
-		{"case-insensitive match", map[string]any{"productId": strings.ToUpper(siblingProductHex[2:])}, siblingProductHex, siblingProductHex, false, ""},
-		{"names another product than asked", map[string]any{"productId": otherProductHex}, siblingProductHex, "", false, "402 names product"},
-		{"names another product at the token's own endpoint", map[string]any{"productId": otherProductHex}, tokenProductHex, "", false, "402 names product"},
-		{"empty string behaves as absent", map[string]any{"productId": ""}, siblingProductHex, tokenProductHex, true, ""},
-		{"non-string is rejected", map[string]any{"productId": 42}, siblingProductHex, "", false, "extra.productId"},
+		{"reports the path we called, buying a sibling", map[string]any{"endpoint": "/buy-b"}, called, siblingProductHex, siblingProductHex, false, ""},
+		{"host and trailing slash are ignored", map[string]any{"endpoint": "https://proxy.internal:8080/buy-b/"}, called, siblingProductHex, siblingProductHex, false, ""},
+		{"reports the token's own path", map[string]any{"endpoint": "/buy"}, "https://m.example/buy", tokenProductHex, tokenProductHex, false, ""},
+		{"reports another path", map[string]any{"endpoint": "/buy-a"}, called, siblingProductHex, "", false, "reports endpoint /buy-a but you called /buy-b"},
+		{"non-string endpoint is refused", map[string]any{"endpoint": 42}, called, siblingProductHex, "", false, "extra.endpoint"},
+		{"invalid endpoint is refused", map[string]any{"endpoint": "/a/%2e%2e/b"}, called, siblingProductHex, "", false, "extra.endpoint"},
+		{"empty endpoint behaves as absent, sibling", map[string]any{"endpoint": ""}, called, siblingProductHex, tokenProductHex, true, ""},
+		{"empty endpoint behaves as absent, token product", map[string]any{"endpoint": ""}, called, tokenProductHex, tokenProductHex, false, ""},
+		{"absent, buying token product", map[string]any{"name": "USDC"}, called, tokenProductHex, tokenProductHex, false, ""},
+		{"absent, buying sibling: falls back with warning", map[string]any{"name": "USDC"}, called, siblingProductHex, tokenProductHex, true, ""},
+		{"productId is refused", map[string]any{"productId": siblingProductHex}, called, siblingProductHex, "", false, "extra.productId"},
+		{"productId is refused even beside a matching endpoint", map[string]any{"productId": siblingProductHex, "endpoint": "/buy-b"}, called, siblingProductHex, "", false, "extra.productId"},
+		{"empty productId behaves as absent", map[string]any{"productId": "", "endpoint": "/buy-b"}, called, siblingProductHex, siblingProductHex, false, ""},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			settled, warn, err := settledProductFrom402(reqWithExtra(tc.extra), tc.intended, tokenProductHex)
+			settled, warn, err := settledProductFrom402(reqWithExtra(tc.extra), tc.calledURL, tc.intended, tokenProductHex)
 			if tc.wantErr != "" {
 				if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
 					t.Fatalf("want error containing %q, got %v", tc.wantErr, err)
@@ -64,6 +70,9 @@ func TestSettledProductFrom402(t *testing.T) {
 			}
 			if (warn != "") != tc.wantWarn {
 				t.Errorf("warning: got %q, wantWarn=%v", warn, tc.wantWarn)
+			}
+			if warn != "" && !strings.Contains(warn, "extra.endpoint") {
+				t.Errorf("warning should name extra.endpoint: %q", warn)
 			}
 		})
 	}
@@ -160,8 +169,8 @@ func TestResolvePayTarget_MalformedID_RejectedWithoutLookup(t *testing.T) {
 // ── wiring ────────────────────────────────────────────────────────────────────
 
 // crossProductEnv is payTestEnv plus a sibling product: the fake backend serves the catalogue
-// lookup, and the merchant has a second endpoint /buy-b whose 402 carries extra.productId =
-// asserted. Phase 2 at either endpoint fails with 502 so the handler stops before any chain
+// lookup, and the merchant has a second endpoint /buy-b whose 402 carries extra.endpoint =
+// asserted (a path). Phase 2 at either endpoint fails with 502 so the handler stops before any chain
 // work. Returns the ref link and the ordered list of "METHOD path [paid]" the fake saw.
 func crossProductEnv(t *testing.T, asserted string) (string, func() []string) {
 	t.Helper()
@@ -206,7 +215,7 @@ func crossProductEnv(t *testing.T, asserted string) (string, func() []string) {
 		case (r.URL.Path == "/buy" || r.URL.Path == "/buy-b") && r.Header.Get("PAYMENT-SIGNATURE") == "":
 			extra := map[string]any{"name": "USDC", "version": "2"}
 			if asserted != "" && r.URL.Path == "/buy-b" {
-				extra["productId"] = asserted
+				extra["endpoint"] = asserted
 			}
 			w.WriteHeader(http.StatusPaymentRequired)
 			_ = json.NewEncoder(w).Encode(requirements(extra))
@@ -240,7 +249,7 @@ func crossProductEnv(t *testing.T, asserted string) (string, func() []string) {
 }
 
 func TestPayForProduct_SiblingProduct_PaysAtItsEndpoint(t *testing.T) {
-	refLink, hits := crossProductEnv(t, siblingProductHex)
+	refLink, hits := crossProductEnv(t, "/buy-b")
 	_, _, err := handlePayForProduct(context.Background(), nil, payForProductInput{
 		RefLink: refLink, AgentID: "12", ProductID: siblingProductHex,
 	})
@@ -258,12 +267,12 @@ func TestPayForProduct_SiblingProduct_PaysAtItsEndpoint(t *testing.T) {
 	}
 }
 
-func TestPayForProduct_402NamesOtherProduct_RefusesBeforePaying(t *testing.T) {
-	refLink, hits := crossProductEnv(t, otherProductHex)
+func TestPayForProduct_402ReportsOtherEndpoint_RefusesBeforePaying(t *testing.T) {
+	refLink, hits := crossProductEnv(t, "/buy-c")
 	_, _, err := handlePayForProduct(context.Background(), nil, payForProductInput{
 		RefLink: refLink, AgentID: "12", ProductID: siblingProductHex,
 	})
-	if err == nil || !strings.Contains(err.Error(), "402 names product") {
+	if err == nil || !strings.Contains(err.Error(), "reports endpoint /buy-c but you called /buy-b") {
 		t.Fatalf("want refusal naming the 402 mismatch, got %v", err)
 	}
 	for _, h := range hits() {

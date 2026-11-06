@@ -11,6 +11,8 @@ import (
 	"strings"
 
 	x402types "github.com/x402-foundation/x402/go/types"
+
+	"github.com/OpenSoukAI/agent-mcp/internal/endpointpath"
 )
 
 // Merchant-wide commission (REF-317): a ref link's token pays for any product of the same
@@ -85,31 +87,36 @@ func resolvePayTarget(
 	return prod.EndpointURL, want, nil
 }
 
-// settledProductFrom402 reads the merchant's product assertion (extra.productId) out of the 402
-// and decides what settlement will record. A present assertion must match what the agent asked
-// to buy — even at the token's own endpoint — or nothing is signed. An absent assertion means
-// the merchant has not adopted the field and settlement falls back to the token's product;
-// that is only a problem, and so only warned about, when a sibling was requested.
-func settledProductFrom402(requirements x402types.PaymentRequirements, intended, tokenProduct string) (settled, warning string, err error) {
-	raw, present := requirements.Extra["productId"]
-	if present && raw != nil {
+// settledProductFrom402 decides what settlement will record, from the merchant's 402 (REF-562).
+// The facilitator settles on the product registered at the path in extra.endpoint, so that path
+// must be the one the signer called, or nothing is signed. The retired extra.productId is refused:
+// the facilitator rejects it. An absent endpoint means the merchant has not adopted the field and
+// settlement falls back to the token's product, which is only warned about for a sibling.
+func settledProductFrom402(requirements x402types.PaymentRequirements, calledURL, intended, tokenProduct string) (settled, warning string, err error) {
+	if raw, ok := requirements.Extra["productId"]; ok && raw != nil && raw != "" {
+		return "", "", fmt.Errorf("merchant's 402 sends extra.productId, which the protocol no longer accepts (it names the endpoint in extra.endpoint instead); refusing to sign a payment the facilitator would reject")
+	}
+	raw, present := requirements.Extra["endpoint"]
+	if present && raw != nil && raw != "" {
 		s, ok := raw.(string)
 		if !ok {
-			return "", "", fmt.Errorf("merchant 402 extra.productId must be a hex string, got %T", raw)
+			return "", "", fmt.Errorf("merchant 402 extra.endpoint must be a URL or path string, got %T", raw)
 		}
-		if strings.TrimSpace(s) != "" {
-			asserted, err := normalizeProductID("merchant 402 extra.productId", s)
-			if err != nil {
-				return "", "", err
-			}
-			if !strings.EqualFold(asserted, intended) {
-				return "", "", fmt.Errorf("merchant's 402 names product %s but you asked to buy %s; refusing to sign — this endpoint is selling something else", asserted, intended)
-			}
-			return asserted, "", nil
+		reported, err := endpointpath.Normalize(s)
+		if err != nil {
+			return "", "", fmt.Errorf("merchant 402 extra.endpoint %q is not a valid endpoint: %v", s, err)
 		}
+		called, err := endpointpath.Normalize(calledURL)
+		if err != nil {
+			return "", "", fmt.Errorf("called URL %q is not a valid endpoint: %v", calledURL, err)
+		}
+		if reported != called {
+			return "", "", fmt.Errorf("merchant's 402 reports endpoint %s but you called %s; refusing to sign — settlement would record the product registered at %s", reported, called, reported)
+		}
+		return intended, "", nil
 	}
 	if !strings.EqualFold(intended, tokenProduct) {
-		return tokenProduct, fmt.Sprintf("merchant did not assert extra.productId in its 402, so settlement attributed this purchase to the ref link's product %s, not %s; commission rate, escrow product and your proof-of-purchase follow the link's product", tokenProduct, intended), nil
+		return tokenProduct, fmt.Sprintf("merchant's 402 reports no extra.endpoint, so settlement attributes this purchase to the ref link's product %s, not %s; commission rate, escrow product and your proof-of-purchase follow the link's product", tokenProduct, intended), nil
 	}
 	return tokenProduct, "", nil
 }

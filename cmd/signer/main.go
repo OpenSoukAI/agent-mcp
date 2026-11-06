@@ -967,7 +967,7 @@ func handlePayForProduct(
 	requirements := payReq.Accepts[0]
 	// Refuse before signing if the merchant says it is selling something other than what was
 	// asked for (REF-317); settlement records the merchant's assertion, not the agent's intent.
-	settledProduct, productWarning, err := settledProductFrom402(requirements, intendedProduct, tok.ProductID)
+	settledProduct, productWarning, err := settledProductFrom402(requirements, merchantEndpoint, intendedProduct, tok.ProductID)
 	if err != nil {
 		return nil, payForProductOutput{}, err
 	}
