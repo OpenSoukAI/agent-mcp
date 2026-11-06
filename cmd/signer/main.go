@@ -694,6 +694,11 @@ type payForProductInput struct {
 	// ref link was minted for. Must be a listed product of the same merchant; its endpoint is read
 	// from the catalogue and paid with this same token. Omit to buy the link's own product.
 	ProductID string `json:"product_id,omitempty"`
+	// Optional (REF-562): the concrete URL to pay when the product's endpoint_url is a template
+	// such as https://shop.example/letters/{id}. It must be on the same host and its path must fit
+	// the template; the merchant's catalog is checked to confirm it settles as that product.
+	// Omit for a fixed endpoint, which is paid as registered.
+	URL string `json:"url,omitempty"`
 	// Optional inline votes (REF-143): 1–3 reviews that influenced this purchase. After the
 	// purchase settles, the tool signs and submits these via the backend's cast_review_votes
 	// two-step, before returning. Omit to skip voting (behaviour is then unchanged).
@@ -938,6 +943,18 @@ func handlePayForProduct(
 	if err != nil {
 		return nil, payForProductOutput{}, err
 	}
+	// REF-562: a templated endpoint is paid at the agent's concrete url, and only if the
+	// facilitator's path rule resolves that url to the intended product.
+	payURL, templated, err := concretePayURL(merchantEndpoint, in.URL)
+	if err != nil {
+		return nil, payForProductOutput{}, err
+	}
+	if templated {
+		if err := resolvesToIntended(ctx, httpClient, apiBase, tok.MerchantID, intendedProduct, payURL); err != nil {
+			return nil, payForProductOutput{}, err
+		}
+	}
+	merchantEndpoint = payURL
 	splitRouterAddr := tok.SplitRouter
 
 	// ── phase 1: probe merchant for 402 payment requirements ──────────────────
