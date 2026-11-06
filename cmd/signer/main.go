@@ -1539,7 +1539,8 @@ func main() {
 		Description: "Probe a product's referral x402 endpoint and report whether it is wired correctly " +
 			"for referral payments (POST /v1/merchant/product/readiness). The backend GETs referral_url " +
 			"with the referral-mode header set and checks that it answers 402, that payTo is this chain's " +
-			"SplitRouter, and that the attribution token is echoed back; pass reflects those three only. " +
+			"SplitRouter, that it asks for ReceiveWithAuthorization, that the attribution token is echoed " +
+			"back, and that extra.endpoint reports the path it called; pass needs all five. " +
 			"It also reports the referral route's price, asset and network. Pass the merchant's public " +
 			"endpoint as public_url to probe it alongside: the result then carries its own 402 and price, " +
 			"price_comparison (referral_costs_more is true when the referral route is priced higher in the " +

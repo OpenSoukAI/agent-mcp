@@ -525,3 +525,27 @@ func TestCheckProductReadiness_NonJSONBodyIsReported(t *testing.T) {
 		t.Fatalf("err = %v, want the body named", err)
 	}
 }
+
+// REF-565: the product write also answers 409 when another active product of the merchant holds
+// the endpoint path. That is not the missing-merchant 409 the tools' advice describes.
+func TestRestError_DuplicatePath409GetsPathAdvice(t *testing.T) {
+	raw := []byte(`{"error":"endpoint_url path /b is already used by product 0x0e of this merchant; give each product its own path"}`)
+	err := restError("add_product", http.StatusConflict, raw, map[int]string{
+		http.StatusConflict: "this merchant has no backend record — call activate_merchant first, then add_product again",
+	})
+	msg := err.Error()
+	if strings.Contains(msg, "activate_merchant") {
+		t.Fatalf("duplicate path told to activate the merchant: %s", msg)
+	}
+	if !strings.Contains(msg, "is already used by product") || !strings.Contains(msg, "endpoint_url with a path no other product uses") {
+		t.Fatalf("want the backend detail and path advice, got: %s", msg)
+	}
+
+	// The missing-merchant 409 keeps its advice.
+	other := restError("add_product", http.StatusConflict, []byte(`{"error":"merchant not registered"}`), map[int]string{
+		http.StatusConflict: "this merchant has no backend record — call activate_merchant first, then add_product again",
+	})
+	if !strings.Contains(other.Error(), "activate_merchant") {
+		t.Fatalf("missing-merchant 409 lost its advice: %s", other.Error())
+	}
+}

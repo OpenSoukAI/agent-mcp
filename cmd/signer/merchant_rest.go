@@ -195,6 +195,10 @@ func restError(tool string, status int, raw []byte, advice map[int]string) error
 	if !ok {
 		msg = genericRESTAdvice[status]
 	}
+	// The product write's other 409 (REF-560): one active product per endpoint path.
+	if status == http.StatusConflict && strings.Contains(detail, "is already used by product") {
+		msg = "another of this merchant's products uses that path; call again with an endpoint_url with a path no other product uses"
+	}
 	return &restStatusError{Tool: tool, Status: status, Detail: detail, Advice: msg}
 }
 
