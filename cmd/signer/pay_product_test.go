@@ -49,7 +49,7 @@ func TestSettledProductFrom402(t *testing.T) {
 		{"empty endpoint behaves as absent, token product", map[string]any{"endpoint": ""}, called, tokenProductHex, tokenProductHex, false, ""},
 		{"absent, buying token product", map[string]any{"name": "USDC"}, called, tokenProductHex, tokenProductHex, false, ""},
 		{"absent, buying sibling: falls back with warning", map[string]any{"name": "USDC"}, called, siblingProductHex, tokenProductHex, true, ""},
-		{"productId is refused", map[string]any{"productId": siblingProductHex}, called, siblingProductHex, "", false, "extra.productId"},
+		{"productId is refused", map[string]any{"productId": siblingProductHex}, called, siblingProductHex, "", false, "extra.productId, which the facilitator refuses"},
 		{"productId is refused even beside a matching endpoint", map[string]any{"productId": siblingProductHex, "endpoint": "/buy-b"}, called, siblingProductHex, "", false, "extra.productId"},
 		{"empty productId behaves as absent", map[string]any{"productId": "", "endpoint": "/buy-b"}, called, siblingProductHex, siblingProductHex, false, ""},
 	}

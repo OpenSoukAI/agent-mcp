@@ -95,7 +95,7 @@ func resolvePayTarget(
 // settlement falls back to the token's product, which is only warned about for a sibling.
 func settledProductFrom402(requirements x402types.PaymentRequirements, calledURL, intended, tokenProduct string) (settled, warning string, err error) {
 	if raw, ok := requirements.Extra["productId"]; ok && raw != nil && raw != "" {
-		return "", "", fmt.Errorf("merchant's 402 sends extra.productId, which the protocol no longer accepts (it names the endpoint in extra.endpoint instead); refusing to sign a payment the facilitator would reject")
+		return "", "", fmt.Errorf("merchant's 402 sends extra.productId, which the facilitator refuses (the product is named by extra.endpoint); refusing to sign")
 	}
 	raw, present := requirements.Extra["endpoint"]
 	if present && raw != nil && raw != "" {
