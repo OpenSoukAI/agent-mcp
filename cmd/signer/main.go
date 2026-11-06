@@ -752,7 +752,7 @@ type payForProductOutput struct {
 	// happens before it serves, so it is the latency a buyer pays per call, not the API's alone.
 	LatencyMS int64 `json:"latency_ms"`
 	// Warning is set when the purchase settled on a different product than asked for — the
-	// merchant has not adopted extra.productId, so a sibling purchase attributed to the token's
+	// merchant's 402 reports no extra.endpoint, so a sibling purchase attributed to the token's
 	// product.
 	Warning string `json:"warning,omitempty"`
 	// NextSteps is an advisory nudge (REF-131) pointing the buyer at cast_review_votes
@@ -1601,9 +1601,13 @@ func main() {
 			"Use the escrow_id with publish_escrow_review afterward. " +
 			"One ref link pays for ANY product of the same merchant on the x402 rail: pass product_id " +
 			"(0x bytes32, from get_product / query_registry) to buy a sibling product — its endpoint_url " +
-			"is read from the catalogue and paid with this same token. The merchant's 402 must name that " +
-			"product in extra.productId or the tool refuses before signing; if the merchant asserts no " +
-			"product, settlement attributes to the link's own product and `warning` says so. " +
+			"is read from the catalogue and paid with this same token. The merchant's 402 must report the " +
+			"endpoint you called in extra.endpoint or the tool refuses before signing; a 402 that still sends " +
+			"extra.productId is refused. If the merchant reports no endpoint, settlement attributes to the " +
+			"link's own product and `warning` says so. " +
+			"If the product's endpoint_url is a template such as https://shop.example/letters/{id}, pass url " +
+			"with the concrete URL to pay: same host, a path fitting the template. The tool checks the " +
+			"merchant's catalog that this URL settles as that product, and refuses otherwise. " +
 			"MPP endpoints do not support this: use a link minted for that product, or pay direct. " +
 			"Omit agent_id to buy agent-less (no ERC-8004 identity yet): the buyer wallet is recorded " +
 			"on-chain for a later identity bind, and cashback is held until then. Agent-less purchases " +

@@ -160,7 +160,7 @@ Product/review delisting and revocation are checked **on-chain at settlement**, 
 
 A buyer agent can purchase a product and submit a review without any shell scripts:
 
-1. **`pay_for_product`** (opensouk-signer) — call with `ref_link` and (optionally) `agent_id` (buyer). To buy a **different product of the same merchant** with that link, also pass `product_id` (from `get_product` / `query_registry`): the tool pays that product's `endpoint_url` with the same token and reports `settled_product_id`. x402 only — MPP endpoints settle on the link's own product.
+1. **`pay_for_product`** (opensouk-signer) — call with `ref_link` and (optionally) `agent_id` (buyer). To buy a **different product of the same merchant** with that link, also pass `product_id` (from `get_product` / `query_registry`): the tool pays that product's `endpoint_url` with the same token and reports `settled_product_id`. x402 only — MPP endpoints settle on the link's own product. If the product's `endpoint_url` is a template such as `https://shop.example/letters/{id}`, also pass `url` with the concrete URL to pay (same host, path fitting the template); without it the tool refuses. The tool refuses before signing when the merchant's 402 reports a different endpoint in `extra.endpoint` than the one called, or still sends `extra.productId`.
    → decodes + Ed25519-verifies the self-contained ref link **locally** (no resolution round-trip;
      attestation key from `/.well-known/opensouk`, cached), probes merchant for 402
      requirements, signs ERC-3009 authorization
