@@ -1,0 +1,271 @@
+{
+  "normalize": [
+    {
+      "in": "https://API.m.com:8443/v1/Trades/?q=1#f",
+      "out": "/v1/Trades"
+    },
+    {
+      "in": "http://10.0.3.7:8080/v1/trades",
+      "out": "/v1/trades"
+    },
+    {
+      "in": "/v1/trades/",
+      "out": "/v1/trades"
+    },
+    {
+      "in": "/api/search?q=btc&limit=5",
+      "out": "/api/search"
+    },
+    {
+      "in": "https://m.com",
+      "out": "/"
+    },
+    {
+      "in": "https://m.com/",
+      "out": "/"
+    },
+    {
+      "in": "https://m.com/api/letters/{id}",
+      "out": "/api/letters/{id}"
+    },
+    {
+      "in": "/a%20b",
+      "out": "/a b"
+    },
+    {
+      "in": "",
+      "err": true
+    },
+    {
+      "in": "v1/trades",
+      "err": true
+    },
+    {
+      "in": "ftp://m.com/a",
+      "err": true
+    },
+    {
+      "in": "https:///nohost",
+      "err": true
+    },
+    {
+      "in": "/a/b%2Fc",
+      "err": true
+    },
+    {
+      "in": "https://m.com/a/b%2Fc",
+      "err": true
+    },
+    {
+      "in": "/a/%2e%2e/x",
+      "err": true
+    },
+    {
+      "in": "/a/../x",
+      "err": true
+    },
+    {
+      "in": "/a/./x",
+      "err": true
+    },
+    {
+      "in": "https://m.com/a/%2E/x",
+      "err": true
+    },
+    {
+      "in": "/a/b%20c/d",
+      "out": "/a/b c/d"
+    },
+    {
+      "in": "https://m.com/a/b%2Fc{",
+      "err": true
+    },
+    {
+      "in": "https://m.com/a/b%2Fc\"",
+      "err": true
+    },
+    {
+      "in": "https://m.com/a/b%2Fc%22",
+      "err": true
+    },
+    {
+      "in": "https://user@m.com:8443/a/{id}?x=1",
+      "out": "/a/{id}"
+    },
+    {
+      "in": "https://m.com?x=/a/b",
+      "out": "/"
+    },
+    {
+      "in": "https://m.com#/a/b",
+      "out": "/"
+    }
+  ],
+  "match": [
+    {
+      "registered": "/v1/trades",
+      "requested": "/v1/trades",
+      "want": true
+    },
+    {
+      "registered": "/v1/trades",
+      "requested": "/v1/Trades",
+      "want": false
+    },
+    {
+      "registered": "/api/letters/{id}",
+      "requested": "/api/letters/8812",
+      "want": true
+    },
+    {
+      "registered": "/api/letters/:id",
+      "requested": "/api/letters/8812",
+      "want": true
+    },
+    {
+      "registered": "/api/letters/{id}",
+      "requested": "/api/letters/8812/raw",
+      "want": false
+    },
+    {
+      "registered": "/api/letters/{id}",
+      "requested": "/api/letters",
+      "want": false
+    },
+    {
+      "registered": "/files/file-{id}.json",
+      "requested": "/files/file-7.json",
+      "want": false
+    },
+    {
+      "registered": "/",
+      "requested": "/",
+      "want": true
+    },
+    {
+      "registered": "/{slug}",
+      "requested": "/",
+      "want": false
+    },
+    {
+      "registered": "/a/{x}/b",
+      "requested": "/a//b",
+      "want": false
+    }
+  ],
+  "conflict": [
+    {
+      "a": "/v1/trades",
+      "b": "/v1/trades",
+      "want": true
+    },
+    {
+      "a": "/v1/trades",
+      "b": "/v1/quotes",
+      "want": false
+    },
+    {
+      "a": "/rpc/base",
+      "b": "/rpc/{network}",
+      "want": false
+    },
+    {
+      "a": "/a/{x}",
+      "b": "/{y}/b",
+      "want": true
+    },
+    {
+      "a": "/a/{x}",
+      "b": "/b/{y}",
+      "want": false
+    },
+    {
+      "a": "/a/{x}",
+      "b": "/a/{x}/c",
+      "want": false
+    },
+    {
+      "a": "/a/{x}/c",
+      "b": "/a/b/{z}",
+      "want": true
+    }
+  ],
+  "concrete": [
+    {
+      "in": "https://m.example/letters/{id}",
+      "sample": "opensouk-probe",
+      "out": "https://m.example/letters/opensouk-probe"
+    },
+    {
+      "in": "https://m.example/a/:x/b/{y}?q=1",
+      "sample": "opensouk-probe",
+      "out": "https://m.example/a/opensouk-probe/b/opensouk-probe?q=1"
+    },
+    {
+      "in": "https://m.example/files/file-{id}.json",
+      "sample": "opensouk-probe",
+      "out": "https://m.example/files/file-{id}.json"
+    },
+    {
+      "in": "https://m.example/buy",
+      "sample": "opensouk-probe",
+      "out": "https://m.example/buy"
+    },
+    {
+      "in": "https://m.example",
+      "sample": "opensouk-probe",
+      "out": "https://m.example"
+    },
+    {
+      "in": "ftp://m.example/a/{x}",
+      "sample": "opensouk-probe",
+      "err": true
+    }
+  ],
+  "template": [
+    {
+      "in": "/files/{id}",
+      "ok": true
+    },
+    {
+      "in": "/a/:x/b",
+      "ok": true
+    },
+    {
+      "in": "/v1/models/x:generate",
+      "ok": true
+    },
+    {
+      "in": "/v1/trades",
+      "ok": true
+    },
+    {
+      "in": "/",
+      "ok": true
+    },
+    {
+      "in": "/files/file-{id}.json",
+      "ok": false
+    },
+    {
+      "in": "/files/{id}.json",
+      "ok": false
+    },
+    {
+      "in": "/files/{a}{b}",
+      "ok": false
+    },
+    {
+      "in": "/files/{}",
+      "ok": false
+    },
+    {
+      "in": "/files/{id",
+      "ok": false
+    },
+    {
+      "in": "/files/id}",
+      "ok": false
+    }
+  ]
+}
