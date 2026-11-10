@@ -165,6 +165,9 @@ other lines kept). A seed phrase is refused: export the private key instead.
 | `--keychain` | off | macOS only: store in the Keychain (service `opensouk-signer`) instead of the file |
 | `--force` | off | replace a key that is already set; without it `init` stops |
 
+`init` asks for the agent id if `--agent-id` is omitted, and falls back to the `CHAIN_ID` and
+`BASE_RPC_URL` environment variables when the chain and RPC flags are absent.
+
 The file is `SIGNER_ENV_FILE` if set. An empty value or the `REPLACE_WITH_AGENT_KEY` placeholder
 counts as no key.
 

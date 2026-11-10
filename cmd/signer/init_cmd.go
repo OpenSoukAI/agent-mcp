@@ -28,6 +28,7 @@ type initDeps struct {
 	goos          string
 	identity      func(ctx context.Context, chainID int64, rpcURL string, agentID *big.Int) (owner, bound common.Address, err error)
 	keychainWrite func(ctx context.Context, account, value string) error
+	keychainRead  func(ctx context.Context, account string) (value string, found bool, err error)
 }
 
 const defaultRPCURL = "https://mainnet.base.org"
@@ -57,6 +58,7 @@ func defaultInitDeps() initDeps {
 		goos:          runtime.GOOS,
 		identity:      realIdentity,
 		keychainWrite: keychainWriteSecurity,
+		keychainRead:  securityRead,
 	}
 }
 
@@ -136,6 +138,17 @@ func runInit(ctx context.Context, args []string, d initDeps) int {
 	}
 
 	if *keychainFlag {
+		if !*forceFlag {
+			cur, found, err := d.keychainRead(ctx, "AGENT_PRIVATE_KEY")
+			if err != nil {
+				fmt.Fprintf(d.errOut, "opensouk-signer init: could not check the Keychain: %v\n", err)
+				return 1
+			}
+			if found && cur != "" && cur != keyPlaceholder {
+				fmt.Fprintf(d.errOut, "opensouk-signer init: the Keychain (service %s) already holds a key; nothing changed. Re-run with --force to replace it.\n", keychainService)
+				return 1
+			}
+		}
 		if err := d.keychainWrite(ctx, "AGENT_PRIVATE_KEY", hexKey); err != nil {
 			fmt.Fprintf(d.errOut, "opensouk-signer init: could not write to the Keychain: %v\n", err)
 			return 1

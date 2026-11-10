@@ -310,6 +310,7 @@ func storageDeps(t *testing.T, goos string) (d initDeps, out, errOut *bytes.Buff
 			return common.HexToAddress(testKeyAddr(t)), common.Address{}, nil
 		},
 		keychainWrite: func(context.Context, string, string) error { t.Fatal("keychain used"); return nil },
+		keychainRead:  func(context.Context, string) (string, bool, error) { return "", false, nil },
 	}
 	return d, out, errOut, envPath
 }
@@ -372,6 +373,46 @@ func TestRunInit_KeychainOnMac(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "Keychain") || strings.Contains(out.String()+errOut.String(), testKeyHex) {
 		t.Fatalf("out = %q err = %q", out.String(), errOut.String())
+	}
+}
+
+func keychainStored(t *testing.T, value string, found bool, readErr error, args ...string) (code int, wrote bool, errOut string) {
+	t.Helper()
+	d, _, e, _ := storageDeps(t, "darwin")
+	d.keychainRead = func(context.Context, string) (string, bool, error) { return value, found, readErr }
+	d.keychainWrite = func(context.Context, string, string) error { wrote = true; return nil }
+	code = runInit(context.Background(), append([]string{"--agent-id", "7", "--keychain"}, args...), d)
+	return code, wrote, e.String()
+}
+
+func TestRunInit_KeychainExistingKeyNeedsForce(t *testing.T) {
+	code, wrote, errOut := keychainStored(t, "0xoldsecretvalue", true, nil)
+	if code != 1 || wrote || !strings.Contains(errOut, "--force") || !strings.Contains(errOut, keychainService) || strings.Contains(errOut, "oldsecretvalue") {
+		t.Fatalf("exit = %d wrote = %v %q", code, wrote, errOut)
+	}
+}
+
+func TestRunInit_KeychainExistingKeyForced(t *testing.T) {
+	if code, wrote, errOut := keychainStored(t, "0xold", true, nil, "--force"); code != 0 || !wrote {
+		t.Fatalf("exit = %d wrote = %v %q", code, wrote, errOut)
+	}
+}
+
+func TestRunInit_KeychainNoItemOrPlaceholderWrites(t *testing.T) {
+	for _, c := range []struct {
+		v     string
+		found bool
+	}{{"", false}, {"", true}, {keyPlaceholder, true}} {
+		if code, wrote, errOut := keychainStored(t, c.v, c.found, nil); code != 0 || !wrote {
+			t.Fatalf("%+v: exit = %d wrote = %v %q", c, code, wrote, errOut)
+		}
+	}
+}
+
+func TestRunInit_KeychainReadErrorExits1(t *testing.T) {
+	code, wrote, errOut := keychainStored(t, "0xleak", true, errors.New("locked"))
+	if code != 1 || wrote || !strings.Contains(errOut, "locked") || strings.Contains(errOut, "leak") {
+		t.Fatalf("exit = %d wrote = %v %q", code, wrote, errOut)
 	}
 }
 
