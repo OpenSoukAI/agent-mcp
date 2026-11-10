@@ -21,8 +21,10 @@ func TestKeychainWriteSecurity_ErrorNeverHoldsValue(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("shell script stub")
 	}
-	fake := filepath.Join(t.TempDir(), "security")
-	if err := os.WriteFile(fake, []byte("#!/bin/sh\ncat\ncat >&2\nexit 1\n"), 0o700); err != nil {
+	dir := t.TempDir()
+	fake, argv := filepath.Join(dir, "security"), filepath.Join(dir, "argv")
+	script := "#!/bin/sh\nprintf '%s\\n' \"$@\" > " + argv + "\nin=$(cat)\necho \"$in\"\necho \"$in\" | sed 's/0x//g' >&2\nexit 1\n"
+	if err := os.WriteFile(fake, []byte(script), 0o700); err != nil {
 		t.Fatal(err)
 	}
 	old := securityPath
@@ -33,7 +35,13 @@ func TestKeychainWriteSecurity_ErrorNeverHoldsValue(t *testing.T) {
 	if err == nil {
 		t.Fatal("want error")
 	}
-	if strings.Contains(err.Error(), secret) || strings.Contains(err.Error(), "deadbeefcafe") {
+	if strings.Contains(err.Error(), "deadbeefcafe") {
 		t.Fatalf("error holds the value: %v", err)
+	}
+	if !strings.Contains(err.Error(), "add-generic-password") {
+		t.Fatalf("stub output missing from error, scrub untested: %v", err)
+	}
+	if got, rerr := os.ReadFile(argv); rerr != nil || string(got) != "-i\n" {
+		t.Fatalf("argv = %q, %v; want exactly -i", got, rerr)
 	}
 }

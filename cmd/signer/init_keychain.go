@@ -17,7 +17,8 @@ func securityAddScript(account, value string) string {
 }
 
 // keychainWriteSecurity stores value as the Keychain item for account. security's output is
-// scrubbed of value before it reaches the error, in case the tool echoes its input.
+// scrubbed of value, with and without 0x, before it reaches the error, in case the tool echoes
+// its input.
 func keychainWriteSecurity(ctx context.Context, account, value string) error {
 	ctx, cancel := context.WithTimeout(ctx, keychainTimeout)
 	defer cancel()
@@ -31,7 +32,11 @@ func keychainWriteSecurity(ctx context.Context, account, value string) error {
 	}
 	if err != nil {
 		detail := strings.TrimSpace(stderr.String() + " " + stdout.String())
-		detail = strings.ReplaceAll(detail, value, "[redacted]")
+		for _, v := range []string{value, strings.TrimPrefix(value, "0x")} {
+			if v != "" {
+				detail = strings.ReplaceAll(detail, v, "[redacted]")
+			}
+		}
 		return fmt.Errorf("writing %s: %v: %s", account, err, detail)
 	}
 	return nil
