@@ -145,6 +145,29 @@ your agents, unless you make agent-less purchases: as the fallback it signs for 
 A value that is still a reference (`${AGENT_PRIVATE_KEY}`) means the MCP client did not expand it;
 the signer refuses to start and says so.
 
+### Store the key: `opensouk-signer init`
+
+In your own terminal (it refuses to run without one), let the signer write the key for you:
+
+```bash
+npx -y @opensouk/signer@0.1.3 init --agent-id <your agent id>
+```
+
+It asks for the private key with the input hidden, checks that the key is the owner or bound wallet
+of that agent on-chain, then stores it as `AGENT_PRIVATE_KEY` in `signer.env` (see below; mode 600,
+other lines kept). A seed phrase is refused: export the private key instead.
+
+| Flag | Default | |
+|---|---|---|
+| `--agent-id` | | the ERC-8004 agent id the key must control |
+| `--chain-id` | `8453` | chain to check against |
+| `--rpc-url` | `https://mainnet.base.org` | JSON-RPC endpoint for that check |
+| `--keychain` | off | macOS only: store in the Keychain (service `opensouk-signer`) instead of the file |
+| `--force` | off | replace a key that is already set; without it `init` stops |
+
+The file is `SIGNER_ENV_FILE` if set. An empty value or the `REPLACE_WITH_AGENT_KEY` placeholder
+counts as no key.
+
 ### Settings file: `~/.config/opensouk/signer.env`
 
 At startup the signer reads `KEY=value` lines from `~/.config/opensouk/signer.env`, or from the

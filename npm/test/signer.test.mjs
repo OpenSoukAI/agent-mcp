@@ -116,6 +116,16 @@ test("shim passes arguments, stdout and the exit code through", { skip: process.
   assert.equal(r.status, 7);
 });
 
+// The fake binary is generic, so this pins what the shim adds: nothing. `init` is the interactive
+// key-setup subcommand, and its flags (including --help) must reach the Go binary untouched.
+test("shim passes the init subcommand and its flags through", { skip: process.platform !== "linux" || process.arch !== "x64" }, () => {
+  const shim = installLayout();
+  const r = spawnSync(process.execPath, [shim, "init", "--help"], { encoding: "utf8" });
+  assert.equal(r.stdout, "linux/amd64 init --help\n");
+  assert.equal(r.stderr, "");
+  assert.equal(r.status, 7);
+});
+
 test("the shim's published files include everything it requires", () => {
   const pkg = JSON.parse(readFileSync(join(repo, "npm", "signer", "package.json"), "utf8"));
   const shimSrc = readFileSync(join(repo, "npm", "signer", "bin", "opensouk-signer.js"), "utf8");
