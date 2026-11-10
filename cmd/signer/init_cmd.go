@@ -10,9 +10,11 @@ import (
 	"math/big"
 	"os"
 	"runtime"
+	"strconv"
 	"strings"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/ethclient"
 	"golang.org/x/term"
 )
 
@@ -27,6 +29,8 @@ type initDeps struct {
 	identity      func(ctx context.Context, chainID int64, rpcURL string, agentID *big.Int) (owner, bound common.Address, err error)
 	keychainWrite func(ctx context.Context, account, value string) error
 }
+
+const defaultRPCURL = "https://mainnet.base.org"
 
 var errNotYetAvailable = errors.New("not yet available")
 
@@ -50,12 +54,10 @@ func defaultInitDeps() initDeps {
 			}
 			return strings.TrimSpace(s), nil
 		},
-		lookup: os.LookupEnv,
-		home:   os.UserHomeDir,
-		goos:   runtime.GOOS,
-		identity: func(context.Context, int64, string, *big.Int) (common.Address, common.Address, error) {
-			return common.Address{}, common.Address{}, errNotYetAvailable
-		},
+		lookup:        os.LookupEnv,
+		home:          os.UserHomeDir,
+		goos:          runtime.GOOS,
+		identity:      realIdentity,
 		keychainWrite: func(context.Context, string, string) error { return errNotYetAvailable },
 	}
 }
@@ -64,9 +66,9 @@ func defaultInitDeps() initDeps {
 func runInit(ctx context.Context, args []string, d initDeps) int {
 	fs := flag.NewFlagSet("init", flag.ContinueOnError)
 	fs.SetOutput(d.errOut)
-	fs.String("agent-id", "", "ERC-8004 agent id")
-	fs.Int64("chain-id", 0, "chain id")
-	fs.String("rpc-url", "", "JSON-RPC URL")
+	agentFlag := fs.String("agent-id", "", "ERC-8004 agent id")
+	chainFlag := fs.Int64("chain-id", 0, "chain id")
+	rpcFlag := fs.String("rpc-url", "", "JSON-RPC URL")
 	fs.Bool("keychain", false, "store the key in the macOS Keychain")
 	fs.Bool("force", false, "overwrite an existing key")
 	if err := fs.Parse(args); err != nil {
@@ -87,8 +89,73 @@ func runInit(ctx context.Context, args []string, d initDeps) int {
 		return 1
 	}
 	fmt.Fprintf(d.errOut, "key for %s read\n", addr.Hex())
+
+	agentStr := strings.TrimSpace(*agentFlag)
+	if agentStr == "" {
+		if agentStr, err = d.readLine("Agent ID (the # on your OpenSouk dashboard): "); err != nil {
+			fmt.Fprintln(d.errOut, "opensouk-signer init: could not read the agent id")
+			return 1
+		}
+		agentStr = strings.TrimSpace(agentStr)
+	}
+	agentID, ok := new(big.Int).SetString(agentStr, 10)
+	if !ok || agentID.Sign() <= 0 {
+		fmt.Fprintf(d.errOut, "opensouk-signer init: agent id must be a positive integer, got %q\n", agentStr)
+		return 2
+	}
+
+	chainID := *chainFlag
+	if chainID == 0 {
+		chainStr := defaultChainID
+		if v, ok := d.lookup("CHAIN_ID"); ok && v != "" {
+			chainStr = v
+		}
+		if chainID, err = strconv.ParseInt(chainStr, 10, 64); err != nil || chainID <= 0 {
+			fmt.Fprintf(d.errOut, "opensouk-signer init: invalid chain id %q\n", chainStr)
+			return 2
+		}
+	}
+	rpcURL := *rpcFlag
+	if rpcURL == "" {
+		rpcURL = defaultRPCURL
+		if v, ok := d.lookup("BASE_RPC_URL"); ok && v != "" {
+			rpcURL = v
+		}
+	}
+
+	owner, bound, err := d.identity(ctx, chainID, rpcURL, agentID)
+	if err != nil {
+		fmt.Fprintf(d.errOut, "opensouk-signer init: could not check the identity on chain %d: %v\n", chainID, err)
+		return 1
+	}
+	if addr != owner && (bound == (common.Address{}) || addr != bound) {
+		fmt.Fprintf(d.errOut, "opensouk-signer init: key %s is neither the owner nor the bound wallet of agent %s (owner %s). Use the owner's key, or bind this wallet to the agent first with the sign_agent_wallet_set tool.\n", addr.Hex(), agentID, owner.Hex())
+		return 1
+	}
+
 	fmt.Fprintln(d.errOut, "opensouk-signer init: not implemented yet")
 	return 1
+}
+
+// realIdentity reads the agent's owner and bound wallet. The registry address resolves
+// through env-driven helpers, so the chosen chain and RPC are exported for this process.
+func realIdentity(ctx context.Context, chainID int64, rpcURL string, agentID *big.Int) (owner, bound common.Address, err error) {
+	os.Setenv("CHAIN_ID", strconv.FormatInt(chainID, 10))
+	os.Setenv("BASE_RPC_URL", rpcURL)
+	client, err := ethclient.DialContext(ctx, rpcURL)
+	if err != nil {
+		return owner, bound, fmt.Errorf("dial rpc: %w", err)
+	}
+	defer client.Close()
+	registry, err := resolveAddress(ctx, chainID, keyAgentRegistry)
+	if err != nil {
+		return owner, bound, err
+	}
+	if owner, err = readIdentityAddress(ctx, client, registry, "ownerOf", agentID); err != nil {
+		return owner, bound, err
+	}
+	bound, err = readIdentityAddress(ctx, client, registry, "getAgentWallet", agentID)
+	return owner, bound, err
 }
 
 var (
