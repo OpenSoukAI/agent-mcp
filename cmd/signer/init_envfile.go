@@ -49,6 +49,29 @@ func mergeEnvKey(existing []byte, key, value string, force bool) ([]byte, error)
 	return []byte(out + key + "=" + value + "\n"), nil
 }
 
+// removeEnvKey drops every line that sets key, keeping all other lines byte for byte. Errors
+// name line numbers only.
+func removeEnvKey(existing []byte, key string) ([]byte, bool, error) {
+	if _, err := parseEnvFile(existing); err != nil {
+		return nil, false, err
+	}
+	lines := strings.Split(string(existing), "\n")
+	kept := lines[:0]
+	removed := false
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed != "" && !strings.HasPrefix(trimmed, "#") {
+			k, _, _ := strings.Cut(strings.TrimPrefix(trimmed, "export "), "=")
+			if strings.TrimSpace(k) == key {
+				removed = true
+				continue
+			}
+		}
+		kept = append(kept, line)
+	}
+	return []byte(strings.Join(kept, "\n")), removed, nil
+}
+
 // envFilePath resolves the env file as loadEnvFile does: SIGNER_ENV_FILE (a leading "~/"
 // expands), else the default under the home directory.
 func envFilePath(lookup func(string) (string, bool), home func() (string, error)) (string, error) {

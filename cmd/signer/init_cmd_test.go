@@ -358,15 +358,46 @@ func TestRunInit_ExistingKeyNeedsForce(t *testing.T) {
 	}
 }
 
+// initKeychain stores what keychainWrite is given unless dropWrites is set, which models
+// security -i exiting 0 after a failed add.
+type initKeychain struct {
+	items      map[string]string
+	writes     int
+	dropWrites bool
+	readErr    error
+}
+
+func (k *initKeychain) read(_ context.Context, a string) (string, bool, error) {
+	if k.readErr != nil {
+		return "", false, k.readErr
+	}
+	v, ok := k.items[a]
+	return v, ok, nil
+}
+
+func (k *initKeychain) write(_ context.Context, a, v string) error {
+	k.writes++
+	if !k.dropWrites {
+		k.items[a] = v
+	}
+	return nil
+}
+
+func macDeps(t *testing.T) (d initDeps, kc *initKeychain, out, errOut *bytes.Buffer, envPath string) {
+	t.Helper()
+	d, out, errOut, envPath = storageDeps(t, "darwin")
+	kc = &initKeychain{items: map[string]string{}}
+	d.keychainRead, d.keychainWrite = kc.read, kc.write
+	return d, kc, out, errOut, envPath
+}
+
 func TestRunInit_KeychainOnMac(t *testing.T) {
-	d, out, errOut, path := storageDeps(t, "darwin")
-	var acct, val string
-	d.keychainWrite = func(_ context.Context, a, v string) error { acct, val = a, v; return nil }
+	d, kc, out, errOut, path := macDeps(t)
 	if code := runInit(context.Background(), []string{"--agent-id", "7", "--keychain"}, d); code != 0 {
 		t.Fatalf("exit = %d %q", code, errOut.String())
 	}
-	if acct != "AGENT_PRIVATE_KEY" || val != "0x"+testKeyHex {
-		t.Fatalf("keychainWrite(%q, ...)", acct)
+	if len(kc.items) != 1 || kc.items["AGENT_PRIVATE_KEY"] != "0x"+testKeyHex {
+		t.Fatalf("keychain accounts = %d", len(kc.items))
 	}
 	if _, err := os.Stat(path); err == nil {
 		t.Fatal("env file written")
@@ -376,13 +407,82 @@ func TestRunInit_KeychainOnMac(t *testing.T) {
 	}
 }
 
+func TestRunInit_KeychainReadBackFails(t *testing.T) {
+	for name, set := range map[string]func(*initKeychain){
+		"not found": func(k *initKeychain) { k.dropWrites = true },
+		"mismatch":  func(k *initKeychain) { k.dropWrites = true; k.items["AGENT_PRIVATE_KEY"] = keyPlaceholder },
+	} {
+		d, kc, out, errOut, _ := macDeps(t)
+		set(kc)
+		code := runInit(context.Background(), []string{"--agent-id", "7", "--keychain"}, d)
+		if code != 1 || !strings.Contains(errOut.String(), "the Keychain did not store the key") || strings.Contains(out.String(), "stored") {
+			t.Fatalf("%s: exit = %d out = %q err = %q", name, code, out.String(), errOut.String())
+		}
+		if strings.Contains(out.String()+errOut.String(), testKeyHex) {
+			t.Fatalf("%s: key leaked", name)
+		}
+	}
+}
+
+func writeTestEnv(t *testing.T, path, body string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestRunInit_KeychainRemovesPlaceholderFromEnvFile(t *testing.T) {
+	for _, line := range []string{"AGENT_PRIVATE_KEY=" + keyPlaceholder, "export AGENT_PRIVATE_KEY=\"\""} {
+		d, kc, _, errOut, path := macDeps(t)
+		writeTestEnv(t, path, "# mine\nCHAIN_ID=8453\n"+line+"\nBASE_RPC_URL=x\n")
+		if code := runInit(context.Background(), []string{"--agent-id", "7", "--keychain"}, d); code != 0 {
+			t.Fatalf("%q: exit = %d %q", line, code, errOut.String())
+		}
+		if kc.items["AGENT_PRIVATE_KEY"] != "0x"+testKeyHex {
+			t.Fatalf("%q: keychain not written", line)
+		}
+		if got, _ := os.ReadFile(path); string(got) != "# mine\nCHAIN_ID=8453\nBASE_RPC_URL=x\n" {
+			t.Fatalf("%q: file = %q", line, got)
+		}
+	}
+}
+
+func TestRunInit_KeychainRefusesWhenEnvFileHoldsAKey(t *testing.T) {
+	const body = "A=1\nAGENT_PRIVATE_KEY=0x11111111111111111111111111111111111111111111111111111111111111aa\n"
+	for _, args := range [][]string{nil, {"--force"}} {
+		d, kc, out, errOut, path := macDeps(t)
+		writeTestEnv(t, path, body)
+		code := runInit(context.Background(), append([]string{"--agent-id", "7", "--keychain"}, args...), d)
+		msg := errOut.String()
+		if code != 1 || kc.writes != 0 {
+			t.Fatalf("%v: exit = %d writes = %d %q", args, code, kc.writes, msg)
+		}
+		for _, want := range []string{path, "override the Keychain", "without --keychain"} {
+			if !strings.Contains(msg, want) {
+				t.Fatalf("%v: missing %q in %q", args, want, msg)
+			}
+		}
+		if strings.Contains(out.String()+msg, "1111111111") {
+			t.Fatalf("%v: value printed", args)
+		}
+		if got, _ := os.ReadFile(path); string(got) != body {
+			t.Fatalf("%v: file changed: %q", args, got)
+		}
+	}
+}
+
 func keychainStored(t *testing.T, value string, found bool, readErr error, args ...string) (code int, wrote bool, errOut string) {
 	t.Helper()
-	d, _, e, _ := storageDeps(t, "darwin")
-	d.keychainRead = func(context.Context, string) (string, bool, error) { return value, found, readErr }
-	d.keychainWrite = func(context.Context, string, string) error { wrote = true; return nil }
+	d, kc, _, e, _ := macDeps(t)
+	if found {
+		kc.items["AGENT_PRIVATE_KEY"] = value
+	}
+	kc.readErr = readErr
 	code = runInit(context.Background(), append([]string{"--agent-id", "7", "--keychain"}, args...), d)
-	return code, wrote, e.String()
+	return code, kc.writes > 0, e.String()
 }
 
 func TestRunInit_KeychainExistingKeyNeedsForce(t *testing.T) {
@@ -417,7 +517,7 @@ func TestRunInit_KeychainReadErrorExits1(t *testing.T) {
 }
 
 func TestRunInit_KeychainFailureExits1(t *testing.T) {
-	d, _, errOut, _ := storageDeps(t, "darwin")
+	d, _, _, errOut, _ := macDeps(t)
 	d.keychainWrite = func(context.Context, string, string) error { return errors.New("denied") }
 	if code := runInit(context.Background(), []string{"--agent-id", "7", "--keychain"}, d); code != 1 || !strings.Contains(errOut.String(), "denied") {
 		t.Fatalf("exit = %d %q", code, errOut.String())

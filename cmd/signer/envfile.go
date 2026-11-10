@@ -59,8 +59,12 @@ func loadEnvFile(lookup func(string) (string, bool), setenv func(string, string)
 		return nil, fmt.Errorf("%s: %w", path, err)
 	}
 
-	var loaded, overridden []string
+	var loaded, overridden, placeholder []string
 	for _, e := range entries {
+		if e[0] == "AGENT_PRIVATE_KEY" && e[1] == keyPlaceholder {
+			placeholder = append(placeholder, fmt.Sprintf("AGENT_PRIVATE_KEY in %s is the setup placeholder; ignored", path))
+			continue
+		}
 		if hasValue(lookup(e[0])) {
 			overridden = append(overridden, e[0])
 			continue
@@ -71,6 +75,7 @@ func loadEnvFile(lookup func(string) (string, bool), setenv func(string, string)
 		loaded = append(loaded, e[0])
 	}
 	report := []string{fmt.Sprintf("settings from %s: %s", path, strings.Join(loaded, ", "))}
+	report = append(report, placeholder...)
 	for _, k := range overridden {
 		report = append(report, fmt.Sprintf("%s is set in both %s and the MCP client's config; using the client's", k, path))
 	}

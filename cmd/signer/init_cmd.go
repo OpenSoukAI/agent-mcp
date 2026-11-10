@@ -82,6 +82,30 @@ func runInit(ctx context.Context, args []string, d initDeps) int {
 		fmt.Fprintln(d.errOut, "opensouk-signer init: stdin is not a terminal; run this in your own terminal")
 		return 2
 	}
+	var (
+		path           string
+		existing       []byte
+		entries        [][2]string
+		envPlaceholder bool
+	)
+	if *keychainFlag {
+		var ok bool
+		if path, existing, entries, ok = readInitEnvFile(d); !ok {
+			return 1
+		}
+		for _, e := range entries {
+			if e[0] != "AGENT_PRIVATE_KEY" {
+				continue
+			}
+			if e[1] == "" || e[1] == keyPlaceholder {
+				envPlaceholder = true
+			} else if hasValue(e[1], true) {
+				fmt.Fprintf(d.errOut, "opensouk-signer init: %s sets AGENT_PRIVATE_KEY, which would override the Keychain; nothing changed. Remove that line from the file, or run init without --keychain to store the key in the file.\n", path)
+				return 1
+			}
+		}
+	}
+
 	raw, err := d.readSecret("Private key of the account that owns your agent (input hidden): ")
 	if err != nil {
 		fmt.Fprintln(d.errOut, "opensouk-signer init: could not read the key")
@@ -153,19 +177,26 @@ func runInit(ctx context.Context, args []string, d initDeps) int {
 			fmt.Fprintf(d.errOut, "opensouk-signer init: could not write to the Keychain: %v\n", err)
 			return 1
 		}
+		got, found, err := d.keychainRead(ctx, "AGENT_PRIVATE_KEY")
+		if err != nil {
+			fmt.Fprintf(d.errOut, "opensouk-signer init: the Keychain did not store the key: %v\n", err)
+			return 1
+		}
+		if !found || got != hexKey {
+			fmt.Fprintln(d.errOut, "opensouk-signer init: the Keychain did not store the key")
+			return 1
+		}
+		if envPlaceholder {
+			if err := removeEnvLine(path, existing); err != nil {
+				fmt.Fprintf(d.errOut, "opensouk-signer init: warning: could not remove the empty AGENT_PRIVATE_KEY line from %s: %v\n", path, err)
+			}
+		}
 		fmt.Fprintf(d.out, "stored AGENT_PRIVATE_KEY in the macOS Keychain (service %s)\n", keychainService)
 		fmt.Fprintln(d.out, "restart your MCP client so the signer picks it up")
 		return 0
 	}
 
-	path, err := envFilePath(d.lookup, d.home)
-	if err != nil {
-		fmt.Fprintf(d.errOut, "opensouk-signer init: %v\n", err)
-		return 1
-	}
-	existing, err := os.ReadFile(path)
-	if err != nil && !errors.Is(err, os.ErrNotExist) {
-		fmt.Fprintf(d.errOut, "opensouk-signer init: could not read %s: %v\n", path, err)
+	if path, existing, entries, ok = readInitEnvFile(d); !ok {
 		return 1
 	}
 	merged, err := mergeEnvKey(existing, "AGENT_PRIVATE_KEY", hexKey, *forceFlag)
@@ -184,6 +215,34 @@ func runInit(ctx context.Context, args []string, d initDeps) int {
 	fmt.Fprintf(d.out, "stored AGENT_PRIVATE_KEY in %s\n", path)
 	fmt.Fprintln(d.out, "restart your MCP client so the signer picks it up")
 	return 0
+}
+
+// readInitEnvFile reads the env file init writes to; a missing file reads as empty. On failure it
+// has already reported the error.
+func readInitEnvFile(d initDeps) (path string, data []byte, entries [][2]string, ok bool) {
+	path, err := envFilePath(d.lookup, d.home)
+	if err != nil {
+		fmt.Fprintf(d.errOut, "opensouk-signer init: %v\n", err)
+		return "", nil, nil, false
+	}
+	data, err = os.ReadFile(path)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		fmt.Fprintf(d.errOut, "opensouk-signer init: could not read %s: %v\n", path, err)
+		return "", nil, nil, false
+	}
+	if entries, err = parseEnvFile(data); err != nil {
+		fmt.Fprintf(d.errOut, "opensouk-signer init: %s: %v\n", path, err)
+		return "", nil, nil, false
+	}
+	return path, data, entries, true
+}
+
+func removeEnvLine(path string, existing []byte) error {
+	trimmed, removed, err := removeEnvKey(existing, "AGENT_PRIVATE_KEY")
+	if err != nil || !removed {
+		return err
+	}
+	return writeEnvFileAtomic(path, trimmed)
 }
 
 // realIdentity reads the agent's owner and bound wallet. The registry address resolves

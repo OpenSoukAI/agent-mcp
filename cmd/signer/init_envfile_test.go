@@ -191,3 +191,21 @@ func TestWriteEnvFile_DanglingSymlinkFails(t *testing.T) {
 		t.Fatalf("unexpected files: %v", es)
 	}
 }
+
+func TestRemoveEnvKey(t *testing.T) {
+	in := "# mine\nA=1\nexport AGENT_PRIVATE_KEY=\"REPLACE_WITH_AGENT_KEY\"\nB=2"
+	got, removed, err := removeEnvKey([]byte(in), "AGENT_PRIVATE_KEY")
+	if err != nil || !removed {
+		t.Fatalf("removed = %v err = %v", removed, err)
+	}
+	if want := "# mine\nA=1\nB=2"; string(got) != want {
+		t.Fatalf("got %q want %q", got, want)
+	}
+	got, removed, err = removeEnvKey([]byte("A=1\n"), "AGENT_PRIVATE_KEY")
+	if err != nil || removed || string(got) != "A=1\n" {
+		t.Fatalf("absent: got %q removed = %v err = %v", got, removed, err)
+	}
+	if _, _, err := removeEnvKey([]byte("A=1\ngarbage\n"), "AGENT_PRIVATE_KEY"); err == nil || strings.Contains(err.Error(), "garbage") {
+		t.Fatalf("malformed: %v", err)
+	}
+}
