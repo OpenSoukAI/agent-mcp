@@ -197,8 +197,11 @@ func TestRunInit_OwnerOrBoundAccepted(t *testing.T) {
 		var errOut bytes.Buffer
 		d := identityDeps(t, &errOut, nil, "5", ob[0], ob[1], nil, &calls)
 		runInit(context.Background(), nil, d)
-		if strings.Contains(errOut.String(), "does not own") {
-			t.Fatalf("%s rejected: %q", name, errOut.String())
+		if len(calls) != 1 {
+			t.Fatalf("%s: identity calls = %d", name, len(calls))
+		}
+		if strings.Contains(errOut.String(), "neither the owner nor the bound wallet") || !strings.Contains(errOut.String(), "not implemented yet") {
+			t.Fatalf("%s not accepted: %q", name, errOut.String())
 		}
 	}
 }
@@ -259,5 +262,19 @@ func TestRunInit_ChainReadFails(t *testing.T) {
 	}
 	if entries, _ := os.ReadDir(home); len(entries) != 0 {
 		t.Fatalf("wrote under home: %v", entries)
+	}
+}
+
+func TestRunInit_BadAgentIDNeverEchoed(t *testing.T) {
+	var calls []identityCall
+	var errOut bytes.Buffer
+	d := identityDeps(t, &errOut, nil, testKeyHex, common.Address{}, common.Address{}, nil, &calls)
+	var out bytes.Buffer
+	d.out = &out
+	if code := runInit(context.Background(), nil, d); code != 2 {
+		t.Fatalf("exit = %d", code)
+	}
+	if strings.Contains(strings.ToLower(out.String()+errOut.String()), testKeyHex) {
+		t.Fatalf("key echoed: %q", errOut.String())
 	}
 }

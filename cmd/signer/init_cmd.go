@@ -100,7 +100,7 @@ func runInit(ctx context.Context, args []string, d initDeps) int {
 	}
 	agentID, ok := new(big.Int).SetString(agentStr, 10)
 	if !ok || agentID.Sign() <= 0 {
-		fmt.Fprintf(d.errOut, "opensouk-signer init: agent id must be a positive integer, got %q\n", agentStr)
+		fmt.Fprintln(d.errOut, "opensouk-signer init: agent ID must be a positive whole number")
 		return 2
 	}
 
