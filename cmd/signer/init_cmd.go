@@ -76,8 +76,53 @@ func runInit(ctx context.Context, args []string, d initDeps) int {
 		fmt.Fprintln(d.errOut, "opensouk-signer init: stdin is not a terminal; run this in your own terminal")
 		return 2
 	}
+	raw, err := d.readSecret("Private key of the account that owns your agent (input hidden): ")
+	if err != nil {
+		fmt.Fprintln(d.errOut, "opensouk-signer init: could not read the key")
+		return 1
+	}
+	_, addr, err := parseAgentKey(raw)
+	if err != nil {
+		fmt.Fprintf(d.errOut, "opensouk-signer init: %v\n", err)
+		return 1
+	}
+	fmt.Fprintf(d.errOut, "key for %s read\n", addr.Hex())
 	fmt.Fprintln(d.errOut, "opensouk-signer init: not implemented yet")
 	return 1
+}
+
+var (
+	errSeedPhrase = errors.New("that looks like a seed phrase. init takes one account's private key: export it from your wallet app (account details → show private key)")
+	errNotAKey    = errors.New("not a private key: want 64 hex characters, with or without 0x")
+)
+
+// parseAgentKey errors never include the input.
+func parseAgentKey(s string) (hexKey string, addr common.Address, err error) {
+	s = strings.TrimSpace(s)
+	if words := strings.Fields(s); len(words) >= 12 && isLowerWords(words) {
+		return "", common.Address{}, errSeedPhrase
+	}
+	h := strings.ToLower(s)
+	h = strings.TrimPrefix(h, "0x")
+	if len(h) != 64 {
+		return "", common.Address{}, errNotAKey
+	}
+	ls, kerr := newLocalSignerFromHex(h)
+	if kerr != nil {
+		return "", common.Address{}, errNotAKey
+	}
+	return "0x" + h, ls.Address(), nil
+}
+
+func isLowerWords(words []string) bool {
+	for _, w := range words {
+		for _, r := range w {
+			if r < 'a' || r > 'z' {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 // dispatchEarly runs subcommands that must not load the env file or Keychain first.

@@ -44,6 +44,15 @@ type localSigner struct{ key *ecdsa.PrivateKey }
 
 func newLocalSigner(k *ecdsa.PrivateKey) *localSigner { return &localSigner{key: k} }
 
+// newLocalSignerFromHex takes 64 hex characters, no 0x. The error never includes the input.
+func newLocalSignerFromHex(h string) (*localSigner, error) {
+	k, err := crypto.HexToECDSA(h)
+	if err != nil {
+		return nil, errors.New("invalid private key")
+	}
+	return newLocalSigner(k), nil
+}
+
 func (s *localSigner) Address() common.Address { return crypto.PubkeyToAddress(s.key.PublicKey) }
 
 func (s *localSigner) SignDigest(_ context.Context, digest [32]byte) ([]byte, error) {
