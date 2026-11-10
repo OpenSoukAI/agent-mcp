@@ -110,7 +110,8 @@ func handleActivateMerchant(
 	}
 	out.MerchantRegistered = merchantStatus
 
-	out.NextSteps = "set_merchant_profile to publish a description, then add_product for each product"
+	out.NextSteps = "sign_tos_acceptance (ask the user to accept the Merchant Terms: without them the merchant gets no ref links " +
+		"or x402 payments once the gate is on), set_merchant_profile to publish a description, then add_product for each product"
 	return nil, out, nil
 }
 
