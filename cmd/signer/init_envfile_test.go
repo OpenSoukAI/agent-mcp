@@ -128,3 +128,66 @@ func TestWriteEnvFile_TightensMode(t *testing.T) {
 		t.Fatalf("dir mode %v", fi.Mode().Perm())
 	}
 }
+
+func TestWriteEnvFile_WritesThroughSymlink(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlinks need privileges on windows")
+	}
+	dir := t.TempDir()
+	target := filepath.Join(dir, "secrets", "real.env")
+	link := filepath.Join(dir, "home", "signer.env")
+	if err := os.MkdirAll(filepath.Dir(target), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(link), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(target, []byte("X=1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(target, link); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeEnvFileAtomic(link, []byte("X=2\n")); err != nil {
+		t.Fatal(err)
+	}
+	if fi, err := os.Lstat(link); err != nil || fi.Mode()&os.ModeSymlink == 0 {
+		t.Fatalf("link was replaced: %v, %v", fi, err)
+	}
+	if b, _ := os.ReadFile(target); string(b) != "X=2\n" {
+		t.Fatalf("target content %q", b)
+	}
+	if fi, _ := os.Stat(target); fi.Mode().Perm() != 0o600 {
+		t.Fatalf("target mode %v", fi.Mode().Perm())
+	}
+	for _, d := range []string{filepath.Dir(target), filepath.Dir(link)} {
+		if es, _ := os.ReadDir(d); len(es) != 1 {
+			t.Fatalf("unexpected files in %s: %v", d, es)
+		}
+	}
+}
+
+func TestWriteEnvFile_DanglingSymlinkFails(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlinks need privileges on windows")
+	}
+	dir := t.TempDir()
+	missing := filepath.Join(dir, "gone", "real.env")
+	link := filepath.Join(dir, "signer.env")
+	if err := os.Symlink(missing, link); err != nil {
+		t.Fatal(err)
+	}
+	err := writeEnvFileAtomic(link, []byte("X=1\n"))
+	if err == nil || !strings.Contains(err.Error(), link) {
+		t.Fatalf("want error naming %s, got %v", link, err)
+	}
+	if _, serr := os.Stat(filepath.Dir(missing)); serr == nil {
+		t.Fatal("dangling target's directory was created")
+	}
+	if fi, _ := os.Lstat(link); fi == nil || fi.Mode()&os.ModeSymlink == 0 {
+		t.Fatal("link was replaced")
+	}
+	if es, _ := os.ReadDir(dir); len(es) != 1 {
+		t.Fatalf("unexpected files: %v", es)
+	}
+}

@@ -74,6 +74,15 @@ func envFilePath(lookup func(string) (string, bool), home func() (string, error)
 // writeEnvFileAtomic writes data to path with mode 0600, creating the directory with 0700. The
 // rename keeps a failed write from leaving a half-written key file.
 func writeEnvFileAtomic(path string, data []byte) (err error) {
+	// A symlinked env file is a supported setup: write to the link's target so the link and the
+	// secret's chosen location survive.
+	if fi, lerr := os.Lstat(path); lerr == nil && fi.Mode()&os.ModeSymlink != 0 {
+		resolved, rerr := filepath.EvalSymlinks(path)
+		if rerr != nil {
+			return fmt.Errorf("%s is a symlink to a missing target: create the target or remove the link", path)
+		}
+		path = resolved
+	}
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err
