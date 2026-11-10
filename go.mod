@@ -10,6 +10,7 @@ require (
 	github.com/gowebpki/jcs v1.0.2
 	github.com/modelcontextprotocol/go-sdk v1.6.0
 	github.com/x402-foundation/x402/go v0.0.0-20260513203758-9a718b002deb
+	golang.org/x/term v0.48.0
 )
 
 require (
@@ -57,5 +58,5 @@ require (
 	golang.org/x/crypto v0.46.0 // indirect
 	golang.org/x/oauth2 v0.35.0 // indirect
 	golang.org/x/sync v0.19.0 // indirect
-	golang.org/x/sys v0.41.0 // indirect
+	golang.org/x/sys v0.50.0 // indirect
 )
