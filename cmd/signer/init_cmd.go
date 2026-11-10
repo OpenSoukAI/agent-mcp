@@ -32,8 +32,6 @@ type initDeps struct {
 
 const defaultRPCURL = "https://mainnet.base.org"
 
-var errNotYetAvailable = errors.New("not yet available")
-
 func defaultInitDeps() initDeps {
 	stdin := bufio.NewReader(os.Stdin)
 	return initDeps{
@@ -58,7 +56,7 @@ func defaultInitDeps() initDeps {
 		home:          os.UserHomeDir,
 		goos:          runtime.GOOS,
 		identity:      realIdentity,
-		keychainWrite: func(context.Context, string, string) error { return errNotYetAvailable },
+		keychainWrite: keychainWriteSecurity,
 	}
 }
 
@@ -69,9 +67,13 @@ func runInit(ctx context.Context, args []string, d initDeps) int {
 	agentFlag := fs.String("agent-id", "", "ERC-8004 agent id")
 	chainFlag := fs.Int64("chain-id", 0, "chain id")
 	rpcFlag := fs.String("rpc-url", "", "JSON-RPC URL")
-	fs.Bool("keychain", false, "store the key in the macOS Keychain")
-	fs.Bool("force", false, "overwrite an existing key")
+	keychainFlag := fs.Bool("keychain", false, "store the key in the macOS Keychain")
+	forceFlag := fs.Bool("force", false, "overwrite an existing key")
 	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	if *keychainFlag && d.goos != "darwin" {
+		fmt.Fprintln(d.errOut, "opensouk-signer init: --keychain is macOS only")
 		return 2
 	}
 	if !d.isTerminal() {
@@ -83,7 +85,7 @@ func runInit(ctx context.Context, args []string, d initDeps) int {
 		fmt.Fprintln(d.errOut, "opensouk-signer init: could not read the key")
 		return 1
 	}
-	_, addr, err := parseAgentKey(raw)
+	hexKey, addr, err := parseAgentKey(raw)
 	if err != nil {
 		fmt.Fprintf(d.errOut, "opensouk-signer init: %v\n", err)
 		return 1
@@ -133,8 +135,42 @@ func runInit(ctx context.Context, args []string, d initDeps) int {
 		return 1
 	}
 
-	fmt.Fprintln(d.errOut, "opensouk-signer init: not implemented yet")
-	return 1
+	if *keychainFlag {
+		if err := d.keychainWrite(ctx, "AGENT_PRIVATE_KEY", hexKey); err != nil {
+			fmt.Fprintf(d.errOut, "opensouk-signer init: could not write to the Keychain: %v\n", err)
+			return 1
+		}
+		fmt.Fprintf(d.out, "stored AGENT_PRIVATE_KEY in the macOS Keychain (service %s)\n", keychainService)
+		fmt.Fprintln(d.out, "restart your MCP client so the signer picks it up")
+		return 0
+	}
+
+	path, err := envFilePath(d.lookup, d.home)
+	if err != nil {
+		fmt.Fprintf(d.errOut, "opensouk-signer init: %v\n", err)
+		return 1
+	}
+	existing, err := os.ReadFile(path)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		fmt.Fprintf(d.errOut, "opensouk-signer init: could not read %s: %v\n", path, err)
+		return 1
+	}
+	merged, err := mergeEnvKey(existing, "AGENT_PRIVATE_KEY", hexKey, *forceFlag)
+	if errors.Is(err, errKeyExists) {
+		fmt.Fprintf(d.errOut, "opensouk-signer init: %s already holds a key; nothing changed. Re-run with --force to replace it.\n", path)
+		return 1
+	}
+	if err != nil {
+		fmt.Fprintf(d.errOut, "opensouk-signer init: %v\n", err)
+		return 1
+	}
+	if err := writeEnvFileAtomic(path, merged); err != nil {
+		fmt.Fprintf(d.errOut, "opensouk-signer init: could not write %s: %v\n", path, err)
+		return 1
+	}
+	fmt.Fprintf(d.out, "stored AGENT_PRIVATE_KEY in %s\n", path)
+	fmt.Fprintln(d.out, "restart your MCP client so the signer picks it up")
+	return 0
 }
 
 // realIdentity reads the agent's owner and bound wallet. The registry address resolves

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"math/big"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -65,13 +66,18 @@ func TestRunInit_KeyNeverPrinted(t *testing.T) {
 		out: &out, errOut: &errOut,
 		isTerminal: func() bool { return true },
 		readSecret: func(p string) (string, error) { prompt = p; return "0x" + testKeyHex, nil },
-		lookup:     func(string) (string, bool) { return "", false },
+		lookup: func(k string) (string, bool) {
+			if k == "SIGNER_ENV_FILE" {
+				return filepath.Join(t.TempDir(), "signer.env"), true
+			}
+			return "", false
+		},
 		identity: func(context.Context, int64, string, *big.Int) (common.Address, common.Address, error) {
 			return common.HexToAddress(testKeyAddr(t)), common.Address{}, nil
 		},
 	}
-	if code := runInit(context.Background(), []string{"--agent-id", "7"}, d); code == 0 {
-		t.Fatal("exit 0 before the rest of init exists")
+	if code := runInit(context.Background(), []string{"--agent-id", "7"}, d); code != 0 {
+		t.Fatalf("exit = %d", code)
 	}
 	if prompt != "Private key of the account that owns your agent (input hidden): " {
 		t.Fatalf("prompt = %q", prompt)
@@ -200,8 +206,14 @@ func TestRunInit_OwnerOrBoundAccepted(t *testing.T) {
 		if len(calls) != 1 {
 			t.Fatalf("%s: identity calls = %d", name, len(calls))
 		}
-		if strings.Contains(errOut.String(), "neither the owner nor the bound wallet") || !strings.Contains(errOut.String(), "not implemented yet") {
-			t.Fatalf("%s not accepted: %q", name, errOut.String())
+		d.lookup = func(k string) (string, bool) {
+			if k == "SIGNER_ENV_FILE" {
+				return filepath.Join(t.TempDir(), "signer.env"), true
+			}
+			return "", false
+		}
+		if code := runInit(context.Background(), []string{"--agent-id", "5"}, d); code != 0 || strings.Contains(errOut.String(), "neither the owner nor the bound wallet") {
+			t.Fatalf("%s not accepted: exit %d %q", name, code, errOut.String())
 		}
 	}
 }
@@ -276,5 +288,107 @@ func TestRunInit_BadAgentIDNeverEchoed(t *testing.T) {
 	}
 	if strings.Contains(strings.ToLower(out.String()+errOut.String()), testKeyHex) {
 		t.Fatalf("key echoed: %q", errOut.String())
+	}
+}
+
+func storageDeps(t *testing.T, goos string) (d initDeps, out, errOut *bytes.Buffer, envPath string) {
+	t.Helper()
+	out, errOut = &bytes.Buffer{}, &bytes.Buffer{}
+	envPath = filepath.Join(t.TempDir(), "sub", "signer.env")
+	d = initDeps{
+		out: out, errOut: errOut, goos: goos,
+		isTerminal: func() bool { return true },
+		readSecret: func(string) (string, error) { return testKeyHex, nil },
+		lookup: func(k string) (string, bool) {
+			if k == "SIGNER_ENV_FILE" {
+				return envPath, true
+			}
+			return "", false
+		},
+		home: func() (string, error) { return t.TempDir(), nil },
+		identity: func(context.Context, int64, string, *big.Int) (common.Address, common.Address, error) {
+			return common.HexToAddress(testKeyAddr(t)), common.Address{}, nil
+		},
+		keychainWrite: func(context.Context, string, string) error { t.Fatal("keychain used"); return nil },
+	}
+	return d, out, errOut, envPath
+}
+
+func TestRunInit_WritesEnvFile(t *testing.T) {
+	d, out, errOut, path := storageDeps(t, "linux")
+	if code := runInit(context.Background(), []string{"--agent-id", "7"}, d); code != 0 {
+		t.Fatalf("exit = %d %q", code, errOut.String())
+	}
+	got, err := os.ReadFile(path)
+	if err != nil || string(got) != "AGENT_PRIVATE_KEY=0x"+testKeyHex+"\n" {
+		t.Fatalf("file = %q err = %v", got, err)
+	}
+	for _, want := range []string{"stored AGENT_PRIVATE_KEY in " + path, "restart your MCP client so the signer picks it up"} {
+		if !strings.Contains(out.String(), want) {
+			t.Fatalf("missing %q in %q", want, out.String())
+		}
+	}
+	if strings.Contains(out.String()+errOut.String(), testKeyHex) {
+		t.Fatal("key leaked")
+	}
+}
+
+func TestRunInit_ExistingKeyNeedsForce(t *testing.T) {
+	d, _, errOut, path := storageDeps(t, "linux")
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	const old = "AGENT_PRIVATE_KEY=0x" + "11111111111111111111111111111111111111111111111111111111111111aa\n"
+	if err := os.WriteFile(path, []byte(old), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if code := runInit(context.Background(), []string{"--agent-id", "7"}, d); code != 1 || !strings.Contains(errOut.String(), "--force") {
+		t.Fatalf("exit = %d %q", code, errOut.String())
+	}
+	if got, _ := os.ReadFile(path); string(got) != old {
+		t.Fatalf("file changed: %q", got)
+	}
+	errOut.Reset()
+	if code := runInit(context.Background(), []string{"--agent-id", "7", "--force"}, d); code != 0 {
+		t.Fatalf("--force exit = %d %q", code, errOut.String())
+	}
+	if got, _ := os.ReadFile(path); !strings.Contains(string(got), testKeyHex) {
+		t.Fatalf("file = %q", got)
+	}
+}
+
+func TestRunInit_KeychainOnMac(t *testing.T) {
+	d, out, errOut, path := storageDeps(t, "darwin")
+	var acct, val string
+	d.keychainWrite = func(_ context.Context, a, v string) error { acct, val = a, v; return nil }
+	if code := runInit(context.Background(), []string{"--agent-id", "7", "--keychain"}, d); code != 0 {
+		t.Fatalf("exit = %d %q", code, errOut.String())
+	}
+	if acct != "AGENT_PRIVATE_KEY" || val != "0x"+testKeyHex {
+		t.Fatalf("keychainWrite(%q, ...)", acct)
+	}
+	if _, err := os.Stat(path); err == nil {
+		t.Fatal("env file written")
+	}
+	if !strings.Contains(out.String(), "Keychain") || strings.Contains(out.String()+errOut.String(), testKeyHex) {
+		t.Fatalf("out = %q err = %q", out.String(), errOut.String())
+	}
+}
+
+func TestRunInit_KeychainFailureExits1(t *testing.T) {
+	d, _, errOut, _ := storageDeps(t, "darwin")
+	d.keychainWrite = func(context.Context, string, string) error { return errors.New("denied") }
+	if code := runInit(context.Background(), []string{"--agent-id", "7", "--keychain"}, d); code != 1 || !strings.Contains(errOut.String(), "denied") {
+		t.Fatalf("exit = %d %q", code, errOut.String())
+	}
+}
+
+func TestRunInit_KeychainElsewhere(t *testing.T) {
+	d, _, errOut, path := storageDeps(t, "linux")
+	if code := runInit(context.Background(), []string{"--agent-id", "7", "--keychain"}, d); code != 2 || !strings.Contains(errOut.String(), "--keychain is macOS only") {
+		t.Fatalf("exit = %d %q", code, errOut.String())
+	}
+	if _, err := os.Stat(path); err == nil {
+		t.Fatal("env file written")
 	}
 }
