@@ -150,7 +150,7 @@ the signer refuses to start and says so.
 In your own terminal (it refuses to run without one), let the signer write the key for you:
 
 ```bash
-npx -y @opensouk/signer@0.1.3 init --agent-id <your agent id>
+npx -y @opensouk/signer@0.1.5 init --agent-id <your agent id>
 ```
 
 It asks for the private key with the input hidden, checks that the key is the owner or bound wallet
@@ -170,6 +170,9 @@ other lines kept). A seed phrase is refused: export the private key instead.
 
 The file is `SIGNER_ENV_FILE` if set. An empty value or the `REPLACE_WITH_AGENT_KEY` placeholder
 counts as no key.
+
+With `--keychain`, an empty or placeholder `AGENT_PRIVATE_KEY` line in that file is removed. If the
+file holds a real key, `init` stops, even with `--force`: the file's key would win over the Keychain.
 
 ### Settings file: `~/.config/opensouk/signer.env`
 
