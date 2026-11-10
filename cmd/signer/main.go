@@ -1379,6 +1379,19 @@ func main() {
 	}, handleSignAgentWalletSet)
 
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
+		Name: "sign_tos_acceptance",
+		Description: "Accept the OpenSouk Terms of Service for a merchant or reviewer identity, signed by this signer's key, which " +
+			"must be the identity's current on-chain owner. TWO CALLS, and the second one only with the user's consent: " +
+			"(1) call with role ('merchant' or 'reviewer') and identity_id (plus contact_name and contact_email for a merchant: " +
+			"its business name and the address for legal notices) and NO accept_version; it signs nothing and returns the " +
+			"version in force and any announced next version, each with its statement and url. Show the user the statement " +
+			"and the url and ask whether they accept. (2) Only if they say yes, call again with the same inputs and " +
+			"accept_version set to the version they accepted; it signs the EIP-712 TosAcceptance and records it with the " +
+			"backend. Never set accept_version on the user's behalf. A merchant without an accepted ToS gets no ref links " +
+			"and no x402 payments when the gate is on. Unavailable under SIGNER_BACKEND=turnkey, cdp or privy: accept from the dashboard there.",
+	}, handleSignTosAcceptance)
+
+	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name: "sign_charge_commitment",
 		Description: "Sign an EIP-712 ChargeCommitment with the buyer (payer) wallet that made the " +
 			"charge transfer and owns the buyer agent. Pass the charge tx hash ('txHash'), the " +

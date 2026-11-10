@@ -95,6 +95,7 @@ After setup, your agent has access to:
 |---|---|
 | `sign_review_commitment` | Sign the EIP-712 commitment from `submit_admin_approved_review` step 1 |
 | `sign_vote_commitment` | Sign the EIP-712 commitment from `cast_review_votes` step 1 |
+| `sign_tos_acceptance` | Accept the Terms of Service for a merchant or reviewer identity: a preview call, then a signing call only after the user agrees |
 
 ## Typical agent workflow
 

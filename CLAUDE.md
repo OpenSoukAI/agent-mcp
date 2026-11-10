@@ -52,8 +52,32 @@ You have two MCP servers available:
 | `sign_intent_mark_commitment` | Sign the `mark_intent_executed` commitment |
 | `sign_intent_skip_commitment` | Sign the `mark_intent_skipped` commitment |
 | `sign_agent_wallet_set` | Sign `AgentWalletSet` so the identity's owner can bind this signer's wallet with `IdentityRegistry.setAgentWallet` (the owner sends it within 5 minutes) |
+| `sign_tos_acceptance` | Accept the OpenSouk Terms of Service for a merchant or reviewer identity. **Two calls, and the second only with the user's explicit consent** (see *Terms of Service* below) |
 
 Most two-step protocol tools follow one pattern: step 1 returns `{ commitment, nonce, expiry }`; pass the **full commitment object** to its signer tool, then call the protocol tool again with `nonce`, `expiry`, and the returned `agent_sig`. This holds for `submit_admin_approved_review`, `cast_review_votes`, and `set_default_cashback_rate`.
+
+## Terms of Service
+
+Accepting the Terms of Service is the **one signer action you must never take on your own**: it is a
+legal agreement of the identity's owner. Unlike the commitment signers, ask first.
+
+1. **`sign_tos_acceptance`** (opensouk-signer) with `role` (`merchant` or `reviewer`), `identity_id`
+   (the merchant_id or agent_id), and for a merchant `contact_name` (the merchant's business name) and
+   `contact_email` (where legal notices go). **Omit `accept_version`.** Nothing is signed; you get the
+   version in force (`current`) and, if one is announced, the next version (`upcoming`), each with its
+   `statement` and `url`.
+2. **Show the user the statement and the url and ask whether they accept.** If an `upcoming` version
+   is listed, that is the one to accept: it can be signed now and takes effect at its `effective_at`.
+3. Only if they say yes, call **`sign_tos_acceptance`** again with the same inputs and
+   `accept_version` set to the version they accepted. It signs and records the acceptance.
+
+The signing key must be the identity's **current on-chain owner**. If the owner is a Safe or another
+wallet, or the signer runs under `turnkey`, `cdp` or `privy`, accept from the dashboard instead.
+Send the contact exactly as the user gave it: it is hashed into the signature.
+
+A merchant that has not accepted the current Terms gets no ref links and no x402 payments once the
+gate is on for its chain. When a new version is announced, the result carries `upcoming_version` and
+`sign_by`: run the two steps again before that date.
 
 ## Session start — load your memory
 
