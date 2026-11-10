@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
@@ -531,5 +532,115 @@ func TestRunInit_KeychainElsewhere(t *testing.T) {
 	}
 	if _, err := os.Stat(path); err == nil {
 		t.Fatal("env file written")
+	}
+}
+
+func TestRunInit_HelpExits0(t *testing.T) {
+	for _, arg := range []string{"-h", "--help"} {
+		var errOut bytes.Buffer
+		d := initDeps{out: &bytes.Buffer{}, errOut: &errOut, isTerminal: func() bool { return false }}
+		if code := runInit(context.Background(), []string{arg}, d); code != 0 {
+			t.Fatalf("%s: exit = %d", arg, code)
+		}
+		if !strings.Contains(errOut.String(), "opensouk-signer init") || !strings.Contains(errOut.String(), "agent-id") {
+			t.Fatalf("%s: usage = %q", arg, errOut.String())
+		}
+	}
+}
+
+func TestRunInit_RefusesPositionalArgs(t *testing.T) {
+	const history = "never put the key on the command line; it is now in your shell history"
+	for _, c := range []struct {
+		args   []string
+		hidden string
+		isKey  bool
+	}{
+		{[]string{"--agent-id", "7", "stray-word"}, "stray-word", false},
+		{[]string{"0x" + testKeyHex}, testKeyHex, true},
+		{[]string{"--agent-id", "7", testKeyHex}, testKeyHex, true},
+		{[]string{"--chain-id", testKeyHex}, testKeyHex, true},
+		{[]string{"--agent-id=0x" + testKeyHex}, testKeyHex, true},
+	} {
+		var out, errOut bytes.Buffer
+		d := initDeps{
+			out: &out, errOut: &errOut,
+			isTerminal: func() bool { return true },
+			readSecret: func(string) (string, error) { t.Fatal("readSecret called"); return "", nil },
+		}
+		code := runInit(context.Background(), c.args, d)
+		all := out.String() + errOut.String()
+		if code != 2 || strings.Contains(strings.ToLower(all), c.hidden) {
+			t.Fatalf("%v: exit = %d, output %q", c.args, code, all)
+		}
+		if strings.Contains(all, history) != c.isKey {
+			t.Fatalf("%v: history warning = %v, want %v: %q", c.args, !c.isKey, c.isKey, all)
+		}
+	}
+}
+
+func TestRunInit_ChainReadTimesOut(t *testing.T) {
+	var deadline time.Time
+	d, _, errOut, _ := storageDeps(t, "linux")
+	d.identity = func(ctx context.Context, _ int64, _ string, _ *big.Int) (common.Address, common.Address, error) {
+		deadline, _ = ctx.Deadline()
+		<-ctx.Done()
+		return common.Address{}, common.Address{}, ctx.Err()
+	}
+	old := initChainTimeout
+	initChainTimeout = 20 * time.Millisecond
+	t.Cleanup(func() { initChainTimeout = old })
+	start := time.Now()
+	if code := runInit(context.Background(), []string{"--agent-id", "7"}, d); code != 1 {
+		t.Fatalf("exit = %d", code)
+	}
+	if deadline.IsZero() || deadline.Sub(start) > time.Second {
+		t.Fatalf("deadline = %v", deadline)
+	}
+	if !strings.Contains(errOut.String(), "could not check the identity on chain 8453: context deadline exceeded") {
+		t.Fatalf("stderr = %q", errOut.String())
+	}
+	if old != 30*time.Second {
+		t.Fatalf("initChainTimeout = %v, want 30s", old)
+	}
+}
+
+func TestRunInit_FailuresNameChainAndRPC(t *testing.T) {
+	owner := common.HexToAddress("0x00000000000000000000000000000000000000aa")
+	const hint = "--chain-id 84532 --rpc-url https://sepolia.base.org"
+	for name, idErr := range map[string]error{"wrong owner": nil, "read fails": errors.New("boom")} {
+		var calls []identityCall
+		var errOut bytes.Buffer
+		d := identityDeps(t, &errOut, nil, "5", owner, common.Address{}, idErr, &calls)
+		if code := runInit(context.Background(), nil, d); code != 1 {
+			t.Fatalf("%s: exit = %d", name, code)
+		}
+		for _, want := range []string{"chain 8453", "https://mainnet.base.org", hint} {
+			if !strings.Contains(errOut.String(), want) {
+				t.Fatalf("%s: missing %q in %q", name, want, errOut.String())
+			}
+		}
+		errOut.Reset()
+		runInit(context.Background(), []string{"--chain-id", "84532", "--rpc-url", "http://sep"}, d)
+		if !strings.Contains(errOut.String(), "chain 84532") || !strings.Contains(errOut.String(), "http://sep") || strings.Contains(errOut.String(), hint) {
+			t.Fatalf("%s on 84532: %q", name, errOut.String())
+		}
+	}
+}
+
+func TestRunInit_WarnsWhenAgentKeysListsTheAgent(t *testing.T) {
+	const other = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	for _, c := range []struct {
+		keys string
+		warn bool
+	}{{"9:0x" + other + ", 7:0x" + other, true}, {"9:0x" + other, false}} {
+		d, out, errOut, path := storageDeps(t, "linux")
+		writeTestEnv(t, path, "AGENT_KEYS="+c.keys+"\n")
+		if code := runInit(context.Background(), []string{"--agent-id", "7"}, d); code != 0 {
+			t.Fatalf("%q: exit = %d %q", c.keys, code, errOut.String())
+		}
+		got := strings.Contains(errOut.String(), "AGENT_KEYS in "+path+" has an entry for agent 7")
+		if got != c.warn || strings.Contains(out.String()+errOut.String(), other) {
+			t.Fatalf("%q: warned = %v, want %v: %q", c.keys, got, c.warn, errOut.String())
+		}
 	}
 }

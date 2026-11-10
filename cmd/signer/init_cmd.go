@@ -9,9 +9,13 @@ import (
 	"io"
 	"math/big"
 	"os"
+	"os/signal"
+	"regexp"
 	"runtime"
 	"strconv"
 	"strings"
+	"syscall"
+	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/ethclient"
@@ -33,6 +37,34 @@ type initDeps struct {
 
 const defaultRPCURL = "https://mainnet.base.org"
 
+var (
+	initChainTimeout = 30 * time.Second
+	keyLikeArg       = regexp.MustCompile(`^(--?[A-Za-z-]+=)?(0[xX])?[0-9a-fA-F]{64}$`)
+)
+
+func sepoliaHint(chainID int64) string {
+	if chainID == 84532 {
+		return ""
+	}
+	return " If your agent is on Base Sepolia, add --chain-id 84532 --rpc-url https://sepolia.base.org."
+}
+
+// warnAgentKeys flags an AGENT_KEYS entry for agentID in the env file: the signer picks it over
+// AGENT_PRIVATE_KEY for that agent.
+func warnAgentKeys(d initDeps, path string, entries [][2]string, agentID *big.Int) {
+	for _, e := range entries {
+		if e[0] != "AGENT_KEYS" {
+			continue
+		}
+		for _, entry := range strings.Split(e[1], ",") {
+			if id, _, ok := strings.Cut(entry, ":"); ok && strings.TrimSpace(id) == agentID.String() {
+				fmt.Fprintf(d.errOut, "opensouk-signer init: warning: AGENT_KEYS in %s has an entry for agent %s; the signer uses that entry, not AGENT_PRIVATE_KEY, for this agent\n", path, agentID)
+				return
+			}
+		}
+	}
+}
+
 func defaultInitDeps() initDeps {
 	stdin := bufio.NewReader(os.Stdin)
 	return initDeps{
@@ -40,8 +72,28 @@ func defaultInitDeps() initDeps {
 		errOut:     os.Stderr,
 		isTerminal: func() bool { return term.IsTerminal(int(os.Stdin.Fd())) },
 		readSecret: func(prompt string) (string, error) {
+			fd := int(os.Stdin.Fd())
+			state, err := term.GetState(fd)
+			if err != nil {
+				return "", err
+			}
+			// Ctrl-C during ReadPassword would otherwise exit with echo still off.
+			sigs := make(chan os.Signal, 1)
+			done := make(chan struct{})
+			signal.Notify(sigs, os.Interrupt, syscall.SIGTERM)
+			go func() {
+				select {
+				case <-sigs:
+					term.Restore(fd, state)
+					fmt.Fprintln(os.Stderr)
+					os.Exit(130)
+				case <-done:
+				}
+			}()
 			fmt.Fprint(os.Stderr, prompt)
-			b, err := term.ReadPassword(int(os.Stdin.Fd()))
+			b, err := term.ReadPassword(fd)
+			signal.Stop(sigs)
+			close(done)
 			fmt.Fprintln(os.Stderr)
 			return string(b), err
 		},
@@ -71,7 +123,26 @@ func runInit(ctx context.Context, args []string, d initDeps) int {
 	rpcFlag := fs.String("rpc-url", "", "JSON-RPC URL")
 	keychainFlag := fs.Bool("keychain", false, "store the key in the macOS Keychain")
 	forceFlag := fs.Bool("force", false, "overwrite an existing key")
+	fs.Usage = func() {
+		fmt.Fprintln(d.errOut, "usage: opensouk-signer init [--agent-id N] [--chain-id N] [--rpc-url URL] [--keychain] [--force]")
+		fmt.Fprintln(d.errOut, "The private key is asked for with hidden input; never pass it as an argument.")
+		fs.PrintDefaults()
+	}
+	for _, a := range args {
+		if keyLikeArg.MatchString(a) {
+			fmt.Fprintln(d.errOut, "opensouk-signer init: never put the key on the command line; it is now in your shell history — move the funds to a new key if that history is shared. Run init without it and paste the key at the hidden prompt.")
+			return 2
+		}
+	}
+	// The flag package's own errors echo the offending argument; the key-shaped ones are refused above.
 	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return 0
+		}
+		return 2
+	}
+	if fs.NArg() > 0 {
+		fmt.Fprintln(d.errOut, "opensouk-signer init: init takes only flags; see opensouk-signer init --help")
 		return 2
 	}
 	if *keychainFlag && d.goos != "darwin" {
@@ -151,13 +222,15 @@ func runInit(ctx context.Context, args []string, d initDeps) int {
 		}
 	}
 
-	owner, bound, err := d.identity(ctx, chainID, rpcURL, agentID)
+	idCtx, cancel := context.WithTimeout(ctx, initChainTimeout)
+	owner, bound, err := d.identity(idCtx, chainID, rpcURL, agentID)
+	cancel()
 	if err != nil {
-		fmt.Fprintf(d.errOut, "opensouk-signer init: could not check the identity on chain %d: %v\n", chainID, err)
+		fmt.Fprintf(d.errOut, "opensouk-signer init: could not check the identity on chain %d: %v (RPC %s).%s\n", chainID, err, rpcURL, sepoliaHint(chainID))
 		return 1
 	}
 	if addr != owner && (bound == (common.Address{}) || addr != bound) {
-		fmt.Fprintf(d.errOut, "opensouk-signer init: key %s is neither the owner nor the bound wallet of agent %s (owner %s). Use the owner's key, or bind this wallet to the agent first with the sign_agent_wallet_set tool.\n", addr.Hex(), agentID, owner.Hex())
+		fmt.Fprintf(d.errOut, "opensouk-signer init: key %s is neither the owner nor the bound wallet of agent %s on chain %d (owner %s, read from %s). Use the owner's key, or bind this wallet to the agent first with the sign_agent_wallet_set tool.%s\n", addr.Hex(), agentID, chainID, owner.Hex(), rpcURL, sepoliaHint(chainID))
 		return 1
 	}
 
@@ -192,6 +265,7 @@ func runInit(ctx context.Context, args []string, d initDeps) int {
 			}
 		}
 		fmt.Fprintf(d.out, "stored AGENT_PRIVATE_KEY in the macOS Keychain (service %s)\n", keychainService)
+		warnAgentKeys(d, path, entries, agentID)
 		fmt.Fprintln(d.out, "restart your MCP client so the signer picks it up")
 		return 0
 	}
@@ -213,6 +287,7 @@ func runInit(ctx context.Context, args []string, d initDeps) int {
 		return 1
 	}
 	fmt.Fprintf(d.out, "stored AGENT_PRIVATE_KEY in %s\n", path)
+	warnAgentKeys(d, path, entries, agentID)
 	fmt.Fprintln(d.out, "restart your MCP client so the signer picks it up")
 	return 0
 }
