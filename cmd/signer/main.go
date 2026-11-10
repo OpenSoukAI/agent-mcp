@@ -1259,6 +1259,9 @@ func main() {
 		fmt.Println(signerVersion())
 		return
 	}
+	if handled, code := dispatchEarly(os.Args); handled {
+		os.Exit(code)
+	}
 	report, err := loadEnvFile(os.LookupEnv, os.Setenv, os.UserHomeDir)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "opensouk-signer: env file:", err)

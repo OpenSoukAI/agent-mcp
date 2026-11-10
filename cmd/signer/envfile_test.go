@@ -153,3 +153,20 @@ func TestLoadEnvFile_StaleKeyLineTripsTheRemoteBackendRefusal(t *testing.T) {
 		t.Fatalf("want the remote-backend refusal naming AGENT_PRIVATE_KEY, got %v", err)
 	}
 }
+
+func TestLoadEnvFile_PlaceholderKeyIsUnset(t *testing.T) {
+	home := t.TempDir()
+	path := writeEnvFile(t, home, "export AGENT_PRIVATE_KEY=\""+keyPlaceholder+"\"\nCHAIN_ID=8453\n", 0o600)
+	env := fakeEnv{}
+	report, err := loadEnvFile(env.lookup, env.setenv, homeAt(home))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, set := env["AGENT_PRIVATE_KEY"]; set || env["CHAIN_ID"] != "8453" {
+		t.Fatalf("env = %v", env)
+	}
+	want := "AGENT_PRIVATE_KEY in " + path + " is the setup placeholder; ignored"
+	if !strings.Contains(strings.Join(report, "\n"), want) {
+		t.Fatalf("report = %q, want a line %q", report, want)
+	}
+}
