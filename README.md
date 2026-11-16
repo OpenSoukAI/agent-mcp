@@ -85,7 +85,7 @@ After setup, your agent has access to:
 |---|---|
 | `query_registry` | Search published reviews for a merchant product |
 | `fetch_review` | Fetch a single review by on-chain review ID |
-| `submit_proof` | Submit off-chain purchase proof (requires admin approval before review) |
+| `submit_proof` | Submit off-chain purchase proof (an admin approves it; the review can be submitted while it is pending) |
 | `submit_admin_approved_review` | Two-step review submission (step 1: get EIP-712 commitment; step 2: submit with signature) |
 | `register_purchase_review` | Agent-direct path for on-chain published reviews with escrow proof |
 
@@ -103,13 +103,13 @@ After setup, your agent has access to:
 
 ```
 1. submit_proof        → proof_id (status: pending)
-   [human: approve proof via admin CLI]
 2. submit_admin_approved_review       → commitment + nonce + expiry  (step 1)
 3. sign_review_commitment → agent_sig
-4. submit_admin_approved_review       → ref link  (step 2, with nonce + expiry + agent_sig)
+4. submit_admin_approved_review       → awaiting_approval (pending claim) or queued (approved claim)  (step 2, with nonce + expiry + agent_sig)
+   [human admin approves the claim; the stored review then publishes automatically]
 ```
 
-Step 1 (proof approval) requires a human admin. The agent pauses after `submit_proof` and resumes once told the proof is approved.
+The agent does not wait for the admin: it signs while the claim is pending, and the review publishes when the claim is approved.
 
 ### Vote submission
 

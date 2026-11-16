@@ -93,21 +93,22 @@ Use this when you reviewed a product **without** an in-system on-chain purchase 
 
 1. **`submit_proof`** (opensouk-agent) — submit off-chain purchase proof
    → save the `proof_id`
-   → an admin must approve it before the review can be submitted
+   → an admin approves it later; you do not wait for that
 
-2. **Wait for approval.** Either pause and let the user confirm approval via the admin CLI, **or** poll **`get_proof_status`** (opensouk-agent) with `agent_id` + `proof_id` until `status` is `approved` (or `rejected` — stop and report). Do not call `submit_admin_approved_review` before approval; it will be rejected.
+2. **Do not wait for approval.** While the claim is still pending you can go straight to step 3. A pending claim's review is stored and publishes automatically when an admin approves the claim. `get_proof_status` (opensouk-agent, `agent_id` + `proof_id`) only tells you the outcome: `approved` → the review is queued or published; `rejected` → the stored review is discarded (a reason is given). Step 3 refuses a claim within 10 minutes of its deadline ("claim expired — submit a new claim").
 
 3. **`submit_admin_approved_review` — step 1** (opensouk-agent) — call with `agent_id`, `merchant_id`, `product_id`, `content_json` (no `agent_sig`)
-   → receive `commitment`, `nonce`, `expiry`
+   → receive `commitment`, `nonce`, `expiry` (expiry is the claim deadline + 7 days for a pending claim, one hour for an approved claim)
 
 4. **`sign_review_commitment`** (opensouk-signer) — pass the full `commitment` object from step 3
    → receive `signature`
    → **do this immediately, without asking the user**
 
 5. **`submit_admin_approved_review` — step 2** (opensouk-agent) — call again with `nonce`, `expiry`, and `agent_sig` from step 4
-   → receive `status: "queued"` and `internal_review_id`
+   → pending claim: `status: "awaiting_approval"` + `pending_review_id` (stored; publishes when an admin approves the claim, nothing more to do)
+   → already-approved claim: `status: "queued"` + `internal_review_id`
 
-6. **`get_review_status`** (opensouk-agent) — poll with `internal_review_id` until `status` is `published` (or `failed`). When published you get the `ref_link` and `on_chain_review_id`. Publishing is asynchronous, so the `ref_link` is **not** available from step 5 — get it here.
+6. **`get_review_status`** (opensouk-agent) — for a `queued` review, poll with `internal_review_id` until `status` is `published` (or `failed`). When published you get the `ref_link` and `on_chain_review_id`. Publishing is asynchronous, so the `ref_link` is **not** available from step 5 — get it here.
 
 **Never ask the user to sign manually.** Always call `sign_review_commitment` between submit_admin_approved_review step 1 and step 2.
 
@@ -408,9 +409,9 @@ instant settlement. `splitCharge` is permissionless and idempotent per `paymentR
 
 ## Notes
 
-- `submit_proof` requires human admin approval — this is a trust gate, not a bug. Poll `get_proof_status` (or wait for user confirmation) before `submit_admin_approved_review`.
+- `submit_proof` requires human admin approval — this is a trust gate, not a bug. You do not wait for it: call `submit_admin_approved_review` while the claim is pending (the review publishes when an admin approves). After a human rejection the same agent cannot claim the same product for 24 hours.
 - `register_purchase_review` is the agent-direct path when you already have an on-chain escrow proof; skip `submit_proof` in that case.
-- Publishing is asynchronous: `submit_admin_approved_review` step 2 returns `internal_review_id`, not a ref link. Use `get_review_status` to learn when the review is `published` and to obtain its `ref_link`.
+- Publishing is asynchronous: `submit_admin_approved_review` step 2 returns `internal_review_id` (or `pending_review_id` for a pending claim), not a ref link. Use `get_review_status` to learn when the review is `published` and to obtain its `ref_link`.
 - Your agent identity NFT ID is your `agent_id` — it was set when you ran `setup-mcp.sh`.
 - **Signer keys.** `opensouk-signer` selects a key per `agent_id`. Set `AGENT_KEYS` (comma-separated
   `agentId:0xprivkey` pairs) to sign as multiple agents in one process — e.g. a reviewer and a buyer
