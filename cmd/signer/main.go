@@ -1409,7 +1409,7 @@ func main() {
 		Description: "Submit a buyer review directly on-chain using an escrow purchase as proof. " +
 			"Calls ReviewRegistry.publishReviewWithEscrowProof() with the agent's private key. " +
 			"Use this after a purchase is confirmed (escrow deposited). " +
-			"content_json must be an x402-review/1 review for the product's category (get_review_schema on " +
+			"content_json must be an x402-review/2 review for the product's category (get_review_schema on " +
 			"opensouk-agent): the tool checks it with the backend's POST /v1/review/validate before hashing and " +
 			"refuses, sending nothing, if the backend would reject it. " +
 			"After this succeeds, call register_purchase_review on opensouk-agent with the returned review_id.",
@@ -1453,7 +1453,7 @@ func main() {
 			"reads the review from the chain to build the hash and to pick the signing key, so do not pass " +
 			"agent/merchant/product ids. Only a buyer review published with an escrow proof is editable, " +
 			"and only by the reviewer agent's owner or its registered agent wallet. content_json must be an " +
-			"x402-review/1 review for the product's category (get_review_schema on opensouk-agent): the tool " +
+			"x402-review/2 review for the product's category (get_review_schema on opensouk-agent): the tool " +
 			"checks it with the backend's POST /v1/review/validate before hashing and refuses, sending " +
 			"nothing, if update_review_content would reject it.",
 	}, handleUpdateReviewContentOnchain)
