@@ -20,7 +20,7 @@ import (
 )
 
 // The validate endpoint's reply for content the backend refuses, as the backend handler writes it.
-const refusedReply = `{"valid":false,"rule":"schema","path":"","error":"content_json: schema: /core: missing properties: 'price_paid_usdc'"}`
+const refusedReply = `{"valid":false,"rule":"schema","path":"","error":"content_json: schema: /standard_checks: missing properties: 'price_paid_usdc'"}`
 
 const (
 	testAgent     = 5
@@ -177,7 +177,7 @@ func TestCheckReviewContent_SendsTheReviewAsGiven(t *testing.T) {
 	srv := fakeBackend(t, http.StatusOK, `{"valid":true}`, &got)
 	t.Setenv("REFERRER_API_URL", srv.URL)
 
-	if err := checkReviewContent(context.Background(), big.NewInt(0), big.NewInt(testMerchant), testProduct, v1Review, nil); err != nil {
+	if err := checkReviewContent(context.Background(), big.NewInt(0), big.NewInt(testMerchant), testProduct, v2Review, nil); err != nil {
 		t.Fatalf("valid content refused: %v", err)
 	}
 	if got.method != http.MethodPost || got.path != "/v1/review/validate" {
@@ -189,7 +189,7 @@ func TestCheckReviewContent_SendsTheReviewAsGiven(t *testing.T) {
 	}
 	// agent_id 0 is a real agent: it must be sent, not dropped as a zero value.
 	if body["agent_id"] != float64(0) || body["merchant_id"] != float64(testMerchant) ||
-		body["product_id"] != "0x"+hex.EncodeToString(testProduct[:]) || body["content_json"] != v1Review {
+		body["product_id"] != "0x"+hex.EncodeToString(testProduct[:]) || body["content_json"] != v2Review {
 		t.Fatalf("request body = %s", got.body)
 	}
 }
@@ -208,14 +208,14 @@ func TestCheckReviewContent_FailsClosed(t *testing.T) {
 	} {
 		var got capturedRequest
 		t.Setenv("REFERRER_API_URL", fakeBackend(t, tc.status, tc.reply, &got).URL)
-		err := checkReviewContent(context.Background(), big.NewInt(testAgent), big.NewInt(testMerchant), testProduct, v1Review, nil)
+		err := checkReviewContent(context.Background(), big.NewInt(testAgent), big.NewInt(testMerchant), testProduct, v2Review, nil)
 		if err == nil || !strings.Contains(err.Error(), tc.want) || !strings.Contains(err.Error(), "nothing was") {
 			t.Errorf("%s: err = %v, want a refusal containing %q", tc.desc, err, tc.want)
 		}
 	}
 
 	t.Setenv("REFERRER_API_URL", "http://127.0.0.1:1")
-	if err := checkReviewContent(context.Background(), big.NewInt(testAgent), big.NewInt(testMerchant), testProduct, v1Review, nil); err == nil {
+	if err := checkReviewContent(context.Background(), big.NewInt(testAgent), big.NewInt(testMerchant), testProduct, v2Review, nil); err == nil {
 		t.Error("an unreachable backend let the content through")
 	}
 }
@@ -225,7 +225,7 @@ func TestPublishEscrowReview_RefusesInvalidContentBeforeTheChain(t *testing.T) {
 	var got capturedRequest
 	useAgentKey(t, fakeBackend(t, http.StatusOK, refusedReply, &got).URL)
 
-	_, _, err := handlePublishEscrowReview(context.Background(), nil, publishIn(v1Review))
+	_, _, err := handlePublishEscrowReview(context.Background(), nil, publishIn(v2Review))
 	if err == nil || !strings.Contains(err.Error(), "missing properties: 'price_paid_usdc'") {
 		t.Fatalf("err = %v, want the backend's refusal", err)
 	}
@@ -245,11 +245,11 @@ func TestPublishEscrowReview_ValidContentIsHashedAsGiven(t *testing.T) {
 	var got capturedRequest
 	useAgentKey(t, fakeBackend(t, http.StatusOK, `{"valid":true}`, &got).URL)
 
-	_, _, err := handlePublishEscrowReview(context.Background(), nil, publishIn(v1Review))
+	_, _, err := handlePublishEscrowReview(context.Background(), nil, publishIn(v2Review))
 	if err == nil || !strings.Contains(err.Error(), "stop before send") {
 		t.Fatalf("err = %v, want the stub chain's stop at the send", err)
 	}
-	want, _ := computeContentHash(big.NewInt(testAgent), big.NewInt(testMerchant), testProduct, v1Review)
+	want, _ := computeContentHash(big.NewInt(testAgent), big.NewInt(testMerchant), testProduct, v2Review)
 	if signedHash(t, chain.estimated) != want {
 		t.Fatal("the hash sent is not over the content exactly as given")
 	}
@@ -261,7 +261,7 @@ func TestUpdateReviewOnchain_RefusesInvalidContentBeforeSigning(t *testing.T) {
 	useAgentKey(t, fakeBackend(t, http.StatusOK, refusedReply, &got).URL)
 
 	_, _, err := handleUpdateReviewContentOnchain(context.Background(), nil,
-		updateReviewOnchainInput{ReviewID: "9", ContentJSON: v1Review})
+		updateReviewOnchainInput{ReviewID: "9", ContentJSON: v2Review})
 	if err == nil || !strings.Contains(err.Error(), "missing properties: 'price_paid_usdc'") {
 		t.Fatalf("err = %v, want the backend's refusal", err)
 	}
@@ -287,11 +287,11 @@ func TestUpdateReviewOnchain_ValidContentIsHashedAsGiven(t *testing.T) {
 	useAgentKey(t, fakeBackend(t, http.StatusOK, `{"valid":true}`, &got).URL)
 
 	_, _, err := handleUpdateReviewContentOnchain(context.Background(), nil,
-		updateReviewOnchainInput{ReviewID: "9", ContentJSON: v1Review})
+		updateReviewOnchainInput{ReviewID: "9", ContentJSON: v2Review})
 	if err == nil || !strings.Contains(err.Error(), "stop before send") {
 		t.Fatalf("err = %v, want the stub chain's stop at the send", err)
 	}
-	want, _ := computeContentHash(big.NewInt(testAgent), big.NewInt(testMerchant), testProduct, v1Review)
+	want, _ := computeContentHash(big.NewInt(testAgent), big.NewInt(testMerchant), testProduct, v2Review)
 	if signedHash(t, chain.estimated) != want {
 		t.Fatal("the hash sent is not over the content exactly as given")
 	}

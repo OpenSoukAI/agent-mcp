@@ -130,7 +130,7 @@ func TestEditWindowState(t *testing.T) {
 func TestUpdateReview_HashMatchesSharedHelper(t *testing.T) {
 	var productID [32]byte
 	productID[0] = 0x11
-	content := v1Review
+	content := v2Review
 
 	want, err := computeContentHash(big.NewInt(6080), big.NewInt(5943), productID, content)
 	if err != nil {
@@ -149,7 +149,7 @@ func TestUpdateReview_HashMatchesSharedHelper(t *testing.T) {
 
 // TestUpdateReview_ParseInputs asserts input parsing and rejection.
 func TestUpdateReview_ParseInputs(t *testing.T) {
-	if _, err := parseUpdateReviewInput(updateReviewOnchainInput{ReviewID: "9", ContentJSON: v1Review}); err != nil {
+	if _, err := parseUpdateReviewInput(updateReviewOnchainInput{ReviewID: "9", ContentJSON: v2Review}); err != nil {
 		t.Fatalf("valid parse: %v", err)
 	}
 	if _, err := parseUpdateReviewInput(updateReviewOnchainInput{ReviewID: "nope", ContentJSON: `{}`}); err == nil {
@@ -215,7 +215,7 @@ func TestUpdateReview_StopsBeforeRPCWithoutURL(t *testing.T) {
 	// thing the handler can fail on.
 	t.Setenv("BASE_RPC_URL", "")
 	_, _, err := handleUpdateReviewContentOnchain(context.Background(), nil,
-		updateReviewOnchainInput{ReviewID: "9", ContentJSON: v1Review})
+		updateReviewOnchainInput{ReviewID: "9", ContentJSON: v2Review})
 	if err == nil {
 		t.Fatal("expected an error (BASE_RPC_URL unset)")
 	}
@@ -224,5 +224,5 @@ func TestUpdateReview_StopsBeforeRPCWithoutURL(t *testing.T) {
 	}
 }
 
-// v1Review is doc 22's core-only example review (x402-review/1), as the backend requires.
-const v1Review = `{"schema_version":"x402-review/1","core":{"price_paid_usdc":"0.001","billing_model":"per_call_fixed","calls_measured":1,"calls_charged":1,"measurement_window":{"start_ts":1790000000,"end_ts":1790000010},"client_region":"ap-southeast-1","latency_ms_p50":300,"latency_ms_p95":300,"response_bytes_p50":120,"error_rate_bps":0,"delivered":"usable","listing_description_quality":"clear","charged_for_failures":null,"refund_offered":null,"agent_ready":true,"agent_blockers":[],"stable_across_calls":null,"is_resold":false,"is_router":false,"offchain_proof":{"proof_id":7}},"open_review":{"rating":5,"use_case":"Single coin-flip round","review":"Instant result and the payout matched the stated odds."}}`
+// v2Review is doc 22's standard_checks-only example review (x402-review/2), as the backend requires.
+const v2Review = `{"schema_version":"x402-review/2","standard_checks":{"price_paid_usdc":"0.001","billing_model":"per_call_fixed","calls_measured":1,"calls_charged":1,"measurement_window":{"start_ts":1790000000,"end_ts":1790000010},"client_region":"ap-southeast-1","latency_ms_p50":300,"latency_ms_p95":300,"response_bytes_p50":120,"error_rate_bps":0,"delivered":"usable","listing_description_quality":"clear","charged_for_failures":null,"refund_offered":null,"agent_ready":true,"agent_blockers":[],"stable_across_calls":null,"is_resold":false,"is_router":false,"offchain_proof":{"proof_id":7}},"open_review":{"rating":5,"use_case":"Single coin-flip round","review":"Instant result and the payout matched the stated odds."}}`

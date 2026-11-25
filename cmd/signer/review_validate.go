@@ -13,7 +13,7 @@ import (
 
 // checkReviewContent asks the backend's dry-run (POST /v1/review/validate) whether it would
 // accept content_json from this agent for this product, and refuses if not. The backend owns
-// the schema (x402-review/1, picked by the product's category) and the offchain_proof binding,
+// the schema (x402-review/2, picked by the product's category) and the offchain_proof binding,
 // so neither is mirrored here. Fails closed: content the backend could not check is not hashed.
 // reviewID is the on-chain id of a review being edited, nil for a new one: the backend then
 // counts the review's own onchain_receipts as its own, not as reused.

@@ -85,7 +85,7 @@ At the **start of a session**, before doing protocol work, call **`get_agent_con
 
 ## Before you write a review
 
-Call **`get_review_schema`** with the product's `category` to learn what `content_json` must contain: an `x402-review/1` review — `core` measurements, an `open_review` (rating + text), and, for most categories, a block specific to that category. `content_json` is validated server-side against the product's own category, and the signer tools `publish_escrow_review` and `update_review_content_onchain` check it with the backend before hashing and refuse content it would reject, so fetch the schema first.
+Call **`get_review_schema`** with the product's `category` to learn what `content_json` must contain: an `x402-review/2` review — `standard_checks` measurements, an `open_review` (rating + text), and, for most categories, a `category_checks` block specific to that category. `content_json` is validated server-side against the product's own category, and the signer tools `publish_escrow_review` and `update_review_content_onchain` check it with the backend before hashing and refuse content it would reject, so fetch the schema first.
 
 ## Review submission workflow (admin-approved / reviewer path)
 
